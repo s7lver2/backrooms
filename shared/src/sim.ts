@@ -14,8 +14,79 @@ import type { ItemKind } from './index';
  */
 
 export type Kind = 'bacteria' | 'partygoer';
-export type EState = 'wander' | 'chase' | 'attack' | 'dance' | 'dead' | 'inspect';
-export const HEIGHT: Record<Kind, number> = { bacteria: 3, partygoer: 2.2 };
+export type EState = 'wander' | 'search' | 'stalk' | 'chase' | 'attack' | 'dance' | 'dead' | 'inspect';
+/** Los comportamientos que hay (ver BRAIN, al final de EntitySim). */
+export type BehaviorId = 'inspect' | 'stalk' | 'chase' | 'search' | 'wander';
+
+/**
+ * La ficha de una entidad: el «prefab». Una entidad nueva es una entrada más en ENTITIES (y su modelo en el cliente);
+ * un comportamiento nuevo, una función más en BRAIN. El cuerpo (rutas, vista, oído, moverse) es EntitySim, igual para todas.
+ */
+export interface EntDef {
+  height: number;
+  /** m/s andando y persiguiendo. */
+  walk: number;
+  run: number;
+  /** Multiplicadores de alcance: de la vista y del oído (0: sorda). */
+  sight: number;
+  hearing: number;
+  /** Segundos sin verte hasta que deja de perseguir. */
+  lose: number;
+  /** Adónde va cuando no tiene nada que hacer (a oscuras o cerca del botín) y cuánto se queda allí. */
+  roam: 'dark' | 'loot';
+  rest: [number, number];
+  /** Persigue a tirones: `on` s a `k` veces su velocidad y `off` s cansada (a `tired` veces). */
+  burst?: { k: number; on: number; off: number; tired: number };
+  /** Acecha: quieta si la alumbras (hasta `patience` s), embiste si le das la espalda a menos de `pounce` m. */
+  stalk?: { pounce: number; patience: number };
+  /** Los comportamientos, por prioridad: cada paso manda el primero que quiere. */
+  brain: BehaviorId[];
+  /** Los clips del modelo; `state` cambia el de un estado concreto (si no: correr persiguiendo, andar o quieta). */
+  clips: { idle: string; walk: string; run: string; attack: string; dances: string[]; state?: Partial<Record<EState, string>> };
+}
+export const ENTITIES: Record<Kind, EntDef> = {
+  // la acechadora: te sigue de lejos, se queda quieta bajo la linterna y embiste por la espalda
+  bacteria: {
+    height: 3, walk: 1.1, run: 2.9, sight: 1, hearing: 0.8, lose: 5, roam: 'dark', rest: [3, 8],
+    stalk: { pounce: 9, patience: 4 },
+    brain: ['inspect', 'stalk', 'chase', 'search', 'wander'],
+    clips: { idle: 'Idle', walk: 'Walking', run: 'Run', attack: 'Jump Attack', dances: ['Booty Hip Hop Dance', 'Twist Dance'] },
+  },
+  // el emboscador: espera cerca del botín, oye mucho y persigue a tirones muy rápidos, pero se cansa
+  partygoer: {
+    height: 2.2, walk: 1.1, run: 2.9, sight: 1, hearing: 1.4, lose: 3, roam: 'loot', rest: [10, 25],
+    burst: { k: 1.45, on: 2.5, off: 3, tired: 0.55 },
+    brain: ['inspect', 'chase', 'search', 'wander'],
+    clips: { idle: 'Happy Idle', walk: 'Dwarf Walk', run: 'Drunk Run Forward', attack: 'Standing Melee Attack Horizontal', dances: ['Macarena Dance'] },
+  },
+};
+
+/**
+ * Altura de cada tipo (m). El cliente la importa (entity.ts); se deriva de ENTITIES para no duplicar datos.
+ * (Estaba sin exportar tras empezar la refactorización: no la quites.)
+ */
+export const HEIGHT: Record<Kind, number> = { bacteria: ENTITIES.bacteria.height, partygoer: ENTITIES.partygoer.height };
+
+/** Un ruido (carrera, disparo, objeto que cae): lo oyen las entidades a `r` m (por su oído). */
+export interface Noise {
+  x: number;
+  z: number;
+  r: number;
+}
+/** Lo que se oye una carrera y un disparo (m). */
+export const NOISE_RUN = 9, NOISE_SHOT = 30, NOISE_DROP = 7;
+
+/** Lo que percibe una entidad en un paso (y lo que deja dicho: a quién alcanza). */
+export interface Sense {
+  dt: number;
+  targets: SimTarget[];
+  hides: HideState[];
+  god: boolean;
+  /** Cuánto se da cuenta del que más ve, y quién es. */
+  rate: number;
+  tgt?: SimTarget;
+  caught?: string;
+}
 
 /** Lo que el servidor reparte de cada entidad. */
 export interface EntState {
@@ -47,10 +118,12 @@ export interface SimTarget {
   exposed: boolean;
   /** Agachado: lo ven de la mitad de lejos (y la linterna no lo delata de lejos). */
   duck?: boolean;
+  /** Hacia dónde mira (yaw del jugador: -z es 0); para las que acechan. */
+  yaw?: number;
 }
 
 // persiguen más rápido de lo que andas y más despacio de lo que corres: escapar cuesta aguante
-const WANDER = 1.1, CHASE = 2.9, CONE = (50 * Math.PI) / 180, LOSE = 4, REACH = 1.2;
+const CONE = (50 * Math.PI) / 180, REACH = 1.2;
 // la inspección: hasta dónde se fija en un nicho, lo que dura frente a él, lo que tarda en notar que no contienes
 // el aire (con el margen de la red) y el enfriamiento del nicho tras una
 const HIDE_RANGE = 2 * CELL + 0.3, INSPECT_T = [4, 5.5] as const, REACT = 0.9, BAD_T = 0.7, COOL = 20;
@@ -152,55 +225,61 @@ export class EntitySim {
   moving = false;
   readonly height: number;
   readonly hp0: number;
-  private path: { x: number; z: number }[] = [];
-  private repath = 0;
-  private lost = 0;
+  path: { x: number; z: number }[] = [];
+  repath = 0;
+  lost = 0;
   /** Cuánto se ha dado cuenta de ti (0–1): a 1, persigue. */
-  private alert = 0;
+  alert = 0;
   /** Lo que se queda quieta en un sitio antes de irse a otro. */
-  private rest = 0;
-  private seen = { x: 0, z: 0 };
-  private blocked: Set<number>;
+  rest = 0;
+  seen = { x: 0, z: 0 };
+  blocked: Set<number>;
   /** Segundos en el estado de ataque o baile (solo con `recover`). */
-  private phase = 0;
+  phase = 0;
   /** La inspección en curso y los nichos que ya ha mirado (se olvidan al alejarse). */
-  private insp?: { h: HideState; t: number; walk: number; bad: number; dur: number };
-  private rolled = new Set<number>();
+  insp?: { h: HideState; t: number; walk: number; bad: number; dur: number };
+  rolled = new Set<number>();
   // el salto: segundos lejos, enfriamiento (empieza con algo para no saltar nada más empezar) y reloj de las comprobaciones
-  private farT = 0;
-  private tpCd = 40;
-  private tpChk = 0;
+  farT = 0;
+  tpCd = 40;
+  tpChk = 0;
   /** La celda a la que se dirige el camino de persecución y los segundos desde que se trazó (repath con histéresis). */
-  private routeKey = -1;
-  private routeAge = 0;
+  routeKey = -1;
+  routeAge = 0;
   /** Atasco: dónde estaba hace un rato y cuánto lleva sin avanzar yendo a un sitio. */
-  private stuckAt = { x: 0, z: 0 };
-  private stuckT = 0;
+  stuckAt = { x: 0, z: 0 };
+  stuckT = 0;
+  readonly def: EntDef;
+  /** Lo último que oyó (o dónde te perdió acechando) y los segundos que le quedan de ir a mirar. */
+  heard?: { x: number; z: number; t: number };
+  loot: Cell[];
 
   /** `recover`: tras atacar, baila un rato y vuelve a lo suyo (en las salas; en solitario la partida acaba). */
   constructor(
     readonly kind: Kind,
-    private maze: Maze,
-    private solid: (x: number, z: number) => boolean,
+    readonly maze: Maze,
+    readonly solid: (x: number, z: number) => boolean,
     at: Cell,
     readonly speed = 1,
     public hp = 1,
-    private recover = false,
+    readonly recover = false,
   ) {
     this.hp0 = hp;
-    this.height = HEIGHT[kind];
+    this.def = ENTITIES[kind];
+    this.height = this.def.height;
+    this.loot = itemSpots(maze).map((i) => i.cell);
     const c = centerOf(at);
     this.x = c.x;
     this.z = c.z;
     this.blocked = new Set([...maze.voids, maze.elevator, ...maze.props.filter((p) => p.kind === 'armchair').map((p) => p.cell)].map((c) => c.y * maze.w + c.x));
   }
 
-  private cellOf(x: number, z: number): Cell {
+  cellOf(x: number, z: number): Cell {
     return { x: Math.floor(x / CELL), y: Math.floor(z / CELL) };
   }
 
   /** Camino por la rejilla hasta `to` (centros de celda), evitando huecos y el ascensor. */
-  private route(to: Cell) {
+  route(to: Cell) {
     // la celda propia nunca cuenta como bloqueada: si una persecución la dejó sobre un hueco, que salga
     const m = this.maze, from = this.cellOf(this.x, this.z), own = from.y * m.w + from.x;
     const blocked = this.blocked.has(own) ? new Set([...this.blocked].filter((i) => i !== own)) : this.blocked;
@@ -219,7 +298,7 @@ export class EntitySim {
   }
 
   /** ¿Cabe un cuerpo (0,6 m) yendo en línea recta de a a b, sin pared, hueco ni sillón? */
-  private clear(ax: number, az: number, bx: number, bz: number) {
+  clear(ax: number, az: number, bx: number, bz: number) {
     const dx = bx - ax, dz = bz - az, d = Math.hypot(dx, dz);
     if (d < 1e-6) return true;
     const nx = (-dz / d) * 0.3, nz = (dx / d) * 0.3, n = Math.ceil(d / 0.3);
@@ -232,7 +311,7 @@ export class EntitySim {
   }
 
   /** El camino por celdas, sin escalones: de cada punto, al más lejano (de los 14 siguientes) al que se llega en recta. En una sala abierta, en diagonal. */
-  private smooth(path: { x: number; z: number }[]) {
+  smooth(path: { x: number; z: number }[]) {
     const out: { x: number; z: number }[] = [];
     let ax = this.x, az = this.z, i = 0;
     while (i < path.length) {
@@ -249,17 +328,17 @@ export class EntitySim {
     return out;
   }
 
-  private blockedAt(x: number, z: number) {
+  blockedAt(x: number, z: number) {
     const c = this.cellOf(x, z);
     return this.blocked.has(c.y * this.maze.w + c.x);
   }
 
   /** Adónde ir: un sitio no muy lejos (a 4–14 celdas), mejor a oscuras. */
-  private darkSpot(): Cell {
-    const m = this.maze, me = this.cellOf(this.x, this.z);
+  darkSpot(me = this.cellOf(this.x, this.z), r0 = 4, r1 = 14): Cell {
+    const m = this.maze;
     let best = me, score = -1;
     for (let i = 0; i < 40; i++) {
-      const a = Math.random() * TAU, r = 4 + Math.random() * 10;
+      const a = Math.random() * TAU, r = r0 + Math.random() * (r1 - r0);
       const c = { x: Math.round(me.x + Math.cos(a) * r), y: Math.round(me.y + Math.sin(a) * r) }, k = c.y * m.w + c.x;
       if (c.x < 0 || c.y < 0 || c.x >= m.w || c.y >= m.h || !m.open[k] || this.blocked.has(k)) continue;
       const s = (m.lit[k] ? 0 : 2) + Math.random();
@@ -268,11 +347,54 @@ export class EntitySim {
     return best;
   }
 
+  /** Adónde ir a pasar el rato, según la ficha: a oscuras, o (dos de cada tres veces) a 1–3 celdas de un objeto no muy lejano. */
+  spot(): Cell {
+    const me = this.cellOf(this.x, this.z), near = this.loot.filter((c) => Math.abs(c.x - me.x) + Math.abs(c.y - me.y) < 30);
+    if (this.def.roam !== 'loot' || !near.length || Math.random() < 0.33) return this.darkSpot();
+    return this.darkSpot(near[(Math.random() * near.length) | 0], 1, 3);
+  }
+
+  /** Dejar lo que hacía y volver a lo suyo, tras `rest` s quieta. */
+  calm(rest: number, alert = 0) {
+    (this.state = 'wander'), (this.alert = alert), (this.path = []), (this.rest = rest);
+  }
+  /** A por él: perseguir hacia donde lo vio. */
+  hunt() {
+    (this.state = 'chase'), (this.lost = 0), (this.repath = 0), (this.phase = 0), (this.heard = undefined);
+  }
+
+  /** Mantener un camino hacia (x, z), con histéresis: solo se retraza si cambió de celda (o el camino ya es viejo). */
+  track(x: number, z: number) {
+    const sc = this.cellOf(x, z), k = sc.y * this.maze.w + sc.x;
+    if (this.repath <= 0 && (!this.path.length || k !== this.routeKey || this.routeAge > 2)) (this.path = this.route(sc)), (this.repath = 0.5), (this.routeKey = k), (this.routeAge = 0);
+  }
+
+  /** Un paso hacia `goal` a `v` m/s (el siguiente punto del camino, o `direct`: un jugador en su misma celda). Nunca a una pared ni a un nicho. */
+  step(goal: { x: number; z: number } | undefined, v: number, dt: number, direct = false) {
+    if (!goal) return;
+    const tx = goal.x - this.x, tz = goal.z - this.z, d = Math.hypot(tx, tz);
+    if (d < 0.15 && !direct) this.path.shift();
+    else if (d > 1e-6) {
+      const k = Math.min(d, v * dt) / d, nx = this.x + tx * k, nz = this.z + tz * k;
+      if (!this.solid(nx, nz) && (!direct || !this.blockedAt(nx, nz))) (this.x = nx), (this.z = nz);
+      this.moving = true;
+    }
+    this.turn(tx, tz, dt);
+  }
+
+  /** ¿Le da el haz de la linterna de `t`? (a 0,3 rad de la línea del ojo a ella) */
+  beamed(t: SimTarget) {
+    const tx = t.ex - this.x, ty = t.ey - this.height * 0.85, tz = t.ez - this.z, d = Math.hypot(tx, ty, tz);
+    if (!t.torch || d >= SIGHT_TORCH || d < 1e-6) return false;
+    const cos = -(t.torch[0] * tx + t.torch[1] * ty + t.torch[2] * tz) / d;
+    return Math.acos(Math.max(-1, Math.min(1, cos))) < BEAM;
+  }
+
   /**
    * Recolocarse si está muy lejos de todos (ver FAR_*). Cuenta también a los escondidos (nichos ocupados). Se comprueba
    * 1 vez por segundo; nunca a la vista de nadie ni cerca, y solo en `wander` (quien llama).
    */
-  private maybeTeleport(dt: number, targets: SimTarget[], hides: HideState[]) {
+  maybeTeleport(dt: number, targets: SimTarget[], hides: HideState[]) {
     this.tpCd -= dt;
     if (this.tpCd > 0) return;
     if ((this.tpChk -= dt) > 0) return;
@@ -313,18 +435,13 @@ export class EntitySim {
    * encendida; si le da con el haz, aunque no mire y más deprisa. Persiguiendo no le hace falta el cono y
    * ve el doble de lejos (18 m como mucho: en las salas grandes no hay que verse hasta el fondo).
    */
-  private notice(t: SimTarget) {
+  notice(t: SimTarget) {
     const my = this.height * 0.85, tx = t.ex - this.x, ty = t.ey - my, tz = t.ez - this.z, d = Math.hypot(tx, ty, tz), chasing = this.state === 'chase';
-    let range = t.torch ? SIGHT_TORCH : t.exposed ? SIGHT_LIT : SIGHT_DARK;
+    let range = (t.torch ? SIGHT_TORCH : t.exposed ? SIGHT_LIT : SIGHT_DARK) * this.def.sight;
     if (chasing) range = Math.min(18, range * 2);
     // agachado cuesta más verte y seguirte: la mitad de alcance (incluso persiguiendo, así que puedes escabullirte)
     if (t.duck) range *= 0.5;
-    // el ángulo entre el haz y la línea del ojo a la entidad
-    let beamed = false;
-    if (t.torch && d < SIGHT_TORCH && d > 1e-6) {
-      const cos = -(t.torch[0] * tx + t.torch[1] * ty + t.torch[2] * tz) / d;
-      beamed = Math.acos(Math.max(-1, Math.min(1, cos))) < BEAM;
-    }
+    const beamed = this.beamed(t);
     const ang = Math.abs(mod(Math.atan2(tx, tz) - this.facing + Math.PI, TAU) - Math.PI);
     if (!beamed && !((chasing || ang < CONE || d < 2.5) && d < range)) return 0;
     if (!seesXZ(this.solid, this.x, this.z, t.ex, t.ez)) return 0;
@@ -335,79 +452,44 @@ export class EntitySim {
    * Un paso. `hides`: los nichos con alguien dentro (esos jugadores no van en `targets`). Devuelve el id
    * del jugador al que alcanza en este paso (si lo hay).
    */
-  update(dt: number, targets: SimTarget[], god = false, hides: HideState[] = []): string | undefined {
-    let caught: string | undefined;
+  update(dt: number, targets: SimTarget[], god = false, hides: HideState[] = [], noises: Noise[] = []): string | undefined {
     this.moving = false;
     // dentro de una pared o un nicho (no debería): a la celda abierta más cercana
     if (this.alive && this.solid(this.x, this.z)) this.unstick();
-    if (this.state === 'inspect') return this.inspect(dt, god);
-    if ((this.state === 'wander' || this.state === 'chase') && hides.length && this.maybeInspect(hides)) return undefined;
-    if (this.state === 'wander' || this.state === 'chase') {
-      // al que más se da cuenta (el más cerca que ve) le hace caso
-      let rate = 0, tgt: SimTarget | undefined;
-      for (const t of targets) {
-        const r = this.notice(t);
-        if (r > rate) (rate = r), (tgt = t);
-      }
-      if (this.state === 'wander') {
-        this.alert = rate > 0 ? Math.min(1, this.alert + rate * dt) : Math.max(0, this.alert - dt / 4);
-        if (this.alert >= 1) (this.state = 'chase'), (this.lost = 0), (this.repath = 0);
-      }
-      if (this.state === 'chase') {
-        if (rate > 0 && tgt) (this.lost = 0), (this.seen = { x: tgt.x, z: tgt.z });
-        // te ha perdido: aún se acuerda un poco (si vuelve a verte, persigue antes)
-        else if ((this.lost += dt) > LOSE) (this.state = 'wander'), (this.alert = 0.5), (this.path = []), (this.rest = 2);
-      }
-      const hunting = this.state === 'chase';
-      this.repath -= dt;
-      if (!hunting) this.maybeTeleport(dt, targets, hides);
-      this.routeAge += dt;
-      if (hunting) {
-        // histéresis: con camino, solo se retraza si el objetivo cambió de celda (o el camino ya es viejo)
-        const sc = this.cellOf(this.seen.x, this.seen.z), k = sc.y * this.maze.w + sc.x;
-        if (this.repath <= 0 && (!this.path.length || k !== this.routeKey || this.routeAge > 2)) (this.path = this.route(sc)), (this.repath = 0.5), (this.routeKey = k), (this.routeAge = 0);
-      } else if (!this.path.length && (this.rest -= dt) <= 0) {
-        const s = centerOf(this.darkSpot());
-        (this.path = this.route(this.cellOf(s.x, s.z))), (this.rest = 3 + Math.random() * 5);
-      }
-      // a medio darse cuenta: se para y mira hacia ti
-      const watch = tgt ?? targets.reduce<SimTarget | undefined>((b, t) => (!b || Math.hypot(t.x - this.x, t.z - this.z) < Math.hypot(b.x - this.x, b.z - this.z) ? t : b), undefined);
-      const wary = !hunting && this.alert > 0.35 && !!watch;
-      // en la misma celda que un jugador, directo a él
-      const near = hunting ? targets.find((t) => Math.hypot(t.x - this.x, t.z - this.z) < CELL * 1.2 && seesXZ(this.solid, this.x, this.z, t.x, t.z) && !this.blockedAt(t.x, t.z)) : undefined;
-      const goal = wary ? undefined : near ? { x: near.x, z: near.z } : this.path[0];
-      const v = hunting ? CHASE * this.speed : WANDER;
-      if (goal) {
-        const tx = goal.x - this.x, tz = goal.z - this.z, d = Math.hypot(tx, tz);
-        if (d < 0.15 && !near) this.path.shift();
-        else if (d > 1e-6) {
-          const k = Math.min(d, v * dt) / d, nx = this.x + tx * k, nz = this.z + tz * k;
-          // (nunca a una pared ni a un nicho: un jugador a medio entrar en uno no lo abre)
-          if (!this.solid(nx, nz) && (!near || !this.blockedAt(nx, nz))) (this.x = nx), (this.z = nz);
-          this.moving = true;
-        }
-        this.turn(tx, tz, dt);
-      } else if (wary && watch) this.turn(watch.x - this.x, watch.z - this.z, dt);
-      // atasco: yendo a un sitio y sin avanzar 1,5 s, se descarta el camino y se traza otro
-      if (goal && this.moving) {
-        if ((this.stuckT += dt) > 1.5) {
-          if (Math.hypot(this.x - this.stuckAt.x, this.z - this.stuckAt.z) < 0.25) (this.path = []), (this.repath = 0), (this.rest = 0);
-          (this.stuckAt = { x: this.x, z: this.z }), (this.stuckT = 0);
-        }
-      } else (this.stuckT = 0), (this.stuckAt = { x: this.x, z: this.z });
-      if (this.state === 'chase' && !god) {
-        const hit = targets.find((t) => Math.hypot(t.x - this.x, t.z - this.z) < REACH && Math.abs(t.y) < 1.2);
-        if (hit) (this.state = 'attack'), (this.phase = 0), (caught = hit.id);
-      }
-    } else if (this.recover && (this.state === 'attack' || this.state === 'dance')) {
+    if (this.state === 'attack' || this.state === 'dance' || this.state === 'dead') {
       // tras atacar: un momento de ataque y de vuelta a lo suyo (sin baile)
-      this.phase += dt;
-      if (this.phase > 1.3) (this.state = 'wander'), (this.alert = 0), (this.path = []), (this.rest = 2);
+      if (this.recover && this.alive && (this.phase += dt) > 1.3) this.calm(2);
+      return undefined;
     }
-    return caught;
+    // los sentidos: al que más se da cuenta (el más cerca que ve) le hace caso; y lo que oye
+    const s: Sense = { dt, targets, hides, god, rate: 0 };
+    for (const t of targets) {
+      const r = this.notice(t);
+      if (r > s.rate) (s.rate = r), (s.tgt = t);
+    }
+    if (s.tgt) this.seen = { x: s.tgt.x, z: s.tgt.z };
+    if (this.state !== 'chase') {
+      this.alert = s.rate > 0 ? Math.min(1, this.alert + s.rate * dt) : Math.max(0, this.alert - dt / 4);
+      for (const n of noises) {
+        const d = Math.hypot(n.x - this.x, n.z - this.z);
+        if (d > 1.5 && d < n.r * this.def.hearing) this.heard = { x: n.x, z: n.z, t: 25 };
+      }
+    }
+    this.repath -= dt;
+    this.routeAge += dt;
+    // el cerebro: manda el primer comportamiento de la ficha que quiere
+    for (const b of this.def.brain) if (BRAIN[b](this, s)) break;
+    // atasco: yendo a un sitio y sin avanzar 1,5 s, se descarta el camino y se traza otro
+    if (this.moving) {
+      if ((this.stuckT += dt) > 1.5) {
+        if (Math.hypot(this.x - this.stuckAt.x, this.z - this.stuckAt.z) < 0.25) (this.path = []), (this.repath = 0), (this.rest = 0);
+        (this.stuckAt = { x: this.x, z: this.z }), (this.stuckT = 0);
+      }
+    } else (this.stuckT = 0), (this.stuckAt = { x: this.x, z: this.z });
+    return s.caught;
   }
 
-  private unstick() {
+  unstick() {
     const m = this.maze, me = this.cellOf(this.x, this.z);
     let best: Cell | undefined, bd = Infinity;
     for (let r = 1; r < 6 && !best; r++)
@@ -424,7 +506,7 @@ export class EntitySim {
   }
 
   /** Hay un nicho ocupado a <= 2 celdas y a la vista: una vez por pasada, con probabilidad (más si el que está dentro hizo ruido). */
-  private maybeInspect(hides: HideState[]) {
+  maybeInspect(hides: HideState[]) {
     for (const h of hides) {
       if (Math.hypot(h.x - this.x, h.z - this.z) > 3 * CELL) this.rolled.delete(h.idx);
       if (!h.occ || h.by || h.cd > 0 || this.rolled.has(h.idx) || Math.hypot(h.x - this.x, h.z - this.z) > HIDE_RANGE) continue;
@@ -441,7 +523,7 @@ export class EntitySim {
   }
 
   /** Delante del nicho, mirándolo: si el de dentro no contiene la respiración (pasado un instante de margen), lo encuentra. */
-  private inspect(dt: number, god: boolean): string | undefined {
+  inspect(dt: number, god: boolean): string | undefined {
     const s = this.insp!, h = s.h;
     const stop = () => ((h.by = null), (this.insp = undefined));
     if (!h.occ) {
@@ -479,7 +561,7 @@ export class EntitySim {
   }
 
   /** Girar hacia (tx, tz), a 6 rad/s como mucho. */
-  private turn(tx: number, tz: number, dt: number) {
+  turn(tx: number, tz: number, dt: number) {
     const turn = mod(Math.atan2(tx, tz) - this.facing + Math.PI, TAU) - Math.PI;
     this.facing += Math.sign(turn) * Math.min(Math.abs(turn), dt * 6);
   }
@@ -501,6 +583,84 @@ export class EntitySim {
     return true;
   }
 }
+
+/**
+ * Los comportamientos: cada uno mira si le toca y, si manda en este paso, devuelve true (los de después no corren).
+ * Para uno nuevo: su nombre en BehaviorId, su función aquí y ponerlo en el `brain` de las fichas que lo usen.
+ */
+const BRAIN: Record<BehaviorId, (e: EntitySim, s: Sense) => boolean> = {
+  /** Los nichos: seguir con la inspección, o empezar una si pasa junto a uno ocupado. */
+  inspect: (e, s) => {
+    if (e.state === 'inspect') return (s.caught = e.inspect(s.dt, s.god)), true;
+    return s.hides.length > 0 && e.maybeInspect(s.hides);
+  },
+
+  /** Acechar: te ha visto pero no embiste. Quieta bajo el haz (hasta hartarse), se acerca si no, y embiste por la espalda. */
+  stalk: (e, s) => {
+    const K = e.def.stalk, t = s.tgt;
+    if (!K || e.state === 'chase') return false;
+    if (!t || e.alert < 0.35) {
+      // te ha perdido: va a mirar donde te vio
+      if (e.state === 'stalk') (e.heard = { ...e.seen, t: 25 }), e.calm(0, e.alert);
+      return false;
+    }
+    if (e.state !== 'stalk') (e.state = 'stalk'), (e.path = []), (e.phase = 0), (e.repath = 0);
+    e.alert = Math.min(e.alert, 0.99);
+    const dx = e.x - t.x, dz = e.z - t.z, d = Math.hypot(dx, dz), lit = e.beamed(t);
+    const faced = t.yaw !== undefined && d > 1e-6 && (-Math.sin(t.yaw) * dx - Math.cos(t.yaw) * dz) / d > 0.5;
+    e.phase = lit ? e.phase + s.dt : Math.max(0, e.phase - s.dt / 2);
+    if (e.phase > K.patience || d < 2.5 || (!faced && !lit && d < K.pounce)) return e.hunt(), false; // (sigue en chase)
+    if (lit) return e.turn(-dx, -dz, s.dt), true;
+    e.track(t.x, t.z);
+    e.step(e.path[0], e.def.walk * (faced ? 1 : 2), s.dt);
+    return true;
+  },
+
+  /** Perseguir hacia donde te vio por última vez; si te pierde `lose` s, lo deja. A REACH m, ataca. */
+  chase: (e, s) => {
+    const D = e.def;
+    if (e.state !== 'chase') {
+      if (e.alert < 1) return false;
+      e.hunt();
+    }
+    if (s.rate > 0) e.lost = 0;
+    // te ha perdido: aún se acuerda un poco (si vuelve a verte, persigue antes)
+    else if ((e.lost += s.dt) > D.lose) return e.calm(2, 0.5), false;
+    e.track(e.seen.x, e.seen.z);
+    // en la misma celda que un jugador, directo a él
+    const near = s.targets.find((t) => Math.hypot(t.x - e.x, t.z - e.z) < CELL * 1.2 && seesXZ(e.solid, e.x, e.z, t.x, t.z) && !e.blockedAt(t.x, t.z));
+    let v = D.run * e.speed;
+    if (D.burst) v *= (e.phase += s.dt) % (D.burst.on + D.burst.off) < D.burst.on ? D.burst.k : D.burst.tired;
+    e.step(near ?? e.path[0], v, s.dt, !!near);
+    if (!s.god) {
+      const hit = s.targets.find((t) => Math.hypot(t.x - e.x, t.z - e.z) < REACH && Math.abs(t.y) < 1.2);
+      if (hit) (e.state = 'attack'), (e.phase = 0), (s.caught = hit.id);
+    }
+    return true;
+  },
+
+  /** Ir a mirar lo que oyó, a paso ligero; al llegar (o si no hay camino, o se le pasa) lo olvida. */
+  search: (e, s) => {
+    const h = e.heard;
+    if (!h) return false;
+    if (e.state !== 'search') (e.state = 'search'), (e.path = []), (e.repath = 0);
+    e.track(h.x, h.z);
+    if ((h.t -= s.dt) <= 0 || !e.path.length) return (e.heard = undefined), e.calm(3, e.alert), false;
+    e.step(e.path[0], e.def.walk * 1.7, s.dt);
+    return true;
+  },
+
+  /** Lo suyo: de un sitio a otro (ver spot) y allí un rato; a medio darse cuenta de ti, se para y te mira. */
+  wander: (e, s) => {
+    e.state = 'wander';
+    e.maybeTeleport(s.dt, s.targets, s.hides);
+    if (!e.path.length && (e.rest -= s.dt) <= 0) (e.path = e.route(e.spot())), (e.rest = e.def.rest[0] + Math.random() * (e.def.rest[1] - e.def.rest[0]));
+    const watch = s.tgt ?? s.targets.reduce<SimTarget | undefined>((b, t) => (!b || Math.hypot(t.x - e.x, t.z - e.z) < Math.hypot(b.x - e.x, b.z - e.z) ? t : b), undefined);
+    if (e.alert > 0.35 && watch) e.turn(watch.x - e.x, watch.z - e.z, s.dt);
+    else e.step(e.path[0], e.def.walk, s.dt);
+    return true;
+  },
+};
 
 /** Los objetos de una partida, sacados del mapa (la misma lista en el servidor y el cliente). */
 export interface ItemSpot {
@@ -555,6 +715,7 @@ export function totemSpot(m: Maze, seed: number, players: number): Cell | null {
  * Solo depende del mapa: cliente y servidor sacan la misma. Se lo queda quien lo coja (id r0).
  */
 export function radarSpot(m: Maze): Cell | null {
+  if (m.radar !== undefined) return m.radar; // Poolrooms: ya viene puesto
   const used = new Set<number>(), key = (c: Cell) => c.y * m.w + c.x, water = waterSpots(m), others = [m.camera, ...m.tapes, ...m.flashlights, ...water, ...(m.totem ? [m.totem] : []), ...(m.tank ? [m.tank] : []), ...(m.watergun ? [m.watergun] : [])];
   [m.start, m.elevator, ...others, ...(m.pistol ? [m.pistol] : []), ...m.extraGuns, ...m.voids, ...m.props.map((p) => p.cell)].forEach((c) => used.add(key(c)));
   const h = (c: Cell) => Math.imul((c.x * 83492791) ^ (c.y * 73856093) ^ (m.w * 19349663), 0xc2b2ae35) >>> 0;

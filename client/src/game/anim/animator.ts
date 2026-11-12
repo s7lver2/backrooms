@@ -73,6 +73,7 @@ export class Animator {
   private hips?: THREE.Bone;
   private hipsI = 0;
   private airK = 0;
+  private upK = 0;
   private scale: number;
   /** El Armature del GLB está girado (Blender): la cadera, que lleva ese giro, pide la pose del FBX con él descontado. */
   private pInv = new THREE.Quaternion();
@@ -181,6 +182,8 @@ export class Animator {
       if (P.has[this.hipsI]) h.quaternion.premultiply(this.pInv);
       // en el aire la cadera no sube con la animación: la altura del salto ya la pone el juego (si no, el cuerpo sube dos veces y se separa de la cámara y las manos)
       this.airK += (Math.min(1, this.p.air || 0) - this.airK) * 0.3;
+      this.upK = this.p.air ? 1 : Math.max(0, this.upK - 0.06); // (entra de golpe y sale despacio: con la mezcla de la cadera se veía un instante al saltar y al caer)
+      if (P.has[this.hipsI]) h.quaternion.slerp(this.pInv, this.upK * 0.85); // y el tronco va derecho: el clip de caída lo echa hacia delante y en primera persona se ve el cuerpo volcarse
       if (P.hy) h.position.set(this.bind.x, (P.hy + (this.pack.hipsBindY - P.hy) * this.airK) * this.scale, this.bind.z).applyQuaternion(this.pInv); // (en el sitio: x y z de la cadera quietas, la posición la lleva el juego)
     }
     this.root.updateWorldMatrix(true, true);

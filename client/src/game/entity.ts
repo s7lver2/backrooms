@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { EntitySim, HEIGHT, type Cell, type EntState, type HideState, type Kind, type SimTarget } from '@backrooms/shared';
+import { EntitySim, ENTITIES, type Cell, type EntState, type HideState, type Kind, type Noise, type SimTarget } from '@backrooms/shared';
 import { center, type World } from './world';
 import type { Assets } from './game';
 import type { Target } from './items';
@@ -13,10 +13,11 @@ import { Timeline, Track, worldTl, type Snap } from './interp';
  */
 
 export type { Kind };
-export const CLIPS: Record<Kind, { idle: string; walk: string; run: string; attack: string; dances: string[] }> = {
-  bacteria: { idle: 'Idle', walk: 'Walking', run: 'Run', attack: 'Jump Attack', dances: ['Booty Hip Hop Dance', 'Twist Dance'] },
-  partygoer: { idle: 'Happy Idle', walk: 'Dwarf Walk', run: 'Drunk Run Forward', attack: 'Standing Melee Attack Horizontal', dances: ['Macarena Dance'] },
-};
+/** Los clips de cada entidad salen de su ficha (shared/sim.ts: ENTITIES). */
+export const CLIPS = Object.fromEntries(Object.entries(ENTITIES).map(([k, d]) => [k, d.clips])) as Record<Kind, (typeof ENTITIES)[Kind]['clips']>;
+
+/** Los estados en que la entidad va por el mapa (los demás: atacar, bailar, muerta). */
+const ROAM = new Set<EntState['state']>(['wander', 'search', 'stalk', 'chase', 'inspect']);
 
 export class Entity implements Target {
   readonly pos = new THREE.Vector3();
@@ -43,7 +44,7 @@ export class Entity implements Target {
 
   constructor(readonly kind: Kind, private world: World, assets: Assets, at: Cell, public speed = 1, public hp = 1, readonly remote = false) {
     this.hp0 = hp;
-    this.height = HEIGHT[kind];
+    this.height = ENTITIES[kind].height;
     this.rig = new Rig(assets.gltf[kind]);
     this.rig.root.traverse((o) => void ((o as THREE.Mesh).isMesh && (o.castShadow = true)));
     // la bacteria viene sin textura (gris): negra y algo brillante, como en el original
@@ -86,19 +87,19 @@ export class Entity implements Target {
    * los fluorescentes encendidos. Devuelve true el fotograma en que alcanza al jugador (solo en solitario).
    * `hidden`: el jugador está en un nicho (no es objetivo); `hides`: los nichos con alguien dentro (pueden inspeccionarlo).
    */
-  update(dt: number, player: THREE.Vector3, eye: THREE.Vector3, torch: THREE.Vector3 | null, exposed: boolean, god: boolean, hides: HideState[] = [], hidden = false, duck = false) {
+  update(dt: number, player: THREE.Vector3, eye: THREE.Vector3, torch: THREE.Vector3 | null, exposed: boolean, god: boolean, hides: HideState[] = [], hidden = false, duck = false, yaw?: number, noises: Noise[] = []) {
     const clip = CLIPS[this.kind];
     let caught = false;
     if (this.sim) {
-      const t: SimTarget = { id: 'me', x: player.x, y: player.y, z: player.z, ex: eye.x, ey: eye.y, ez: eye.z, torch: torch ? [torch.x, torch.y, torch.z] : null, exposed, duck };
-      caught = this.sim.update(dt, hidden ? [] : [t], god, hides) !== undefined;
-      if (this.sim.state === 'wander' || this.sim.state === 'chase' || this.sim.state === 'inspect') this.pos.set(this.sim.x, 0, this.sim.z);
+      const t: SimTarget = { id: 'me', x: player.x, y: player.y, z: player.z, ex: eye.x, ey: eye.y, ez: eye.z, torch: torch ? [torch.x, torch.y, torch.z] : null, exposed, duck, yaw };
+      caught = this.sim.update(dt, hidden ? [] : [t], god, hides, noises) !== undefined;
+      if (ROAM.has(this.sim.state)) this.pos.set(this.sim.x, 0, this.sim.z);
       this.facing = this.sim.facing;
       this.state = this.sim.state;
       this.moving = this.sim.moving;
       if (caught) this.rig.play(clip.attack, 0.1, true);
-      else if (this.state === 'wander' || this.state === 'chase' || this.state === 'inspect') {
-        const a = this.rig.play(this.state === 'chase' ? clip.run : this.moving ? clip.walk : clip.idle);
+      else if (ROAM.has(this.state)) {
+        const a = this.rig.play(this.clipOf());
         if (a && this.state === 'chase') a.timeScale = this.speed;
       }
     } else this.follow(dt);
@@ -113,6 +114,12 @@ export class Entity implements Target {
     return caught;
   }
 
+  /** El clip de un estado en que se mueve por el mapa: el que diga la ficha para ese estado; si no, correr persiguiendo, andar o quieta. */
+  private clipOf() {
+    const c = CLIPS[this.kind];
+    return c.state?.[this.state] ?? (this.state === 'chase' ? c.run : this.moving ? c.walk : c.idle);
+  }
+
   /** En una sala: ir hacia lo que dice el servidor y poner el clip que toca. */
   private follow(dt: number) {
     const clip = CLIPS[this.kind], k = 1 - Math.exp(-dt * 28); // ya viene suave de la interpolación: solo un pulido corto
@@ -122,7 +129,7 @@ export class Entity implements Target {
     this.facing += (THREE.MathUtils.euclideanModulo(this.goalYaw - this.facing + Math.PI, Math.PI * 2) - Math.PI) * k;
     this.moving = Math.hypot(this.pos.x - bx, this.pos.z - bz) > 0.3 * dt;
     this.state = this.netState;
-    const want = this.state === 'chase' ? clip.run : this.state === 'attack' ? clip.attack : this.state === 'dance' ? clip.dances[this.id % clip.dances.length] : this.moving ? clip.walk : clip.idle;
+    const want = this.state === 'attack' ? clip.attack : this.state === 'dance' ? clip.dances[this.id % clip.dances.length] : this.clipOf();
     if (want === this.shown) return;
     this.shown = want;
     const a = this.rig.play(want, 0.2, this.state === 'attack');

@@ -1,10 +1,11 @@
 import * as THREE from 'three';
+import { ElevatorCab } from './elevator';
 import { Reflector } from 'three/examples/jsm/objects/Reflector.js';
 import { RectAreaLightUniformsLib } from 'three/examples/jsm/lights/RectAreaLightUniformsLib.js';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { MeshoptDecoder } from 'three/examples/jsm/libs/meshopt_decoder.module.js';
-import { COIL, PK, PR, PY, PDIRS, POOL_CELL as C, POOL_STEP, generatePools, poolCellY, poolFloorY, poolMaze, poolPortalAt, type Cell, type PoolMap } from '@backrooms/shared';
+import { COIL, PK, PR, PY, PDIRS, POOL_CELL as C, POOL_STEP, generatePools, poolCellY, poolFloorY, poolMaze, type Cell, type PoolMap } from '@backrooms/shared';
 import type { Controls } from './input';
 import { settings } from '../settings';
 import { EYE, NRIP, frag, tiles, vert } from './pool';
@@ -74,7 +75,9 @@ function sunPatch() {
 
 const LG = 2.6; // ganancia HDR de las luminarias: pasan del umbral del bloom y brillan en vez de ser barras blancas
 let raInit = false;
-const R = 0.3; // radio del jugador
+/** Segundos con G mantenida para llenar la pistola de agua en un bebedero. */
+const FILL_T = 1.5;
+const R = 0.38; // radio del jugador (con 0,3, mirando hacia abajo pegado a una pared, los pies y los hombros la atravesaban)
 const EYE_SWIM = 0.5, HEAD = 0.65, O2_SECONDS = 30, TANK_AIR = 2.5, TANK_SLOW = 0.85, JET_TIME = 6, JET_N = 192, O2_REFILL = 2.5, FAINT = 2.4;
 
 const SUB = 1.5; // tamaño máximo (m) de la malla en la que se parte cada cara para hornear la luz
@@ -222,6 +225,10 @@ class ChunkGeo {
   }
 }
 const CHUNK = 10;
+/** Hondura de los pozos de los túneles sin fondo (m bajo el fondo de la piscina). */
+const WELL = 3.5;
+/** Un pozo: su boca (m), la altura del fondo de la piscina, su planta y el índice de su pareja. */
+type Well = { x0: number; z0: number; x1: number; z1: number; fy: number; layer: 0 | 1; to: number };
 // (la planta alta usa las mismas mallas por trozo, con la clave desplazada: así se puede ocultar entera)
 const chunkOf = (x: number, y: number, lay = 0) => Math.floor(x / CHUNK) * 1000 + Math.floor(y / CHUNK) + lay * 1e7;
 
@@ -243,10 +250,13 @@ export class PoolLevel {
   private lay: 0 | 1 = 0;
   private surf: number = PY.surf;
   private culled: THREE.Object3D[] = [];
+  /** Adornos de muchos triángulos (las duchas): fuera del reflejo del agua y de la pasada del AO, donde no se notan y costaban otra pasada entera cada uno. */
+  private heavy: THREE.Object3D[] = [];
   /** El agua fuera de la pasada de normales del AO (el Reflector volvería a renderizar el reflejo). */
   setWater(v: boolean) { if (this.rfm) this.rfm.visible = v; if (this.upWater) this.upWater.visible = v && this.upOn; }
   private upOn = true;
   private skipRefl = false;
+  private shadowFr = 0;
   /** ¿Hay huecos en el forjado? Entonces desde arriba se ve el agua de abajo y su reflejo debe pintarse (si no, sale un rectángulo negro). */
   private holes = false;
   /** Para la pasada de normales del AO: fuera lo que está a más de 40 m (la niebla ya se lo come); al terminar, se devuelve. */
@@ -254,6 +264,7 @@ export class PoolLevel {
     if (!on) return void (this.culled.forEach((o) => (o.visible = true)), (this.culled.length = 0));
     // la pasada de normales pinta TODO con un material opaco: sprites (brillos, nombres) y mallas translúcidas (haces, sombras blob, discos de túnel) salían como cuadrados sólidos que el AO oscurecía
     if (ghosts) this.scene.traverse((o) => { const mt = (o as THREE.Mesh).material as THREE.Material | undefined; if (o.visible && ((o as THREE.Sprite).isSprite || (mt && !Array.isArray(mt) && mt.transparent && mt.depthWrite === false))) (o.visible = false), this.culled.push(o); });
+    for (const o of this.heavy) if (o.visible) (o.visible = false), this.culled.push(o);
     const c = this.camera.position;
     for (const o of this.cm) {
       const b = (o as THREE.Mesh).geometry?.boundingSphere;
@@ -280,15 +291,28 @@ export class PoolLevel {
   private yaw = 0;
   private pitch = 0;
   private swim = false;
+  private air = false;
+  private vyNow = 0;
   private hs = 0;
   private wet = false;
   private deadK = 0;
   /** ms de «sin señal» del radar (lo pondrán los túneles; el juego lo manda en el estado). */
   jam = 0;
-  /** La boca de llegada de un túnel sin fondo (x0, z0, x1, z1 en m) hasta salir de ella: no vuelve a disparar el portal. */
-  private lock?: number[];
+  /**
+   * Los túneles sin fondo son pozos de verdad: cada boca (2x2 celdas) baja WELL m bajo el fondo de la piscina y se pierde en lo negro. Al llegar abajo se sale
+   * por el fondo del pozo de la pareja, con el arriba y el abajo cambiados: buceas hacia abajo y sales hacia arriba en otra piscina.
+   * `well`: el pozo sobre el que estoy (o en el que estoy metido); `wellLock`: recién llegado, no vuelve a saltar hasta subir un poco.
+   */
+  private wells: Well[] = [];
+  private well?: Well;
+  private wellLock = false;
   /** La salida (centro de su celda): una puerta de ascensor con luz; se sube al acercarse con la misión cumplida. */
   readonly exit = { x: 0, z: 0 };
+  /** La cabina del ascensor de la salida; su celda (x0, z0, x1, z1) y hacia dónde da la puerta: solo se entra y se sale por ella, y abierta. */
+  cab!: ElevatorCab;
+  private exitBox = [0, 0, 0, 0, 0, 0];
+  /** Dentro del ascensor en marcha: no me muevo (sí miro). */
+  hold = false;
   private eye = EYE;
   private torch = new THREE.PointLight(0xfff6e8, 1.6, 14, 2);
   private fog: THREE.FogExp2;
@@ -296,7 +320,7 @@ export class PoolLevel {
   readonly sun = new THREE.DirectionalLight(0xfff1d2, 3.4);
   private lamps?: THREE.InstancedMesh;
   private tubes: { curve: THREE.Curve<THREE.Vector3>; len: number; x: number; z: number; s0: number }[] = [];
-  private ride?: { curve: THREE.Curve<THREE.Vector3>; len: number; s: number };
+  private ride?: { curve: THREE.Curve<THREE.Vector3>; len: number; s: number; h?: number };
   private lampLvl: number[] = [];
   private lampCur = new Float32Array(0);
   private lampPos: number[][] = [];
@@ -342,12 +366,13 @@ export class PoolLevel {
     renderer.shadowMap.enabled = true;
     renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     this.sun.castShadow = true;
-    this.sun.shadow.mapSize.set(2048, 2048);
+    this.sun.shadow.mapSize.setScalar(settings.shadows === 1 ? 1024 : 2048); // (SHADOWS: bajas = la mitad)
     Object.assign(this.sun.shadow.camera, { left: -34, right: 34, top: 34, bottom: -34, near: 1, far: 220 });
     this.sun.shadow.camera.updateProjectionMatrix();
     this.sun.shadow.bias = -0.0004;
     this.sun.shadow.normalBias = 0.04;
     this.sun.shadow.radius = 3;
+    this.sun.shadow.autoUpdate = false; // el mapa de sombras se repinta un fotograma sí y otro no (ver update): es otra pasada entera de medio mapa
 
     // entorno para los reflejos de las baldosas (caja con tubos de neón, horneada una vez)
     {
@@ -396,7 +421,16 @@ export class PoolLevel {
     this.mats = mats as unknown as Record<string, THREE.MeshPhysicalMaterial>;
 
     const at = (x: number, y: number) => y * W + x;
+    // los pozos de los túneles sin fondo y sus celdas (ahí no se pinta el fondo de la piscina: es la boca)
+    const mouth = new Set<number>();
+    m.portals.forEach((p, k) => [p.a, p.b].forEach((s, e) => {
+      this.wells.push({ x0: s.x * C, z0: s.y * C, x1: (s.x + 2) * C, z1: (s.y + 2) * C, fy: (s.layer ? m.up : m).ya[s.y * W + s.x], layer: s.layer, to: 2 * k + 1 - e });
+      for (let j = 0; j < 2; j++) for (let i = 0; i < 2; i++) mouth.add(s.layer * W * H + at(s.x + i, s.y + j));
+    }));
     const solid = (x: number, y: number) => x < 0 || y < 0 || x >= W || y >= H || m.kind[at(x, y)] === PK.wall;
+    // el ascensor va EMPOTRADO: la cabina ocupa la celda de pared de detrás de la salida (`cabCell`, hacia `exW`), y esa cara de la pared se abre
+    const wallAt = (d: readonly [number, number], dry: boolean) => { const j = at(m.exit.x + d[0], m.exit.y + d[1]); return m.kind[j] === PK.wall && !(dry && m.tun[j]); };
+    const exW = PDIRS.find((d) => wallAt(d, true)) ?? PDIRS.find((d) => wallAt(d, false)) ?? PDIRS[1], exitCell = at(m.exit.x, m.exit.y), cabCell = at(m.exit.x + exW[0], m.exit.y + exW[1]);
     /** Altura del suelo en la esquina (sx, sz) de la celda. */
     const corner = (i: number, sx: number, sz: number) => {
       if (m.ramp[i] === PR.none) return m.ya[i];
@@ -444,6 +478,7 @@ export class PoolLevel {
       const gx = Math.floor(x / HASH), gz = Math.floor(z / HASH);
       for (let a = -1; a <= 1; a++) for (let b = -1; b <= 1; b++) for (const k of grid.get((gx + a) * 4096 + gz + b) ?? []) {
         const q = SRC[k], d2 = (q[0] - x) ** 2 + (q[1] - y) ** 2 + (q[2] - z) ** 2;
+        if (y > PY.up - 0.05 && q[1] < PY.up - 0.5) continue; // una luminaria de la planta baja no alumbra a través del forjado (dejaba una franja clara al pie de las paredes de arriba)
         sum += q[3] / (1 + d2 / (q[4] * q[4])) ** 1.5;
       }
       return (0.66 + 0.4 * Math.min(1.25, sum / 1.3)) * (flat ? 1 : contact(x, y, z));
@@ -502,7 +537,7 @@ export class PoolLevel {
           G.pool.quad([ox, y, oz], [mx, y, oz], [mx, y, kz], [ox, y, kz], [0, 1, 0]);
           G.pool.quad([mx, y, oz], [kx, y, oz], [kx, y, mz], [mx, y, kz], [0, 1, 0]);
           G.deck.quad([mx, 0, kz], [kx, 0, mz], [kx, 0, kz], [kx, 0, kz], [0, 1, 0]);
-        } else (m.water[i] ? G.pool : G.deck).quad([x0, f[0], z0], [x1, f[1], z0], [x1, f[3], z1], [x0, f[2], z1], [0, 1, 0]);
+        } else if (!mouth.has(i)) (m.water[i] ? G.pool : G.deck).quad([x0, f[0], z0], [x1, f[1], z0], [x1, f[3], z1], [x0, f[2], z1], [0, 1, 0]);
         if (m.ya[i] > 1 && !m.water[i]) G.ceil.quad([x0, f[0], z0], [x1, f[1], z0], [x1, f[3], z1], [x0, f[2], z1], [0, -1, 0]); // la cara de abajo de una planta alta (balcón, pasarela)
       }
       if (m.vax[i]) {
@@ -533,6 +568,12 @@ export class PoolLevel {
               const h0 = archY((d < 2 ? p0[1] : p0[0]) - base - 3), h1 = archY((d < 2 ? p1[1] : p1[0]) - base - 3);
               G.wall.quad([p0[0], c, p0[1]], [p1[0], c, p1[1]], [p1[0], h1, p1[1]], [p0[0], h0, p0[1]], hint);
             }
+          }
+          if (i === exitCell && nb === cabCell) {
+            // la boca del ascensor: la pared solo sigue por encima de la cabina
+            const yl = m.ya[i] + 2.5;
+            if (c > yl) G.wall.quad([pa[0], yl, pa[1]], [pb[0], yl, pb[1]], [pb[0], c, pb[1]], [pa[0], c, pa[1]], hint);
+            continue;
           }
           if (winAt.has(i * 4 + d)) {
             // ventana: un hueco real en la pared (por él entra el sol y se proyecta su sombra), con el marco dibujado aparte
@@ -613,7 +654,7 @@ export class PoolLevel {
         if (U.kind[i] === PK.wall) continue; // (las columnas también llevan losa: sin ella se veía a través)
         const x0 = cx * C, x1 = x0 + C, z0 = cy * C, z1 = z0 + C, y = U.ya[i], c = U.ceil[i];
         (D.tint = tintOf(i)), (D.cur = chunkOf(cx, cy, 1));
-        D.quad([x0, y, z0], [x1, y, z0], [x1, y, z1], [x0, y, z1], [0, 1, 0]);
+        if (!mouth.has(W * H + i)) D.quad([x0, y, z0], [x1, y, z0], [x1, y, z1], [x0, y, z1], [0, 1, 0]);
         D.quad([x0, c, z0], [x1, c, z0], [x1, c, z1], [x0, c, z1], [0, -1, 0]);
         if (U.water[i]) upWater.push(x0, z0, x1, z1);
         for (let d = 0; d < 4; d++) {
@@ -622,6 +663,19 @@ export class PoolLevel {
           const top = nb < 0 || (U.kind[nb] === PK.wall && !hole(nb)) ? c : U.kind[nb] !== PK.wall ? U.ya[nb] : y;
           if (top > y + 0.02) D.quad([pa[0], y, pa[1]], [pb[0], y, pb[1]], [pb[0], top, pb[1]], [pa[0], top, pa[1]], hint);
         }
+      }
+    }
+    // las paredes de los pozos: azulejo de piscina en franjas que se apagan con la hondura (hacia dentro: desde fuera no se ven)
+    for (const w of this.wells) {
+      G.pool.cur = chunkOf(Math.floor(w.x0 / C), Math.floor(w.z0 / C), w.layer);
+      const NB = 10, h = WELL / NB;
+      for (let k = 0; k < NB; k++) {
+        const yt = w.fy - k * h, yb = yt - h;
+        G.pool.tint = k < NB - 2 ? 0.8 * (1 - k / (NB - 2)) ** 2 : 0;
+        G.pool.quad([w.x0, yb, w.z0], [w.x1, yb, w.z0], [w.x1, yt, w.z0], [w.x0, yt, w.z0], [0, 0, 1]);
+        G.pool.quad([w.x0, yb, w.z1], [w.x1, yb, w.z1], [w.x1, yt, w.z1], [w.x0, yt, w.z1], [0, 0, -1]);
+        G.pool.quad([w.x0, yb, w.z0], [w.x0, yb, w.z1], [w.x0, yt, w.z1], [w.x0, yt, w.z0], [1, 0, 0]);
+        G.pool.quad([w.x1, yb, w.z0], [w.x1, yb, w.z1], [w.x1, yt, w.z1], [w.x1, yt, w.z0], [-1, 0, 0]);
       }
     }
     // ventanas al exterior (cristal blanco brillante con travesaños y marco) y la mancha de sol que proyectan en el suelo
@@ -667,23 +721,13 @@ export class PoolLevel {
       this.upMeshes.push(uw);
       sc.add(uw);
     }
-    // túneles sin fondo: cada boca (2x2 celdas desde la esquina menor) es un disco negro en el fondo de la piscina, con el borde difuminado (sin brillo ni partículas)
-    if (m.portals.length) {
-      const cv = Object.assign(document.createElement('canvas'), { width: 64, height: 64 }), x2 = cv.getContext('2d')!, gr = x2.createRadialGradient(32, 32, 0, 32, 32, 32);
-      gr.addColorStop(0, 'rgba(0,0,0,1)'), gr.addColorStop(0.55, 'rgba(0,0,0,0.97)'), gr.addColorStop(1, 'rgba(0,0,0,0)');
-      x2.fillStyle = gr, x2.fillRect(0, 0, 64, 64);
-      const pmat = own(new THREE.MeshBasicMaterial({ map: own(new THREE.CanvasTexture(cv)), transparent: true, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 }));
+    // el fondo de cada pozo: un tapón negro mate (sin niebla ni brillo) que cierra lo que haya debajo
+    if (this.wells.length) {
+      const pmat = own(new THREE.MeshBasicMaterial({ color: 0x000000, fog: false }));
       for (const l of [0, 1] as const) {
-        const gs: THREE.BufferGeometry[] = [];
-        for (const p of m.portals) for (const s of [p.a, p.b]) {
-          if (s.layer !== l) continue;
-          const g = new THREE.PlaneGeometry(C * 2.6, C * 2.6);
-          g.rotateX(-Math.PI / 2), g.translate((s.x + 1) * C, (l ? m.up : m).ya[s.y * W + s.x] + 0.03, (s.y + 1) * C);
-          gs.push(g);
-        }
+        const gs = this.wells.filter((w) => w.layer === l).map((w) => new THREE.PlaneGeometry(C * 2, C * 2).rotateX(-Math.PI / 2).translate(w.x0 + C, w.fy - WELL + 0.05, w.z0 + C));
         if (!gs.length) continue;
         const dm = new THREE.Mesh(own(mergeGeometries(gs)!), pmat);
-        dm.renderOrder = 1;
         if (l) this.upMeshes.push(dm);
         sc.add(dm);
       }
@@ -719,7 +763,7 @@ export class PoolLevel {
     sc.add(fix);
 
     // toboganes de tubo cerrado, opacos: tramos rectos a 90°/45° (generados) y un serpentín de llegada (models/pool/spiral.glb)
-    const TUBE_COL = [0xc4120a, 0xe08a00, 0x1f7fd0, 0x2aa05a];
+    const TUBE_COL = [0xc4120a, 0x1f7fd0, 0xe6c200, 0x8a35c0, 0x2aa05a, 0xe08a00, 0x12a39a, 0xd42a8a, 0x6cb81e, 0x3b46c4, 0xe8e6dc], col0 = m.start.x * 7 + m.start.y * 13 + m.exit.x; // cada mapa empieza la paleta por un sitio
     const ribs = (len: number) => {
       const cv = Object.assign(document.createElement('canvas'), { width: 64, height: 4 }), x = cv.getContext('2d')!, gr = x.createLinearGradient(0, 0, 64, 0);
       gr.addColorStop(0, '#000'), gr.addColorStop(0.5, '#fff'), gr.addColorStop(1, '#000');
@@ -729,14 +773,14 @@ export class PoolLevel {
       return tx;
     };
     class Helix extends THREE.Curve<THREE.Vector3> {
-      constructor(private ax: number, private az: number, private yTop: number, private a0: number) { super(); }
+      constructor(private ax: number, private az: number, private yTop: number, private a0: number, private turns: number) { super(); }
       getPoint(u: number, out = new THREE.Vector3()) {
-        const a = this.a0 + u * COIL.turns * 2 * Math.PI;
-        return out.set(this.ax + COIL.rho * Math.cos(a), this.yTop - COIL.rise * u, this.az + COIL.rho * Math.sin(a));
+        const a = this.a0 + u * this.turns * 2 * Math.PI;
+        return out.set(this.ax + COIL.rho * Math.cos(a), this.yTop - ((COIL.rise * this.turns) / 5) * u, this.az + COIL.rho * Math.sin(a));
       }
     }
     m.tubes.forEach((t, k) => {
-      const col = TUBE_COL[k % TUBE_COL.length], mkMat = (len: number) => own(new THREE.MeshPhysicalMaterial({ color: col, roughness: 0.34, metalness: 0, clearcoat: 0.6, clearcoatRoughness: 0.22, sheen: 0.4, sheenColor: new THREE.Color(col).lerp(new THREE.Color(0xffffff), 0.5), bumpMap: len ? ribs(len) : null, bumpScale: 1.2, emissive: col, emissiveIntensity: 0.06, side: THREE.DoubleSide }));
+      const col = TUBE_COL[(col0 + k * 4) % TUBE_COL.length], col2 = k % 2 ? TUBE_COL[(col0 + k * 4 + 5) % TUBE_COL.length] : col, mkMat = (len: number) => own(new THREE.MeshPhysicalMaterial({ color: col, roughness: 0.34, metalness: 0, clearcoat: 0.6, clearcoatRoughness: 0.22, sheen: 0.4, sheenColor: new THREE.Color(col).lerp(new THREE.Color(0xffffff), 0.5), bumpMap: len ? ribs(len) : null, bumpScale: 1.2, emissive: col, emissiveIntensity: 0.06, side: THREE.DoubleSide }));
       const v = (t.back ? [t.back, ...t.pts] : t.pts).map((p) => new THREE.Vector3(...p)), route = new THREE.CurvePath<THREE.Vector3>();
       let cur = v[0];
       for (let j = 1; j < v.length - 1; j++) {
@@ -747,7 +791,7 @@ export class PoolLevel {
         cur = p1;
       }
       route.add(new THREE.LineCurve3(cur, v[v.length - 1]));
-      const c = t.coil, a0 = Math.atan2(-c.dx, c.dz), helix = new Helix(c.x, c.z, v[v.length - 1].y, a0), hEnd = helix.getPoint(1);
+      const c = t.coil, nt = c.turns ?? COIL.turns, a0 = Math.atan2(-c.dx, c.dz), helix = new Helix(c.x, c.z, v[v.length - 1].y, a0, nt), hEnd = helix.getPoint(1);
       const tl = c.tail ?? 2.5, tail = new THREE.LineCurve3(hEnd, hEnd.clone().add(new THREE.Vector3(c.dx * tl, 0, c.dz * tl)));
       const whole = new THREE.CurvePath<THREE.Vector3>();
       route.curves.forEach((q) => whole.add(q)), whole.add(helix as unknown as THREE.Curve<THREE.Vector3>), whole.add(tail);
@@ -758,7 +802,7 @@ export class PoolLevel {
         mesh.frustumCulled = false;
         sc.add(mesh);
       }
-      if (kit.spiral) {
+      if (kit.spiral && nt === COIL.turns) { // (el modelo trae 5 vueltas: los más cortos se generan)
         const g = new THREE.Group(), o = kit.spiral.clone(true), sm = mkMat(0);
         o.position.set(-0.066, 0, -0.054);
         o.traverse((n) => { if ((n as THREE.Mesh).isMesh) (n as THREE.Mesh).material = sm; });
@@ -769,7 +813,7 @@ export class PoolLevel {
         lod.addLevel(g, 0), lod.addLevel(new THREE.Mesh(lowGeo, mkMat(0)), 35), lod.position.set(c.x, c.yEnd, c.z);
         sc.add(lod);
       } else {
-        const mesh = new THREE.Mesh(own(new THREE.TubeGeometry(helix, 400, COIL.r, 16, false)), mkMat(0));
+        const mesh = new THREE.Mesh(own(new THREE.TubeGeometry(helix, 80 * nt, COIL.r, 16, false)), mkMat(0));
         mesh.frustumCulled = false;
         sc.add(mesh);
       }
@@ -784,7 +828,7 @@ export class PoolLevel {
         }
         const fg = own(mergeGeometries(parts.map((g) => g.index ? g.toNonIndexed() : g))!);
         fg.rotateX(Math.PI / 2);
-        const fm = own(new THREE.MeshPhysicalMaterial({ color: col, roughness: 0.5, clearcoat: 0.25, clearcoatRoughness: 0.4, side: THREE.DoubleSide }));
+        const fm = own(new THREE.MeshPhysicalMaterial({ color: col2, roughness: 0.5, clearcoat: 0.25, clearcoatRoughness: 0.4, side: THREE.DoubleSide }));
         const bell = [[R, 0.0], [R + 0.01, -0.06], [R + 0.05, -0.2], [R + 0.16, -0.38], [R + 0.3, -0.5], [R + 0.33, -0.52], [R + 0.33, -0.55], [R + 0.28, -0.55], [R + 0.26, -0.5], [R + 0.13, -0.36], [R + 0.03, -0.2], [R - 0.01, -0.06], [R - 0.02, 0]].map(([x, y]) => new THREE.Vector2(x, y));
         const bg = own(new THREE.LatheGeometry(bell, 40));
         bg.rotateX(Math.PI / 2);
@@ -801,20 +845,20 @@ export class PoolLevel {
         const cuts: number[] = [], steps = Math.ceil(rl / 0.15);
         let prev = solid(0);
         for (let q = 1; q <= steps; q++) { const u = q / steps, now = solid(u); if (now !== prev) cuts.push(u); prev = now; }
-        // la cola de llegada acaba empotrada en una pared (se pasa 0,2 m): su goma va en la cara del muro
-        const tailU = (tl - 0.2) / tl;
-        if (c.tail) cuts.push(-1);
         if (cuts.length) {
           const gp = [[R - 0.01, -0.22], [R + 0.03, -0.2], [R + 0.12, -0.14], [R + 0.2, -0.07], [R + 0.23, 0], [R + 0.2, 0.07], [R + 0.12, 0.14], [R + 0.03, 0.2], [R - 0.01, 0.22]].map(([x, y]) => new THREE.Vector2(x, y));
           const gg = own(new THREE.LatheGeometry(gp, 32));
           gg.rotateX(Math.PI / 2);
           const gm = own(new THREE.MeshPhysicalMaterial({ color: 0x2c312e, roughness: 0.85, side: THREE.DoubleSide })), gi = new THREE.InstancedMesh(gg, gm, cuts.length);
-          cuts.forEach((u, q) => gi.setMatrixAt(q, u < 0 ? place(tailU, M, 1, tail) : place(u, M)));
+          cuts.forEach((u, q) => gi.setMatrixAt(q, place(u, M)));
           gi.frustumCulled = false, sc.add(gi);
         }
         const mouth = new THREE.Mesh(bg, fm);
         mouth.applyMatrix4(place(0, M)), mouth.frustumCulled = false;
         sc.add(mouth);
+        const end = new THREE.Mesh(bg, fm); // la salida: abierta y acampanada, con sitio libre delante
+        end.applyMatrix4(place(1, M, -1, tail)), end.frustumCulled = false;
+        sc.add(end);
       }
       this.tubes.push({ curve: whole, len, x: t.pts[0][0], z: t.pts[0][2], s0: t.back ? Math.hypot(t.pts[0][0] - t.back[0], t.pts[0][2] - t.back[2]) : 0 });
     });
@@ -865,6 +909,8 @@ export class PoolLevel {
       if (!o) return;
       o.position.set(x, y, z), (o.rotation.y = ry), addLod(o);
     };
+    // las duchas (hasta 60, de 8 mallas cada una) van por lotes: una malla instanciada por material y sala, en vez de ~480 llamadas de dibujo
+    const showerTpl = fitObj(kit.shower, 2.1), showers = new Map<number, THREE.Matrix4[]>();
     const cellC = (x: number, y: number) => [(x + 0.5) * C, (y + 0.5) * C];
     const flat = (i: number) => m.kind[i] !== PK.wall && m.water[i] === 0 && m.ramp[i] === PR.none && m.ya[i] === 0 && !m.tun[i];
     let nRail = 0, nLadder = 0, nShower = 0, nVent = 0, nGuard = 0, nBuoy = 0, nLamp = 0;
@@ -893,7 +939,7 @@ export class PoolLevel {
           } else if (solid(ox, oy) && !m.tun[at(ox, oy)]) {
             wallCells++;
             // ducha pegada a la pared en salas con piscina; rejilla de ventilación alta en las demás
-            if (r.type === 'showers') { if ((x + y) % 2 === 0 && nShower < 60) (put(fitObj(kit.shower, 2.1), cx + dx * (C / 2 - 0.25), 0, cz + dz * (C / 2 - 0.25), Math.atan2(-dx, -dz)), nShower++); }
+            if (r.type === 'showers') { if ((x + y) % 3 === 0 && nShower < 36 && showerTpl) (showers.set(ri, [...(showers.get(ri) ?? []), new THREE.Matrix4().makeRotationY(Math.atan2(-dx, -dz)).setPosition(cx + dx * (C / 2 - 0.25), 0, cz + dz * (C / 2 - 0.25))]), nShower++); }
             else if (wallCells % 19 === 7 && nVent < 14 && !m.windows.some((w) => w.room === ri)) {
               const v = fitObj(kit.vent, 0.9);
               if (v) (v.position.set(cx + dx * (C / 2 - 0.02), 2.9, cz + dz * (C / 2 - 0.02)), (v.rotation.y = Math.atan2(dz, -dx)), addLod(v), nVent++);
@@ -930,6 +976,23 @@ export class PoolLevel {
         }
       }
     });
+
+    for (const [ri, ms] of showers) {
+      const r = m.rooms[ri], g = new THREE.Group(), l = new THREE.LOD(), M = new THREE.Matrix4();
+      showerTpl!.updateMatrixWorld(true);
+      showerTpl!.traverse((o) => {
+        const me = o as THREE.Mesh;
+        if (!me.isMesh) return;
+        const im = own(new THREE.InstancedMesh(me.geometry, me.material, ms.length));
+        ms.forEach((P, i) => im.setMatrixAt(i, M.multiplyMatrices(P, me.matrixWorld)));
+        im.computeBoundingSphere();
+        g.add(im);
+      });
+      // (las matrices van en coordenadas del mundo: el LOD se queda en el origen y mide la distancia con su propia posición, así que se le da el centro de la sala y se compensa)
+      l.position.set((r.x + r.w / 2) * C, 0, (r.y + r.h / 2) * C), g.position.copy(l.position).negate();
+      l.addLevel(g, 0), l.addLevel(new THREE.Object3D(), 40 + (Math.hypot(r.w, r.h) * C) / 2);
+      sc.add(l), this.heavy.push(l);
+    }
 
     // el agua: una sola malla con todas las celdas, un Reflector para todas (la profundidad y el borde de espuma vienen por vértice)
     const wp: number[] = [], wd: number[] = [], we: number[] = [], wi: number[] = [];
@@ -994,21 +1057,17 @@ export class PoolLevel {
 
     // la salida: un marco de puerta de ascensor con una luz verdosa, contra la pared de la celda y mirando a su primer lado libre
     {
-      const e = m.exit, ex = (e.x + 0.5) * C, ez = (e.y + 0.5) * C, side = PDIRS.findIndex(([dx, dy]) => m.kind[(e.y + dy) * W + e.x + dx] === PK.wall), [wx, wy] = PDIRS[side < 0 ? 1 : side], dx = -wx, dy = -wy; // (la puerta va contra la primera pared y mira hacia el lado contrario)
+      const e = m.exit, [wx, wy] = exW, dx = -wx, dy = -wy, ex = (e.x + wx + 0.5) * C, ez = (e.y + wy + 0.5) * C; // (ex, ez): el centro de la cabina, en la celda de pared; la puerta mira a la celda de la salida
       this.exit.x = ex, this.exit.z = ez;
-      const g = new THREE.Group(), steel = own(new THREE.MeshStandardMaterial({ color: 0x353b38, roughness: 0.45, metalness: 0.7 })), door = own(new THREE.MeshStandardMaterial({ color: 0x1b1f1d, roughness: 0.35, metalness: 0.8 })), glow = own(new THREE.MeshBasicMaterial({ color: 0xcfffe6, fog: false }));
-      const box = (w: number, h: number, d: number, mt: THREE.Material, x: number, y: number, z: number) => {
-        const b = new THREE.Mesh(own(new THREE.BoxGeometry(w, h, d)), mt);
-        b.position.set(x, y, z), g.add(b);
-      };
-      box(0.14, 2.5, 0.2, steel, -0.9, 1.25, 0), box(0.14, 2.5, 0.2, steel, 0.9, 1.25, 0), box(1.94, 0.16, 0.2, steel, 0, 2.5, 0);
-      box(1.66, 2.42, 0.06, door, 0, 1.21, -0.04);
-      box(1.2, 0.07, 0.07, glow, 0, 2.7, 0.04);
+      // la cabina (ver elevator.ts) llena esa celda de pared: la puerta queda a ras del muro; cerrada hasta cumplir la misión
+      const cab = (this.cab = own(new ElevatorCab(C, C - 0.04, 2.5, 0, true))), g = cab.group, fy = m.ya[e.y * W + e.x];
+      const glow = new THREE.Mesh(own(new THREE.BoxGeometry(0.9, 0.07, 0.07)), own(new THREE.MeshStandardMaterial({ color: 0x9dffd0, emissive: 0x7dffc0, emissiveIntensity: 2.2 })));
+      glow.position.set(0, 2.3, 0.04), g.add(glow);
       const lt = new THREE.PointLight(0xbfffe0, 5, 9, 2);
       lt.position.set(0, 2.1, 0.8), g.add(lt);
-      g.position.set(ex - dx * (C / 2 - 0.12), m.ya[e.y * W + e.x], ez - dy * (C / 2 - 0.12)); // a la altura del suelo de la celda (puede ser poco honda)
+      g.position.set(ex + dx * (C / 2), fy, ez + dy * (C / 2)); // el umbral, en el plano del muro (a la altura del suelo de la salida: puede ser poco honda)
       g.rotation.y = Math.atan2(dx, dy);
-      g.scale.x = 0.74; // el marco medía 1,94 m y la celda 1,5: se metía en las paredes de los lados
+      this.exitBox = [ex - C / 2, ez - C / 2, ex + C / 2, ez + C / 2, dx, dy];
       sc.add(g);
     }
     this.initExtras(kit);
@@ -1036,6 +1095,10 @@ export class PoolLevel {
   /** Chorro saliendo y recarga en marcha este fotograma (el juego pone el sonido). */
   jetting = false;
   refilling = false;
+  /** Cuánto lleva la recarga en curso (0–1; 0 si no se recarga): la barra del HUD. */
+  get fill() {
+    return this.refilling ? Math.min(1, this.fillT / FILL_T) : 0;
+  }
   private soaps: { id: string; obj: THREE.Object3D; y: number; taken: boolean; pending?: boolean; kind: string }[] = [];
   private refillAt: { x: number; z: number; y: number }[] = [];
   private gun?: THREE.Object3D;
@@ -1224,7 +1287,7 @@ export class PoolLevel {
     this.act = at ? 'HOLD TO REFILL' : null;
     if (this.refilling) {
       this.fillT += dt;
-      if (this.fillT >= 2) (this.squirtLeft = 1), (this.fillT = 0);
+      if (this.fillT >= FILL_T) (this.squirtLeft = 1), (this.fillT = 0);
     } else this.fillT = 0;
     // mojado / parado
     this.wetT = Math.max(0, this.wetT - dt);
@@ -1236,7 +1299,7 @@ export class PoolLevel {
 
   /** Lo que la sala necesita saber de mí (posición de los pies, hacia dónde miro, a qué ritmo ando y si nado). */
   get state() {
-    return { x: this.px, y: this.py, z: this.pz, yaw: this.yaw, pitch: this.pitch, speed: this.hs, swim: this.swim, ride: !!this.ride, wet: this.wet };
+    return { x: this.px, y: this.py, z: this.pz, yaw: this.yaw, pitch: this.pitch, speed: this.hs, air: this.air && !this.swim, vy: this.vyNow, swim: this.swim, ride: !!this.ride, wet: this.wet };
   }
 
   /** Arrancar en el sitio de mi puesto en la sala (desplazamiento respecto a la celda de inicio, mirando al centro). */
@@ -1300,6 +1363,19 @@ export class PoolLevel {
   /** ¿Cabe el jugador (radio R) con los pies en py en (x, z)? */
   private fits(x: number, z: number, py: number, swim: boolean, from: number) {
     const m = this.map;
+    // la cabina del ascensor: sus paredes no se cruzan (solo por la puerta, hacia donde da, y abierta)
+    {
+      const [x0, z0, x1, z1, dx, dy] = this.exitBox, inside = (a: number, b: number) => a > x0 - R && a < x1 + R && b > z0 - R && b < z1 + R;
+      const cx = (x0 + x1) / 2, cz = (z0 + z1) / 2, lat = (a: number, b: number) => Math.abs((a - cx) * dy - (b - cz) * dx), fwd = (a: number, b: number) => (a - cx) * dx + (b - cz) * dy;
+      const was = inside(this.px, this.pz) && fwd(this.px, this.pz) < C / 2, now = inside(x, z) && fwd(x, z) < C / 2 + R;
+      if (now && !was && (!this.cab.isOpen || lat(x, z) > 0.3 || fwd(this.px, this.pz) < C / 2)) return false; // entrar: por la puerta, de frente
+      if (was && (lat(x, z) > C / 2 - R - 0.04 || fwd(x, z) < -C / 2 + R + 0.04 || (fwd(x, z) > C / 2 - R && (!this.cab.isOpen || lat(x, z) > 0.3)))) return false; // dentro: las tres paredes y las jambas
+      if (now) return true; // (la cabina está en una celda de pared: lo de abajo la daría por maciza)
+    }
+    for (const r of this.refillAt) {
+      const d = Math.hypot(r.x - x, r.z - z);
+      if (d < R + 0.3 && Math.abs(r.y - py) < 1.2 && d < Math.hypot(r.x - this.px, r.z - this.pz)) return false; // el pedestal del bebedero
+    }
     for (const [ox, oz] of [[-R, -R], [R, -R], [-R, R], [R, R]]) {
       const i = this.idx(x + ox, z + oz);
       if (i < 0) return false;
@@ -1342,7 +1418,8 @@ export class PoolLevel {
     if (this.dead && this.ghost) (this.px = this.ghost.x), (this.py = this.ghost.y), (this.pz = this.ghost.z), (this.vy = 0), (this.ride = undefined);
     if (this.dead) c = { ...c, move: new THREE.Vector2(), jump: false, crouch: false, run: false, fire: false, fireHeld: false, grab: false, grabHeld: false }; // muerto (lo decide el servidor): sin mandos
     c = this.extras(dt, c);
-    if (this.faint > 0) c = { ...c, move: new THREE.Vector2(), jump: false, crouch: false, run: false }; // desmayado: no controlas el cuerpo
+    if (this.faint > 0 || this.hold) c = { ...c, move: new THREE.Vector2(), jump: false, crouch: false, run: false }; // desmayado (o dentro del ascensor en marcha): no controlas el cuerpo
+    this.cab.update(dt);
     const m = this.map;
     this.yaw -= c.look.x;
     this.pitch = Math.max(-1.45, Math.min(1.45, this.pitch - c.look.y));
@@ -1354,11 +1431,13 @@ export class PoolLevel {
       rd.s += (4 + Math.min(rd.s, 12) * 0.35) * dt; // arranca despacio y se embala
       rode = true;
       if (rd.s >= rd.len) {
-        const tg = rd.curve.getTangentAt(1), p = rd.curve.getPointAt(1).addScaledVector(tg, -0.9); // se sale un poco antes de la pared del fondo
+        const tg = rd.curve.getTangentAt(1), p = rd.curve.getPointAt(1); // sale por la boca, con el impulso
         (this.px = p.x), (this.pz = p.z), (this.py = p.y - COIL.r), (this.fx = tg.x * 5), (this.fz = tg.z * 5), (this.vy = 0), (this.ride = undefined), (rode = false);
         this.splash(p.x, p.z, 2.4);
       } else {
-        const p = rd.curve.getPointAt(rd.s / rd.len);
+        const p = rd.curve.getPointAt(rd.s / rd.len), tg = rd.curve.getTangentAt(rd.s / rd.len), h = Math.atan2(-tg.x, -tg.z);
+        if (rd.h !== undefined) this.yaw += Math.atan2(Math.sin(h - rd.h), Math.cos(h - rd.h)); // el cuerpo gira con el tubo (curvas y serpentín); se sigue pudiendo mirar
+        rd.h = h;
         (this.px = p.x), (this.pz = p.z), (this.py = p.y - COIL.r), (this.swim = false), (this.vy = 0);
       }
     } else if (!this.swim && this.py > PY.tower - 0.4) {
@@ -1367,8 +1446,11 @@ export class PoolLevel {
     }
     if (!rode) {
     const i0 = this.idx(this.px, this.pz);
-    // nadar: se entra donde el agua cubre más de 1,4 m y se sale al bajar de 1 m
-    if (i0 >= 0) {
+    // el pozo: `dw` si estoy metido en uno (bajo su boca); si no, el que tenga debajo nadando
+    const dw = this.well && this.py < this.well.fy - 0.05 ? this.well : undefined;
+    if (!dw) this.well = this.swim ? this.wells.find((w) => w.layer === this.lay && this.px >= w.x0 && this.px < w.x1 && this.pz >= w.z0 && this.pz < w.z1) : undefined;
+    // nadar: se entra donde el agua cubre más de 1,4 m y se sale al bajar de 1 m (dentro de un pozo siempre se nada)
+    if (i0 >= 0 && !dw) {
       const f = this.fl(this.px, this.pz, this.py), tn = !this.lay && m.tun[i0], g = tn && this.py < PY.surf - 0.6 ? PY.deep : f ? f.y : this.py, depth = (this.wat(i0) || tn) && this.py < this.surf + 0.05 ? this.surf - g : 0;
       const thr = this.lay ? 0.8 : 1.4; // (las piscinas elevadas son menos hondas: 1,2 m)
       if (!this.swim && depth > thr) (this.swim = true), !this.lay && this.splash(this.px, this.pz, 2.2);
@@ -1395,26 +1477,28 @@ export class PoolLevel {
     }
     // por ejes, para deslizarse por las paredes
     const from = i0, stuck = !this.fits(this.px, this.pz, this.py, this.swim, from); // metido en algo (p. ej. al caer del tobogán): se puede salir
-    if (stuck || this.fits(this.px + mx, this.pz, this.py, this.swim, from)) this.px += mx;
-    if (stuck || this.fits(this.px, this.pz + mz, this.py, this.swim, from)) this.pz += mz;
+    if (dw) (this.px = Math.max(dw.x0 + 0.35, Math.min(dw.x1 - 0.35, this.px + mx))), (this.pz = Math.max(dw.z0 + 0.35, Math.min(dw.z1 - 0.35, this.pz + mz))); // dentro del pozo, sus cuatro paredes
+    else {
+      if (stuck || this.fits(this.px + mx, this.pz, this.py, this.swim, from)) this.px += mx;
+      if (stuck || this.fits(this.px, this.pz + mz, this.py, this.swim, from)) this.pz += mz;
+    }
     const i1 = this.idx(this.px, this.pz);
     if (i1 >= 0) {
       const f1 = this.flc(this.px, this.pz, this.py);
-      if (f1) (this.lay = f1.layer), (this.surf = f1.layer ? PY.upSurf : PY.surf);
+      if (f1 && !dw) (this.lay = f1.layer), (this.surf = f1.layer ? PY.upSurf : PY.surf); // (en un pozo de la alta se baja por dentro de la losa: sigue siendo la alta)
       if (this.swim) {
-        const tn = !this.lay && m.tun[i1] && this.py < PY.surf - 0.6, floor = tn ? PY.deep : f1 ? f1.y : this.py;
+        const tn = !this.lay && m.tun[i1] && this.py < PY.surf - 0.6, floor = this.well ? this.well.fy - WELL : tn ? PY.deep : f1 ? f1.y : this.py;
         const top = tn ? PY.tunCeil - HEAD : this.surf - 0.15;
         this.py = Math.min(top, Math.max(floor, this.py + mvy));
         this.vy = 0;
-        // túnel sin fondo: nadando dentro de una boca se sale por su pareja, sin transición (mismo rumbo, cámara a la nueva altura)
-        const pt = poolPortalAt(m, this.px, this.pz, this.py);
-        if (this.lock && !(this.px >= this.lock[0] && this.px < this.lock[2] && this.pz >= this.lock[1] && this.pz < this.lock[3])) this.lock = undefined; // ya salí de la boca de llegada
-        if (pt && !this.lock) {
-          const cx = Math.floor(pt.x / C), cz = Math.floor(pt.z / C);
-          for (const p of m.portals) for (const s of [p.a, p.b]) if (s.layer === pt.layer && cx >= s.x && cx <= s.x + 1 && cz >= s.y && cz <= s.y + 1) this.lock = [s.x * C, s.y * C, (s.x + 2) * C, (s.y + 2) * C];
-          (this.px = pt.x), (this.pz = pt.z), (this.py = pt.y), (this.lay = pt.layer), (this.surf = pt.layer ? PY.upSurf : PY.surf);
+        // túnel sin fondo: al llegar al fondo del pozo se sale por el fondo del de su pareja, mirando al revés (lo que era bajar ahora es subir)
+        const w = this.well;
+        if (!w || this.py > w.fy - WELL + 2) this.wellLock = false; // ya subí (o salí): puede volver a saltar
+        if (w && !this.wellLock && this.py < w.fy - WELL + 0.9) {
+          const o = this.wells[w.to];
+          (this.px = o.x0 + this.px - w.x0), (this.pz = o.z0 + this.pz - w.z0), (this.py = o.fy - WELL + 1.1), (this.pitch = -this.pitch);
+          (this.lay = o.layer), (this.surf = o.layer ? PY.upSurf : PY.surf), (this.well = o), (this.wellLock = true);
           this.jam = 12000;
-          if (!pt.layer) this.splash(pt.x, pt.z, 0.5); // un burbujeo corto
         }
       } else {
         const g = f1 ? f1.y : this.py;
@@ -1428,6 +1512,8 @@ export class PoolLevel {
           this.vy = 0;
         }
         if (this.py < g) this.py = g;
+        this.air = this.py > g + 0.05;
+        this.vyNow = this.vy;
       }
       // ondas: entrar, nadar y vadear
       const inWater = !!this.wat(i1) && this.py < this.surf + 0.1;
@@ -1447,8 +1533,10 @@ export class PoolLevel {
     this.camera.rotation.set(this.pitch, this.yaw, 0, 'YXZ');
     if (this.deadK > 0) this.camera.rotation.z = this.deadK * 1.2;
     if (this.stunT > 0) (this.camera.rotation.x += Math.sin(this.t * 7) * 0.05), (this.camera.rotation.z = Math.sin(this.t * 4.3) * 0.08);
+    if (this.hold) this.camera.position.y += this.cab.shake;
     this.torch.position.copy(this.camera.position);
     this.sun.target.position.set(this.px, 0, this.pz);
+    this.sun.shadow.needsUpdate = (this.shadowFr++ & 1) === 0; // (en los fotogramas sin repintar, three sigue usando el mapa y la matriz del anterior: no baila)
     this.sun.position.set(this.px + 0.85 * 90, 0.8 * 90, this.pz - 0.2 * 90); // del este y algo del norte, a unos 45° de altura
     // luz de la sala donde estás: nivel fijo por sala, con parpadeo en algunas (y las luminarias de esas salas parpadean en conjunto)
     // fluorescente de verdad: zumbido casi estable y, de vez en cuando, una ráfaga de parpadeos irregulares (~24 Hz); apagan rápido y encienden con retraso
@@ -1460,9 +1548,13 @@ export class PoolLevel {
     };
     const pr = m.rooms.findIndex((r) => this.px / C >= r.x && this.px / C < r.x + r.w && this.pz / C >= r.y && this.pz / C < r.y + r.h);
     const room = pr >= 0 ? m.rooms[pr] : undefined;
-    const lvl = (room ? Math.min(1, room.light + (room.sun ? 0.25 : 0)) : 0.7) * (room?.flicker ? 0.6 + 0.4 * sig(pr, this.t) : 1);
-    this.roomLight += (lvl - this.roomLight) * Math.min(1, dt * 12);
-    const L = this.roomLight;
+    // la luz de la sala: fuera de una sala (pasillos, túneles) se queda la de la última, y el paso de una a otra es lento: antes saltaba a un valor fijo
+    // al entrar en cada túnel y volvía a saltar al salir. El parpadeo va aparte, sin suavizar
+    if (room) this.roomLight += (Math.min(1, room.light + (room.sun ? 0.25 : 0)) - this.roomLight) * Math.min(1, dt * 1.2);
+    const L = this.roomLight * (room?.flicker ? 0.6 + 0.4 * sig(pr, this.t) : 1);
+    // el sol solo entra por las ventanas de abajo y en las salas altas: en las salas cerradas de la planta alta se colaba una franja clara al pie de las
+    // paredes (el sesgo del mapa de sombras), así que allí se apaga
+    this.sun.intensity += ((this.lay === 1 && !room?.tall ? 0 : 3.4) - this.sun.intensity) * Math.min(1, dt * 3);
     this.hemi.intensity = 0.08 + 0.26 * L;
     this.torch.intensity = 0.2 + 0.8 * (1 - L);
     if (this.mats) for (const k of ['deck', 'wall', 'pool'] as const) this.mats[k].envMapIntensity = 0.9 * (0.25 + 0.75 * L);
@@ -1475,7 +1567,7 @@ export class PoolLevel {
       if (this.lamps.instanceColor) this.lamps.instanceColor.needsUpdate = true;
       // las 4 luminarias parpadeantes más cercanas (a menos de 14 m) hacen de luz real
       const near: [number, number][] = [];
-      for (const k of this.flickIdx) { const p = this.lampPos[k], d = (p[0] - this.px) ** 2 + (p[2] - this.pz) ** 2; if (d < 196 && Math.abs(p[1] - this.camera.position.y) < 6) near.push([d, k]); }
+      for (const k of this.flickIdx) { const p = this.lampPos[k], d = (p[0] - this.px) ** 2 + (p[2] - this.pz) ** 2; if (d < 196 && Math.abs(p[1] - this.camera.position.y) < 6 && !(this.py > PY.up - 0.5 && p[1] < PY.up - 0.5)) near.push([d, k]); } // (las de la planta de abajo no: su luz atravesaba el suelo)
       near.sort((a, b) => a[0] - b[0]);
       this.pls.forEach((pl, i) => {
         const k = near[i]?.[1];
@@ -1489,12 +1581,13 @@ export class PoolLevel {
     if (this.raT <= 0) {
       this.raT = 0.2;
       const near: [number, number][] = [];
-      for (let k = 0; k < this.lampPos.length; k++) { const p = this.lampPos[k], d = (p[0] - this.px) ** 2 + (p[2] - this.pz) ** 2; if (d < 225 && Math.abs(p[1] - this.camera.position.y) < 6) near.push([d, k]); }
+      for (let k = 0; k < this.lampPos.length; k++) { const p = this.lampPos[k], d = (p[0] - this.px) ** 2 + (p[2] - this.pz) ** 2; if (d < 225 && Math.abs(p[1] - this.camera.position.y) < 6 && !(this.py > PY.up - 0.5 && p[1] < PY.up - 0.5)) near.push([d, k]); }
       near.sort((a, b) => a[0] - b[0]);
       this.raK = near.slice(0, 3).map((n) => n[1]);
       this.ras.forEach((l, i) => { const k = this.raK[i]; if (k !== undefined) l.position.set(this.lampPos[k][0], this.lampPos[k][1] + 0.26, this.lampPos[k][2]); });
     }
-    this.ras.forEach((l, i) => { const k = this.raK[i]; l.intensity = k === undefined ? 0 : 11 * this.lampCur[k]; });
+    // (se apagan con la distancia: al cambiar de luminaria, la que entra y la que sale están lejos y casi a oscuras, y no se nota el salto)
+    this.ras.forEach((l, i) => { const k = this.raK[i], p = k === undefined ? undefined : this.lampPos[k], w = p ? Math.max(0, 1 - ((p[0] - this.px) ** 2 + (p[2] - this.pz) ** 2) / 225) : 0; l.intensity = k === undefined ? 0 : 11 * this.lampCur[k] * Math.min(1, w * 1.6); });
     // aire: baja con la cabeza bajo el agua nadando, sube fuera; sin aire, desmayo y vuelta al último sitio donde respiraste
     const head = this.camera.position.y < this.surf && this.swim;
     if (this.faint > 0) {

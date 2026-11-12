@@ -3,7 +3,7 @@ import { DEV_LOCAL } from '../devGate';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import gsap from 'gsap';
 import { holdStill } from './still';
-import { BackroomsGame, type Hud, type Inv } from './game';
+import { BackroomsGame, LOAD_PHASES, type Hud, type Inv, type LoadProgress } from './game';
 import { generateMaze } from './maze';
 import Touch from './Touch';
 import Inventory, { type Cell } from './Inventory';
@@ -25,6 +25,7 @@ import Board, { BoardHint } from './Board';
 import { DIFF } from './RoomSettings';
 import End from './End';
 import Loading from './Loading';
+import BootLoading from './BootLoading';
 import AdminConsole from './Admin';
 import WaitPanel from './WaitPanel';
 import { ChatInput, ChatLog, useChat } from './Chat';
@@ -38,7 +39,6 @@ import { ChatInput, ChatLog, useChat } from './Chat';
 type Screen = 'load' | 'menu' | 'settings' | 'achv' | 'play' | 'pause' | 'dead' | 'crash' | 'lobby' | 'wait' | 'waitpause' | 'over';
 type WaitHud = BackroomsGame['waitHud'];
 const NO_WAIT: WaitHud = { ready: false, hint: null, label: '', notice: '', computer: false, board: false, entering: false, locked: false, free: true };
-const BLOCKS = 24;
 
 // desarrollo: el laberinto de una semilla en ASCII (S inicio, L ascensor, C cámara, P pistola, t cintas, E entidades, O huecos)
 function asciiMaze(seed: number) {
@@ -271,7 +271,8 @@ function useHold(on: boolean, ms: number) {
 
 export default function Backrooms({ onQuit, onWin }: { onQuit: () => void; onWin: () => void }) {
   const [screen, setScreen] = useState<Screen>('load');
-  const [progress, setProgress] = useState(0);
+  const [lvl, setLvl] = useState<number | null>(null); // la carga de un nivel al empezar la ronda (las Poolrooms): tapa el HUD
+  const [loadP, setLoadP] = useState<LoadProgress>({ f: 0, phase: 0, pf: 0 }); // el avance real de la carga (ver Game.load)
   const [failed, setFailed] = useState(false);
   const [quitGone, setQuitGone] = useState(false);
   const [muted, setMuted] = useState(false);
@@ -336,7 +337,8 @@ export default function Backrooms({ onQuit, onWin }: { onQuit: () => void; onWin
     reduced.current = window.matchMedia('(prefers-reduced-motion: reduce)').matches || settings.reduceMotion || (DEV_LOCAL && new URLSearchParams(location.search).has('reduced'));
     const dev = DEV_LOCAL ? new URLSearchParams(location.search) : null;
     const coarse = window.matchMedia('(pointer: coarse)').matches;
-    const low = coarse || !!dev?.has('low');
+    // GRAPHICS (ajustes): 0 automático (bajo en táctiles), 1 siempre bajo, 2 siempre alto
+    const low = settings.quality === 1 || (settings.quality !== 2 && coarse) || !!dev?.has('low');
     setTouch(coarse);
     setCursors(root.current!);
     // el lienzo se crea aquí y no en el JSX: al salir se pierde su contexto, y el doble montaje de
@@ -360,6 +362,7 @@ export default function Backrooms({ onQuit, onWin }: { onQuit: () => void; onWin
     onSetting('vhs', (v) => (g.vhs.uniforms.uAmount.value = v));
     // gráficos: la escala de resolución rehace el tamaño del lienzo y el brillo es un filtro de la página
     onSetting('resScale', () => dispatchEvent(new Event('resize')));
+    onSetting('bloom', (v) => g.setBloom(v));
     const bright = () => void (g.canvas.style.filter = settings.brightness === 1 ? '' : `brightness(${settings.brightness})`);
     bright();
     onSetting('brightness', bright);
@@ -367,30 +370,22 @@ export default function Backrooms({ onQuit, onWin }: { onQuit: () => void; onWin
     if (dev) Object.assign(window, { __game: g, __maze: (seed: number) => console.info(asciiMaze(seed)) });
     g.onPause = () => alive && setScreen(g.waiting ? 'waitpause' : 'pause');
     g.onDeath = () => alive && setScreen('crash');
+    g.onLevelLoad = (f) => alive && setLvl(f);
     g.onWin = () => mpRef.current || winRef.current(); // en una sala la ronda la cierra el servidor (over), no subir al ascensor
-    g.showTv(); // la sala oscura con la tele, mientras carga
-    // un clic o una tecla: la cámara se acerca más deprisa
-    const hurry = () => g.tv && (g.tv.speed = 3);
-    addEventListener('pointerdown', hurry);
-    addEventListener('keydown', hurry);
     const free = holdStill();
     let alive = true;
-    g.load((f) => alive && setProgress(f))
+    g.load((p) => alive && setLoadP(p))
       .then(async () => {
         if (!alive) return;
-        setProgress(1);
-        await new Promise((r) => setTimeout(r, 400));
-        await g.diveIntoTv(); // y nos metemos en la tele: dentro está el menú
+        await new Promise((r) => setTimeout(r, 400)); // un instante al 100 % antes de pasar al título
         if (alive) setScreen('menu');
         if (alive && (dev?.has('pool') || dev?.has('poolmap'))) (setScreen('play'), g.devPool(dev.has('poolmap')));
         else if (alive && dev?.has('runlevel')) (setScreen('play'), g.devRun()); // desarrollo: ?runlevel arranca «Run for your life» sin sala
       })
-      .catch((e) => (console.error('load failed', e), alive && (setFailed(true), (g.tvFailed = true))))
+      .catch((e) => (console.error('load failed', e), alive && setFailed(true)))
       .finally(free);
     return () => {
       alive = false;
-      removeEventListener('pointerdown', hurry);
-      removeEventListener('keydown', hurry);
       if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
       free();
       g.dispose();
@@ -677,11 +672,13 @@ export default function Backrooms({ onQuit, onWin }: { onQuit: () => void; onWin
   useEffect(() => {
     const room = roomRef.current, sock = net.sock;
     if (!doorDone || !voting || !room || !sock) return;
-    game.current!.input.unlock(); // el cursor, para votar
+    const input = game.current!.input;
+    input.suspend = input.noLock = true; // el cursor, para votar: suelto, y nada lo vuelve a capturar hasta que acabe
+    input.unlock();
     let alive = true;
     const done = () => alive && sock.emit('ready', true);
     game.current!.warmLevel(room.seed, room.players.length, room.levelId).then(done, done);
-    return () => void (alive = false);
+    return () => void ((alive = false), (input.suspend = input.noLock = false));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [doorDone, voting, net.sock]);
 
@@ -757,26 +754,8 @@ export default function Backrooms({ onQuit, onWin }: { onQuit: () => void; onWin
     <div ref={root} className="br" data-screen={screen}>
       {(screen === 'menu' || screen === 'settings' || screen === 'achv' || (screen === 'lobby' && !net.room)) && <Static still={reduced.current} scenes={game.current?.stills ?? []} />}
       <div ref={gl} className="br-stage" />
-      {screen === 'load' && (
-        <div className="br-load br-sr" role="progressbar" aria-label="Loading Backrooms" aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(progress * 100)}>
-          <p className="br-load__head">BACKROOMS</p>
-          {failed ? (
-            <p>Failed to load. Press any key.</p>
-          ) : (
-            <>
-              <p>Loading assets... this may take a while.</p>
-              <div className="br-load__bar" aria-hidden="true">
-                {Array.from({ length: BLOCKS }, (_, i) => (
-                  <i key={i} data-on={i < Math.floor(progress * BLOCKS) || undefined} />
-                ))}
-              </div>
-              <p className="br-load__pct" aria-hidden="true">
-                {String(Math.round(progress * 100)).padStart(3, ' ')}%
-              </p>
-            </>
-          )}
-        </div>
-      )}
+      {lvl != null && screen !== 'load' && <BootLoading over title="POOLROOMS" label="BUILDING THE LEVEL" progress={lvl} />}
+      {screen === 'load' && <BootLoading title="BACKROOMS" label={LOAD_PHASES[loadP.phase].label} progress={loadP.f} error={failed ? 'FAILED TO LOAD' : undefined} />}
       {screen === 'menu' && (
         <nav className="br-menu" aria-label="Backrooms">
           <p className="br-menu__ch">CH 03</p>
@@ -1005,6 +984,14 @@ export default function Backrooms({ onQuit, onWin }: { onQuit: () => void; onWin
           <p>ALMOND WATER</p>
           <div className="br-breath__bar">
             <i style={{ width: `${Math.round(hud.drink * 100)}%` }} />
+          </div>
+        </div>
+      )}
+      {screen === 'play' && hud && hud.refill > 0 && !hud.bag && hud.spectating == null && (
+        <div className="br-drink" role="status" aria-label={`Refilling ${Math.round(hud.refill * 100)}%`}>
+          <p>REFILLING WATER GUN</p>
+          <div className="br-breath__bar">
+            <i style={{ width: `${Math.round(hud.refill * 100)}%` }} />
           </div>
         </div>
       )}

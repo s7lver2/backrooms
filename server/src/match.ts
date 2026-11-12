@@ -1,6 +1,6 @@
 import {
-  Breath, levelCaps, seesXZ, CELL, DIFFICULTY, HIT_DAMAGE, EntitySim, TV_REACH, centerOf, generateMaze, poolMaze, hideStates, itemSpots, solidAt, tickHides, totemSpot, tvPoint, tvSites,
-  type Difficulty, type Inventory, type Look, type Mission, type HideState, type EntState, type ItemSpot, type Kind, type Maze, type PlayerState, type SimTarget, type WorldSnapshot,
+  Breath, levelCaps, seesXZ, CELL, DIFFICULTY, HIT_DAMAGE, EntitySim, TV_REACH, centerOf, generateMaze, poolMaze, hideStates, itemSpots, solidAt, tickHides, totemSpot, tvPoint, tvSites, NOISE_RUN, NOISE_SHOT,
+  type Difficulty, type Inventory, type Look, type Mission, type HideState, type EntState, type ItemSpot, type Kind, type Maze, type Noise, type PlayerState, type SimTarget, type WorldSnapshot,
 } from '@backrooms/shared';
 
 /*
@@ -53,6 +53,10 @@ export interface Player {
   hide?: number;
   breath?: Breath;
   noise?: number;
+  /** Dónde estaba en el paso anterior y su velocidad suavizada (m/s): de ahí sale si corre. */
+  px?: number;
+  pz?: number;
+  vel?: number;
   /** Pistola de agua: estado de mojado/parada (ver applyWet). */
   wet?: WetState;
 }
@@ -93,6 +97,11 @@ export class Match {
   private items = new Map<string, ItemSpot>();
   private taken = new Set<string>();
   private ents: Ent[] = [];
+  /** Los ruidos de este paso (carreras, disparos, objetos que caen): los oyen las entidades. */
+  private noises: Noise[] = [];
+  noise(x: number, z: number, r: number) {
+    this.noises.push({ x, z, r });
+  }
   private nextId = 1;
   private age = 0;
   /** La misión de la ronda, las televisiones que hay que apagar (de tvSites), las ya apagadas y las fotos válidas (por jugador y entidad) de todos. */
@@ -216,14 +225,16 @@ export class Match {
         const s = p.st, cx = Math.floor(s.x / CELL), cy = Math.floor(s.z / CELL), m = this.maze;
         const cp = Math.cos(s.pitch);
         targets.push({
-          id: p.id, x: s.x, y: s.y, z: s.z, ex: s.x, ey: s.y + EYE - (s.duck ? 0.6 : 0), ez: s.z, duck: !!s.duck,
+          id: p.id, x: s.x, y: s.y, z: s.z, yaw: s.yaw, ex: s.x, ey: s.y + EYE - (s.duck ? 0.6 : 0), ez: s.z, duck: !!s.duck,
           torch: s.light ? [-Math.sin(s.yaw) * cp, Math.sin(s.pitch), -Math.cos(s.yaw) * cp] : null,
           exposed: cx >= 0 && cy >= 0 && cx < m.w && cy < m.h && !!m.lit[cy * m.w + cx],
         });
       }
     }
+    const noises = this.age > this.grace ? this.noises : [];
+    this.noises = [];
     for (const e of this.frozen ? [] : this.ents) {
-      const id = e.sim.update(dt, targets, false, hidden);
+      const id = e.sim.update(dt, targets, false, hidden, noises);
       if (id === undefined) continue;
       const p = players.find((q) => q.id === id);
       if (!p) continue;
@@ -259,7 +270,12 @@ export class Match {
     tickHides(this.hides, dt);
     for (const p of players) {
       const st = p.st, b = (p.breath ??= new Breath());
-      p.noise = /run/i.test(st.anim) ? 1 : Math.max(0, (p.noise ?? 0) - dt / 8);
+      // corre si va a más de 2,6 m/s (anda a 1,6 y corre a 3,6); un salto de posición (teletransporte) no cuenta
+      const v = Math.hypot(st.x - (p.px ?? st.x), st.z - (p.pz ?? st.z)) / dt;
+      (p.px = st.x), (p.pz = st.z), (p.vel = v > 12 ? 0 : (p.vel ?? 0) + (v - (p.vel ?? 0)) * 0.2);
+      const ran = p.vel > 2.6 && !p.dead && !p.boarded;
+      p.noise = ran ? 1 : Math.max(0, (p.noise ?? 0) - dt / 8);
+      if (ran && (p.hide ?? -1) < 0) this.noise(st.x, st.z, NOISE_RUN);
       const want = !p.dead && p.seen && st.hiding ? this.hides.findIndex((h) => Math.hypot(h.x - st.x, h.z - st.z) < 1 && (!h.occ || h.occ.id === p.id)) : -1;
       const was = p.hide ?? -1;
       if (was !== want) {
@@ -298,6 +314,7 @@ export class Match {
     if (i < 0 || p.dead || p.st.held !== 'gun') return false;
     const e = this.ents[i];
     if (Math.hypot(p.st.x - e.sim.x, p.st.z - e.sim.z) > SHOT_REACH) return false;
+    this.noise(p.st.x, p.st.z, NOISE_SHOT);
     if (!e.sim.hit()) return false;
     this.ents.splice(i, 1);
     if (this.noEnts) return true;

@@ -38,6 +38,8 @@ export interface Maze {
   totem?: Cell | null;
   /** Poolrooms: latas de agua (ids w0...), pistola de agua (id p0) y tanque de buceo (id k0), puestos por poolMaze. */
   waters?: Cell[];
+  /** Poolrooms: el radar ya viene puesto (null: no hay); si falta, lo coloca radarSpot. */
+  radar?: Cell | null;
   watergun?: Cell | null;
   tank?: Cell | null;
   /** Poolrooms: w*h, 1 = lo que haya en esta celda (objeto, jabón, radar...) está en la planta ALTA (PoolMap.up); 0/ausente = planta baja. */

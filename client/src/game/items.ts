@@ -68,6 +68,8 @@ export class Items {
   /** Los compañeros vivos (el centro del cuerpo) y qué pasa si el tiro da a uno: fuego amigo. */
   peers: () => { id: string; at: THREE.Vector3 }[] = () => [];
   onShootPlayer?: (id: string) => void;
+  /** Cada disparo (dé o no): el ruido que oyen las entidades. */
+  onShot?: () => void;
   /** Una foto que cuenta (multijugador: se avisa al servidor, que lo comprueba). */
   onPhoto?: () => void;
   private pickups: Pickup[] = [];
@@ -212,6 +214,7 @@ export class Items {
     pl.ammo--;
     pl.kick();
     this.audio?.shot();
+    this.onShot?.();
     // el tiro: la entidad viva más cerca dentro de un cono estrecho, a la vista, a menos de 30 m
     const eye = this.camera.getWorldPosition(new THREE.Vector3()), fwd = this.camera.getWorldDirection(new THREE.Vector3());
     let best: Target | undefined, bd = 30;
@@ -302,8 +305,7 @@ export class Items {
     if (ready && !this.open && d < 3) {
       this.open = w.elevatorOpen = true;
       this.audio?.elevator();
-      const a = w.elevatorClip && w.elevatorMixer.clipAction(w.elevatorClip);
-      if (a) (a.setLoop(THREE.LoopOnce, 1), (a.clampWhenFinished = true), a.play());
+      w.cab.open();
     }
     if (!ready && d < 1.3 && t > this.rejectAt) {
       this.rejectAt = t + 1.5;

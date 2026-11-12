@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { ElevatorCab } from './elevator';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { CELL, ZONE, hasPanel, type Cell, type Maze, type PropKind } from './maze';
 import type { Assets } from './game';
@@ -124,10 +125,10 @@ const place = (p: THREE.Vector3, ry: number, s = 1) => new THREE.Matrix4().compo
 export class World {
   readonly root = new THREE.Group();
   readonly elevator: THREE.Object3D;
-  readonly elevatorMixer: THREE.AnimationMixer;
-  readonly elevatorClip?: THREE.AnimationClip;
   /** El lado abierto del ascensor (hacia donde mira). */
   readonly elevatorFront: THREE.Vector3;
+  /** La cabina del ascensor por dentro. */
+  readonly cab: ElevatorCab;
   /** Con las puertas cerradas, la cabina es pared. */
   elevatorOpen = false;
   private lampPos: THREE.Vector3[];
@@ -400,6 +401,7 @@ export class World {
     this.elevatorFront = new THREE.Vector3(ox, 0, oy);
     const el = assets.gltf.elevator.scene.clone(true);
     el.getObjectByName('Null_1')?.removeFromParent();
+    for (const n of ['R', 'L']) el.getObjectByName(n)?.removeFromParent(); // del modelo solo queda el marco: las hojas son las de la cabina
     let bb = new THREE.Box3().setFromObject(el);
     // la puerta a escala de una persona (1,8 m de alto, ojos a 1,62): unos 2,15 m de hueco, y que quepa en la celda
     // el ancho lo limita la celda (1,5 m): llena casi todo; la altura se estira hasta 2,45 m (hasta 1,35× lo proporcional)
@@ -425,23 +427,11 @@ export class World {
     slab(side, HEIGHT, -(dw + side) / 2, HEIGHT / 2);
     slab(side, HEIGHT, (dw + side) / 2, HEIGHT / 2);
     slab(dw, HEIGHT - dh, 0, (HEIGHT + dh) / 2);
-    // la cabina: cinco caras de metal por dentro de la celda (sin la de las puertas)
-    const cab = new THREE.Group(), c2 = CELL / 2 - 0.02;
-    const face = (wd: number, ht: number, pos: THREE.Vector3, rx: number, ry: number) => {
-      const f = new THREE.Mesh(new THREE.PlaneGeometry(wd, ht), metalMat);
-      f.position.copy(pos);
-      f.rotation.set(rx, ry, 0);
-      cab.add(f);
-    };
-    face(CELL, HEIGHT, new THREE.Vector3(0, HEIGHT / 2, -CELL + 0.02), 0, 0);
-    face(CELL, HEIGHT, new THREE.Vector3(-c2, HEIGHT / 2, -CELL / 2), 0, Math.PI / 2);
-    face(CELL, HEIGHT, new THREE.Vector3(c2, HEIGHT / 2, -CELL / 2), 0, -Math.PI / 2);
-    face(CELL, CELL, new THREE.Vector3(0, 0.01, -CELL / 2), -Math.PI / 2, 0);
-    face(CELL, CELL, new THREE.Vector3(0, HEIGHT - 0.01, -CELL / 2), Math.PI / 2, 0);
-    holder.add(cab);
+    // la cabina (el prefab de elevator.ts) ocupa la celda, detrás del marco del modelo; cerrada hasta cumplir la misión
+    this.cab = new ElevatorCab(CELL - 0.04, CELL - 0.14, HEIGHT - 0.04, 0, true);
+    this.cab.group.position.z = -0.1;
+    holder.add(this.cab.group);
     this.elevator = holder;
-    this.elevatorMixer = new THREE.AnimationMixer(el);
-    this.elevatorClip = assets.gltf.elevator.animations[0];
     const sign = assets.gltf.exit.scene.clone(true);
     sign.scale.setScalar(2.2);
     sign.position.set(0, Math.min(HEIGHT - 0.4, bb.max.y + 0.08), 0.02);
@@ -512,7 +502,7 @@ export class World {
   }
 
   update(t: number, dt: number) {
-    this.elevatorMixer.update(dt);
+    this.cab.update(dt);
     LM.uLmGain.value = 0.06 + 0.94 * this.power;
     if (this.power !== this.shownPower) this.paint();
     // parpadeo de tubo viejo: casi siempre bien, y a ratos una racha de apagarse y encenderse a saltos
@@ -540,6 +530,7 @@ export class World {
       else if ((o as THREE.Mesh).isMesh && !(o as THREE.SkinnedMesh).isSkinnedMesh && (o as THREE.Mesh).geometry.type !== 'BufferGeometry') (o as THREE.Mesh).geometry.dispose();
     });
     for (const g of this.pitGeos) g.dispose();
+    this.cab.dispose();
     this.root.removeFromParent();
   }
 }

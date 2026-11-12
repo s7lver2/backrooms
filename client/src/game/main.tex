@@ -1,0 +1,571 @@
+\documentclass[12pt,a4paper]{article}
+
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{lmodern}
+\usepackage[spanish]{babel}
+\usepackage[margin=2.5cm]{geometry}
+\usepackage{graphicx}
+\usepackage{fancyhdr}
+\usepackage{lastpage}
+\usepackage[most]{tcolorbox}
+\usepackage{setspace}
+\usepackage{booktabs}
+\usepackage{tabularx}
+\usepackage[table]{xcolor}
+\usepackage{array}
+\usepackage{floa
+\usepackage{placeins}
+\usepackage{markdown}
+
+% ---------- Numeración de secciones con punto final ----------
+\renewcommand{\thesection}{\arabic{section}.}
+\renewcommand{\thesubsection}{\arabic{section}.\arabic{subsection}.}
+
+% ---------- Cabecera y pie ----------
+\pagestyle{fancy}
+\fancyhf{}
+\lhead{Gemini - Ingeniería de prompts aplicada}
+\rhead{Íñigo de las Heras Brugos}
+\cfoot{Página \thepage\ de \pageref{LastPage}}
+\renewcommand{\headrulewidth}{0.4pt}
+
+% ---------- Cajas ----------
+\newtcolorbox{promptbox}{
+  colback=gray!8, colframe=gray!60!black,
+  fonttitle=\bfseries, title={Prompt Generador de Imagenes},
+  boxrule=0.6pt, arc=2pt
+}
+
+\newtcolorbox{result}[1]{
+  colback=blue!4,
+  colframe=blue!55!black,
+  fonttitle=\bfseries,
+  title={Resultado generado por IA},
+  boxrule=0.6pt,
+  arc=2pt,
+  enhanced,
+  breakable,
+  before upper={
+    \textbf{Archivo: }\texttt{\detokenize{#1}}
+    \par\medskip
+    \hrule
+    \medskip
+  }
+}
+
+\newtcolorbox{AgenticPromptbox}{
+  colback=gray!8, colframe=gray!60!black,
+  fonttitle=\bfseries, title={Prompt Agente},
+  boxrule=0.6pt, arc=2pt
+}
+\newtcolorbox{observacion}{
+  colback=blue!5, colframe=blue!50!black,
+  fonttitle=\bfseries, title={Observación},
+  boxrule=0.6pt, arc=2pt
+}
+
+\setlength{\parindent}{0pt}
+\setlength{\parskip}{0.8em}
+
+\begin{document}
+
+% ---------- Portada ----------
+\begin{titlepage}
+  \thispagestyle{empty}
+  \centering
+  \vspace*{2cm}
+  {\Large Colegio la Asunción León\par}
+  \vspace{1cm}
+  {\large Tecnología y digitalización\par}
+  \vspace{2cm}
+  {\Huge\bfseries Evaluación del uso de Gemini 3.6 Flash\par}
+  \vspace{1cm}
+  {\large Escrita en LaTex\par}
+  \vfill
+  {\large Estudiante: Iñigo de las Heras Brugos\par}
+  {\large Docente: Carlos\par}
+  {\large Curso: 1º Bachillerato\par}
+  \vspace{0.5cm}
+  {\large Fecha: 9 de noviembre de 2026\par}
+  \vspace*{2cm}
+\end{titlepage}
+
+% ---------- Índice ----------
+\pagenumbering{roman}
+\renewcommand{\contentsname}{Índice}
+\tableofcontents
+\newpage
+
+\pagenumbering{arabic}
+
+% ---------- Introducción ----------
+\section*{Introducción}
+\addcontentsline{toc}{section}{Introducción}
+
+En este trabajo, nuestro objetivo consiste en realizar una serie de tareas que se
+pueden encontrar en un documento word adjunto por nuestro querido docente Carlos
+
+Todas las pruebas se realizaron con Gemini 3.6 Flash, el cual seleccionamos por
+sus capacidades agénticas y por ser el mejor de los modelos Gemini en benchmarks
+
+NOTA: Gemini Argon y Carbon son completamente superiores al modelo utilizado, sin embargo, no disponemos de acceso a estos mismos desde esta cuenta de Gemini
+
+NOTA: Algunos prompts han tenido que ser modificados ligeramnete debido a la negligencia de gemini (que no hace caso ni a las instrucciones que se le indican), las modificaciones en gran parte de los casos han sido eliminar caracteres no validos o reespecificar informacion ya presente en los prompts
+
+% ---------- 1. Generación de texto ----------
+\section{Generación de texto}
+
+\subsection{Prompt utilizado}
+
+La primera prueba consistió en solicitar la redacción de un texto relacionado con
+una cafetería. El prompt utilizado fue el siguiente:
+
+\begin{promptbox}
+Escribe un texto sobre una cafetería.
+\end{promptbox}
+
+\subsection{Resultado obtenido}
+
+El resultado generado fue el siguiente:
+
+\begin{result}{Texto.txt}
+El aroma a granos recién molidos y tostados flota en el aire tan pronto como
+cruzas la puerta de madera gastada. Un suave timbre metálico anuncia la
+llegada de los visitantes, pero el ritmo sereno del lugar apenas se altera. El
+espacio está impregnado de una calidez reconfortante: luces de tono ámbar
+tenue, paredes de ladrillo visto cubiertas por estantes repletos de libros usados
+y el ronroneo constante de la máquina de espresso expulsando vapor denso.
+
+Detrás de la barra de roble, el barista trabaja con una precisión casi hipnótica.
+Mide el café molido, lo prensa con cuidado e inclina la jarra de leche
+vaporizada para trazar intrincadas figuras de espuma sobre tazas de cerámica
+artesanal. Cada sorbo de espresso revela capas de sabor profundo y matices
+de avellana, ofreciendo un pequeño refugio contra el bullicio que reina al
+otro lado del cristal.
+
+En los distintos rincones, pequeñas historias transcurren en paralelo. Junto
+al gran ventanal, una persona escribe afanosamente en una libreta de pastas
+gastadas mientras contempla a ratos las gotas de lluvia; en el sofá de cuero
+del fondo, dos viejos amigos comparten confidencias a voz baja, acompañando
+sus bebidas con bizcochos de canela recién horneados. Este rincón no es solo
+un punto de paso para conseguir cafeína, sino un santuario donde el tiempo
+parece reducir su marcha y la prisa del día a día se evapora lentamente.
+\end{result}
+
+\subsection{Análisis del resultado}
+
+El texto se ha decantado por una descripcion narrativa de una cafetería. Esto ha
+ocurrido debido a nuestra falta de una instrucción concreta del género del texto, su proposito, su extension, y su publico objetivo
+
+\begin{observacion}
+No hemos concretado lo suficiente en el propmt, con lo cual, ha intetado precedir
+lo que buscamos, y nos ha dado una respuesta que vamos a considerar erronea
+\end{observacion}
+
+% ---------- 2. Mejoramos el prompt ----------
+\section{Mejoramos el prompt}
+
+\subsection{Contexto}
+
+Vamos a aportarle al modelo contexto sobre la tarea, información sobre nuestro
+negocio, estilo, marca, precios, ubicación. Información necesaria para evitar artefactos
+
+\subsection{Rol}
+
+Le agregamos un rol, lo cual supuestamente ya no es tan usado como técnica en ingeniería de prompts, pero aun así, la propia tarea nos lo exige, así que le asignamos un rol como experto en
+marketing digital y diseño gráfico
+
+\subsection{Tarea}
+
+Le asignamos una tarea concreta, la cual tiene que ser un objetivo concreto y claro
+
+\subsection{Formato}
+
+Indicamos el estilo visual (fuentes, referencias de diseño, tipografias,
+etc). En esta sección tambien es donde concretamos la vision que buscamos para nuestra
+publicidad
+
+\subsection{Limites}
+
+Le ponemos frenos a la ia, esto tambien es conocido como prompt negativo,
+anque en los modelos frontera esta resultando ser un tanto contradictorio, vamos a
+agregarlo de todas formas.
+
+Algunos de estos límites son como extensión, tono, etc
+
+\subsection{Revision}
+
+revisamos el prompt, y lo restructuramos varias veces hasta que obtenemos el
+restulado que buscamos
+
+\begin{promptbox}
+Crea una imagen publicitaria para una cafetería. Actúa como un experto
+en marketing, con experiencia en el ámbito joven. Busco que me generes
+una imagen usando tus herramientas de generacin avanzada. Usa un tono
+calido, cercano a los jovenes, utilizando como elemento principal una
+taza de café. En cuanto al estilo visual, quiero que uses el
+minimalismo editorial. El objetivo de esta pieza es funcionar como una publicidad
+pensada para un cartel.
+\end{promptbox}
+
+\begin{figure}[H]
+  \centering
+  % Coloca la imagen del cartel en la misma carpeta con este nombre
+  \includegraphics[width=0.5\textwidth]{resultado.jpeg}
+  \caption{Resultado final}
+\end{figure}
+
+\begin{observacion}
+    Al observar el resultado, podemos ver como no hemos definido bien los limites, y se ha inventado una empresa. Si analizamos la composición, podemos ver que ha representado una cafetería, pero no es la nuestra, eso también merece la pena revisarlo
+\end{observacion}
+
+
+\section{Version mejorada}
+\subsection{Nuevos limites}
+
+Vamos a ser mucho mas claros con el prompt negativo, clarificando lo que puede hacer y lo que no. Tambien vamos a añadir al prompt negativo términos comúnes para los generadores de imágenes
+
+
+\subsection{Fase de investigación Autónoma}
+
+Ahora vamos a atrevernos a ir un poco mas lejos, y le vamos a pedir que investigue sobre nuestro negocio, ya que se encuentra en google maps, y tiene una web y todo, seguro que es capaz de encontrar informacion que pueda ayudarle a hacer el interior. Para esto vamos a etiquetar su conversación como (Chat1)
+
+\begin{AgenticPromptbox}
+eres un agente experto en márketing para un publico jóven, experto con años de experiencia y diseñador gráfico profesional. Tambien eres un experto en investigación OSINT y forense
+
+Tu tarea va a estar divivida en dos partes, en la primera, vas a actuar como un experto en investigación forense y vas a buscar la mayor cantidad de información posible sobre mi negocio (imagenes, ubicación, precios, etc). Y las vas a recopilar en un informe de diseño llamado DESIGN.md, en este mismo quiero que incluyas imagenes, y cualquier cosa que encuentres, vinculado con la fuente de la que ha sido extraído. Una vez termines, usa ask-user para pedir aprovación sobre el documento
+
+como punto de partida en tu investigación, usa esta url: http://labicicletadeanacleta.com/
+
+\end{AgenticPromptbox}
+
+\begin{result}{Result}
+    ARCHIVO ADJUNTO CON LA TAREA
+\end{result}
+
+
+\subsection{Revisión a ciegas}
+
+una técnica muy buena para corroborar la calidad del documento y si un modelo sería capaz de comprenderlo es una revisión a ciegas, para esto lo mejor es usar subagentes, pero como gemini no tiene subagentes, vamos a abrir otro chat nuevo (Chat2).
+
+Aparte para poder identificar y diferenciar el documento revisado del original, vamos a pedirle que lo firme debajo. Esto es muy usado en flujos de trabajo donde cientos de agentes trabajan con codigo y termina volviendose caótico identificar que agente hace que cosa
+
+\begin{AgenticPromptbox}
+    Eres un experto en ingeniería de prompts con años de experiencia en silicon valley. 
+    Tu trabajo va a ser revisar este documento exhaustivamente, para ello, revisa las fuentes una por una, y si tienes alguna duda sobre los contenidos de este mismo, documentalo 
+    Una vez completes la revisión, usa ask-user para preguntarme cada una de tus dudas, y una vez las conteste todas, coloca la nueva información en el documento, y vuelve a hacer otra revisión 
+    El objetivo final consiste en tener un documento que claramente puedes comprender y esta listo para generar una imagen 
+    Usa tus herramientas como web-search para revisar las fuentes 
+    No agregues contenido adicional no relacionado con las preguntas, nada de prompts para genradores de imágenes. Trabaja sobre el propio documento y devuelvelo con las ediciones correspondientes.
+    Al finalizar tu tarea, agrega estas lineas finales al documento
+
+    ---
+    Status: Reviewed
+    Reviewed-by: [your model (gemini argon, carbon, 3.6 flash, 3.1 pro, etc)] <218195315+gemini-cli@users.noreply.github.com>
+    Reviewed-at: [AAAA-MM-DD]
+    ---
+\end{AgenticPromptbox}
+
+\begin{result}{Resultado}
+    He realizado una revisión inicial del documento informe_osint_y_an_lisis_de_identidad.md. Al analizar el contenido y las fuentes de referencia provistas en el informe, observo que la información está estructurada como un reporte de inteligencia de marca (OSINT).
+
+Sin embargo, como mencionas que el objetivo final es tener un documento perfectamente comprendido y listo para generar una imagen, surgen varias dudas clave sobre el enfoque específico del prompt o concepto visual que se desea derivar de este informe.
+
+A continuación detallo las dudas planteadas para precisar el documento:
+
+    Objetivo del arte final (Sujeto principal): ¿Qué elemento o escena específica se busca representar visualmente en la imagen final? (Ej. ¿La fachada/interior del obrador, la tarta de queso de autor, un bodegón publicitario de caja de brunch, la bicicleta vintage del logo en versión realista, etc.?)
+
+    Estilo visual y técnica deseada: ¿Se busca una fotografía realista de producto/espacio (fotografía publicitaria en alta resolución) o una ilustración artística/vectorial manteniendo los tonos pastel de la marca?
+
+    Ambiente y Composición: En caso de ser una escena o bodegón, ¿qué elementos decorativos, iluminación o ambientación específica deben estar presentes en el entorno?
+
+    Relación con el catálogo: ¿La imagen debe enfocarse en un producto específico ya identificado en el informe (como la Tarta de Queso o las Cuelgas Leonesas) o en un concepto general de la marca "La Bicicleta de Anacleta"?
+
+Quedo a la espera de tus respuestas a estas preguntas para integrar la información exacta en el documento, realizar una nueva revisión y dejar el informe totalmente acondicionado.
+\end{result}
+
+Perfecto, tiene dudas, lo cual habrían sido huecos en el documento que habrían reducido la calidad de la imagen que queremos. Aunque las preguntas hablan mas del estilo que buscamos, vamos a responderle
+
+\begin{promptbox}
+     El sujeto principal busco que sea una de nuestras tartas de queso
+    busco una fotografía hiperealista, desde un plano cenital superior
+    busco una iluminacion calida y que combine con los colores pastel
+    la tarta de queso, pero de alguna forma disimulada agregar la marca final 
+\end{promptbox}
+
+ahora ya tenemos un documento de diseño con informacion y referencias sobre nuestro negocio: veamos el resutlado final:
+
+\begin{result}{DESIGN.md}
+    Procederé a actualizar el informe integrando todos los requerimientos estéticos y especificaciones técnicas visuales que has indicado para la composición de la imagen.
+
+    El documento actualizado contendrá las pautas de diseño y encuadre detalladas en la sección final, garantizando que quede listo para su interpretación y producción.
+
+    ---
+    DOCUMENTO ADJUNTO CON LA TAREA
+    ---
+
+    He actualizado el documento incluyendo la Sección 5 con todas las especificaciones estéticas y compositivas requeridas (sujeto, perspectiva cenital, iluminación cálida con paleta pastel e integración sutil de marca), finalizando con la firma de revisión correspondiente.
+
+    ¿Hay algún detalle adicional de composición o textura que te gustaría ajustar en la Ficha Técnica antes de dar por completado el trabajo?
+\end{result}
+
+\subsection{Generación de la imagen}
+
+Ahora vamos al paso mas importante, generar la imagen. Para esto vamos a usar los pormpts anteriores, pero mejorados y revisados, con ejemplos y referencias, y adjuntando nuestro DESIGN.md
+
+\begin{promptbox}
+    Crea una imagen publicitaria para una cafeteria. Acta como un experto
+    en marketing, con experiencia en el ámbito joven. Busco que me generes
+    una imagen usando tus herramientas de generacin avanzada. Usa un tono
+    clido, cercano a los jvenes, utilizando como elemento principal una
+    tarta de queso. En cuanto al estilo visual, quiero que uses una estética instagrameable para la composición, y filosofía de diseño. El objetivo de esta pieza es funcionar como una publicidad
+    pensada para un cartel.
+    Como material adicional, te aporto un archivo DESIGN.md, en el que podrás encontrar información adicional de mi negocio, leelo exhaustivamente antes de comenzar con la generación. Tampoco te inventes información, si necesitas algún detalle antes de comenzar la generación, usa ask-user para preguntarme
+\end{promptbox}
+
+ahora que le hemos aportado una informacion mucho mas concreta y preparada veamos si la imagen cumple con nuestros estándares.
+
+La iamgen se ve hermosa, y encima la información de contacto es real, perfecto para un cartel y para redes sociales
+
+\begin{figure}[H]
+  \centering
+  % Coloca la imagen del cartel en la misma carpeta con este nombre
+  \includegraphics[width=0.5\textwidth]{resultado4.jpeg}
+  \caption{Resultado final}
+\end{figure}
+
+\section{Ejercicio C}
+
+ahora vamos a escribir un prompt con la estructura solicitada, en concreto para una marca de jamones
+
+\begin{promptbox}
+    Actúa como un experto en la industria jamonera. Necesito que realices una investigación sobre el jamón ibético y como se publicita, una vez lo hagas, generaremos una imágen publicitaria. Contexto: mi empresa se llama Jamones Paco, y por ahora no tiene imagen de marca, asi que te va a tocar diseñarla, estamos en villacontilde. Público: El publico es grandes masas de persoans, ya que va a ser una publicidad exclusivamente para redes sociales Formato: COmo formato quiero que me devuelvas la imagen generada, usando tus herramientas. Tono: Busco un tono. Extensión: no te inventes ni esloganes, ni imagen de marca que no esté incluida. Debe incluir:Un logotipo generado por ti, un jamón en primer plano cámara aérea con un angulo fotográfico. Evita: datos falsos, baja calidad, etc
+\end{promptbox}
+
+ahora veamos al resultado
+
+\begin{figure}[H]
+  \centering
+  % Coloca la imagen del cartel en la misma carpeta con este nombre
+  \includegraphics[width=0.5\textwidth]{resultado3.jpeg}
+  \caption{Resultado final}
+\end{figure}
+
+\section{Reto}
+
+Ahora comenzamos a realizar los retos asignados en la tarea para poder obtener la máxima puntuación 
+
+\subsection{Primer Prompt}
+\begin{AgenticPromptbox}
+    Haz un anuncio
+\end{AgenticPromptbox}
+
+\begin{result}{Result}
+    ¡Claro! Aquí tienes un ejemplo de anuncio publicitario versátil que puedes adaptar a cualquier producto o servicio:
+
+¡Lleva tu día al siguiente nivel con [Nombre del Producto]!
+¿Cansado de [describir un problema común, ej. quedarte sin batería a mitad del día]?
+
+Con [Nombre del Producto], descubre la combinación perfecta de calidad, estilo y practicidad. Diseñado especialmente para quienes buscan resultados reales sin complicaciones.
+
+¿Por qué te encantará?
+
+Beneficio 1: [Ej. Diseño ultra ligero y fácil de llevar]
+
+Beneficio 2: [Ej. Tecnología de última generación]
+
+Beneficio 3: [Ej. Garantía de satisfacción total]
+
+Oferta especial por tiempo limitado:
+
+Consigue un 20 de descuento en tu primera compra usando el código NUEVO20.
+
+¿A qué esperas? Visita [Sitio Web / Dirección] o haz tu pedido hoy mismo. ¡No te quedes sin el tuyo!
+
+Si quieres un anuncio sobre un producto, servicio o tema específico (para redes sociales, radio, cartel, etc.), dime los detalles y lo redacto a tu medida.
+\end{result}
+
+\subsection{Segundo Prompt}
+\begin{AgenticPromptbox}
+    Haz un anuncio para una tienda online.
+\end{AgenticPromptbox}
+
+\begin{result}{Result}
+    ¡Tu nuevo estilo está a solo un clic! ✨
+
+En [Nombre de tu Tienda], encontramos los mejores productos para ti al mejor precio. Descubre las últimas tendencias, ofertas exclusivas y todo lo que necesitas para tu día a día en un solo lugar.
+
+Envíos rápidos a todo el país
+
+Pagos 100 seguros
+
+10 de descuento en tu primera compra usando el código: BIENVENIDO10
+
+No espere más. Visítanos hoy en [www.tutienda.com] y renueva tu carrito. ¡El envío corre por nuestra cuenta en compras mayores a 50€!
+\end{result}
+
+\subsection{Tercer Prompt}
+\begin{AgenticPromptbox}
+    Actúa como redactor publicitario. Escribe un anuncio de 100 palabras para una tienda online de ropa sostenible dirigida a jóvenes. Incluye una llamada a la acción.
+\end{AgenticPromptbox}
+
+\begin{result}{Result}
+    ¿Listo para cambiar el mundo sin perder el estilo? En EcoVibe, sabemos que la moda no tiene por qué costarle al planeta.
+
+Descubre nuestra colección de ropa sostenible diseñada especialmente para ti: prendas urbanas, cómodas y rompedoras, confeccionadas al 100 con algodón orgánico y materiales reciclados. Cada diseño reduce la huella de carbono y fomenta un comercio justo, garantizando que luzcas increíble mientras cuidas tu entorno.
+
+Dile adiós a la moda desechable y dale la bienvenida a un armario con propósito.
+
+¡Únete a la revolución de la moda consciente! Entra en ecovibe.com hoy y consigue un 15 de descuento en tu primera compra.
+\end{result}
+
+\subsection{Resultados}
+
+Ahora utilizando la rúbrica asignada.
+
+\begin{table}[H]
+    \centering
+    \caption{Resultados del estudio}
+    \label{tab:resultados}
+
+    \renewcommand{\arraystretch}{1.35}
+    \setlength{\tabcolsep}{10pt}
+
+    \begin{tcolorbox}[
+        enhanced,
+        colback=white,
+        colframe=blue!35!black,
+        boxrule=0.7pt,
+        arc=3mm,
+        rounded corners,
+        left=2mm,
+        right=2mm,
+        top=1mm,
+        bottom=1mm,
+        width=0.92\textwidth
+    ]
+        \begin{tabularx}{\linewidth}{
+            >{\raggedright\arraybackslash}X
+            >{\centering\arraybackslash}X
+            >{\centering\arraybackslash}X
+            >{\centering\arraybackslash}X
+            >{\centering\arraybackslash}X
+            >{\centering\arraybackslash}X
+        }
+            \rowcolor{blue!65!black}
+            \color{white}\textbf{Prompt} &
+            \color{white}\textbf{Claridad} &
+            \color{white}\textbf{Utilidad} &
+            \color{white}\textbf{Adaptación} &
+            \color{white}\textbf{Formato} &
+            \color{white}\textbf{Tono} \\[2pt]
+
+            \rowcolor{blue!7}
+            Prompt 1 & 0.2 & 0.7 & 0 & 0.1 & 0.9 \\
+
+            Prompt 2 & 1 & 0.9 & 1 & 1.2 & 1 \\
+
+            \rowcolor{blue!7}
+            Prompt 3 & 1.5 & 1.8 & 2 & 2 & 1.9 \\
+        \end{tabularx}
+    \end{tcolorbox}
+\end{table}
+
+\subsection{Conclusion}
+
+Como podemos apreciar gracias a la conclusión, podemos ver que el prompt 3 ha supuesto una gran mejora, y la razón es simple.
+
+En el tercer prompt hemos seguido las directrices que hemos aprendido con los anteriores, hemos agregado un limite de palabras, le hemos indicado el publico, un requesito y una persona.
+
+Todo esto se ha visto reflejado en los resultados
+
+\FloatBarrier
+
+\section{Reflexión final}
+
+La ingeniería de prompts y la correcta escritura de estos mismos puede ser un
+antes y un después en cuanto a cómo usamos la IA.
+
+\newpage
+
+\section{Autoevaluación}
+\subsection{Rubrica}
+
+\begin{table}[H]
+    \centering
+    \caption{Resultados de la autoevaluación de actividades}
+    \label{tab:resultados_actividades}
+
+    \renewcommand{\arraystretch}{1.35}
+    \setlength{\tabcolsep}{10pt}
+
+    \begin{tcolorbox}[
+        enhanced,
+        colback=white,
+        colframe=blue!35!black,
+        boxrule=0.7pt,
+        arc=3mm,
+        rounded corners,
+        left=2mm,
+        right=2mm,
+        top=1mm,
+        bottom=1mm,
+        width=0.92\textwidth
+    ]
+        \begin{tabularx}{\linewidth}{
+            >{\raggedright\arraybackslash}X
+            >{\centering\arraybackslash}X
+        }
+            \rowcolor{blue!65!black}
+            \color{white}\textbf{Criterio} &
+            \color{white}\textbf{Calificación} \\[2pt]
+
+            \rowcolor{blue!7}
+            Hemos realizado todos los ejercicios & 10 \\
+
+            Hemos incluido contexto y público & 10 \\
+
+            \rowcolor{blue!7}
+            Hemos utilizado un rol adecuado & 10 \\
+
+            La tarea y el formato están claros & 10 \\
+
+            \rowcolor{blue!7}
+            Hemos añadido límites útiles & 10 \\
+
+            Hemos revisado y mejorado los prompts & 10 \\
+
+            \rowcolor{blue!7}
+            Hemos detectado posibles datos inventados & 10 \\
+
+            Hemos explicado las mejoras & 10 \\
+
+            \rowcolor{blue!7}
+            Los dos integrantes hemos participado & 10 \\
+
+            Podemos explicar el proceso & 10 \\
+
+            \rowcolor{blue!7}
+            \textbf{TOTAL / 40} & \textbf{40 / 40} \\
+        \end{tabularx}
+    \end{tcolorbox}
+\end{table}
+
+\subsection{Reflexión Breve}
+\subsubsection{¿Qué elemento mejoró más los resultados?}
+lo que mas mejoró los resultados con diferencia fué el workflow de investigación, pero lo segundo que mas mejoró los resultados fueron los límites, con estos se redujo considerablemente la aparición de informacion falsa
+
+\subsubsection{¿Qué error cometíais al principio?}
+
+no establecimos buenos límites y diseñamos correctamente muchos de los prompts
+
+\subsubsection{¿Qué habéis aprendido?}
+
+Hemos aprendido una estrutura útil para diseñar y construir prompts. Tambien hemos aprendido que las capacidades de gemini distan de lo bueno, ya que a veces tiende a ignorar instrucciones
+
+\subsubsection{¿Cómo os habéis repartido el trabajo?}
+
+Lo he hecho yo todo (estoy solo)
+
+\end{document}

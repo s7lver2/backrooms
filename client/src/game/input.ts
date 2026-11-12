@@ -89,6 +89,8 @@ export class Input {
   set suspend(v: boolean) {
     this.suspend_ = v;
   }
+  /** Nadie captura el puntero (la votación de la misión): ni un clic, ni cerrar el chat, ni un pedido anterior que el navegador concede tarde. */
+  noLock = false;
   block(key: string) {
     this.ext.add(key);
   }
@@ -156,6 +158,8 @@ export class Input {
     // lo que se lleva el puntero o la pestaña: pausa
     doc('pointerlockchange', () => {
       this.asked = -1e9;
+      // un puntero que llega cuando ya no se juega (se pidió con el clic de entrar y la carga del nivel empezó antes de que el navegador lo diera): se devuelve
+      if (this.locked && (!this.active || this.noLock)) return void document.exitPointerLock();
       if (this.locked) (this.lockedAt = performance.now()), (this.needClick = this.soft_ = false), this.grabKeyboard();
       else this.freeKeyboard();
       if (this.wasLocked && !this.locked && this.active && !this.suspend) this.pulses.add('pause');
@@ -188,7 +192,7 @@ export class Input {
   /** Bloquear el puntero (solo con ratón; en táctil no hace falta). */
   lock(gesture = false) {
     // (un clic o una tecla del usuario salta la espera: si el navegador se tragó el pedido anterior sin avisar, no se quedaba sin puntero)
-    if (!matchMedia('(pointer: fine)').matches || this.locked || (!gesture && performance.now() - this.asked < 1000)) return;
+    if (this.noLock || !matchMedia('(pointer: fine)').matches || this.locked || (!gesture && performance.now() - this.asked < 1000)) return;
     this.asked = performance.now();
     try {
       // movimiento crudo (sin aceleración del sistema: en Opera/Chrome con ratones de alta frecuencia el giro iba a saltos);

@@ -62,7 +62,7 @@ E:\backrooms
 | `game/gadgets.ts`, `holo.ts` | caution tape + radar hologram |
 | `game/Inventory.tsx`, `InvAvatar.tsx`, `invIcons.ts`, `inventory.css`, `Hotbar.tsx` | inventory UI (bag), avatar preview, icon renderer, hotbar |
 | `game/Lobby.tsx`, `WaitPanel.tsx`, `RoomSettings.tsx`, `Board.tsx`, `Shop.tsx`, `Computer.tsx`, `Totem.tsx`, `Chat.tsx`, `End.tsx`, `Admin.tsx`, `Account.tsx`, `Achievements.tsx`, `Settings.tsx`, `Loading.tsx`, `Touch.tsx`, `Frame.tsx`, `Crosshair.tsx` | React screens/overlays |
-| `game/waiting.ts`, `waitDecor.ts`, `waitKit.ts`, `waitCorridor.ts`, `waitProps.ts`, `tvRoom.ts` | waiting room scene, its decor, corridor behind the door, intro TV room |
+| `game/waiting.ts`, `waitDecor.ts`, `waitKit.ts`, `waitCorridor.ts`, `waitProps.ts` | waiting room scene, its decor, corridor behind the door |
 | `game/runlevel.ts`, `hospital.ts` | "Run for your life" level (client-only) |
 | `game/mission.ts` | TURN OFF TVS visuals |
 | `game/vhsPass.ts` | `VhsShader`, `FilmShader` post passes |
@@ -92,7 +92,7 @@ Key idea: **client and server both call the same pure generator with the same se
 
 ### Round lifecycle (code path)
 1. `create/join` -> `addPlayer` (player in waiting room at `WAIT_SPAWNS`), client `Game.waitRoom(room, inv)` renders `waiting.ts` scene.
-2. Owner `start` -> `begin(r)`: seed = `nextSeed`, `phase='starting'`, push. Client plays door/corridor dive (`diveIntoTv`/waiting door), calls `warmLevel` to preload, then emits `ready(true)`.
+2. Owner `start` -> `begin(r)`: seed = `nextSeed`, `phase='starting'`, push. Client plays door/corridor dive (waiting door), calls `warmLevel` to preload, then emits `ready(true)`.
 3. After `START_DELAY` the vote opens; `closeVote` picks mission; when all `loaded` (or +`LOAD_GRACE`) -> `play(r)`: `new Match(seed, difficulty, nPlayers, levelId)`, `setMission`, positions at `startOffset(slot)`.
 4. Client sees `phase==='playing'` in `room` -> `Game.start(seed, mp)` (level0) or `startPool`/`buildPool` (pool caps).
 5. Tick: server `match.tick` (entities) + `roundTick` (mission progress, drop TTL); `checkOver`. Mission done -> elevator opens client-side (`Items.ready`); player walks in -> `ascend(inv)`.
@@ -106,10 +106,10 @@ Never trust client-sent `hp`, `hiding` without niche, `inv` beyond `cap`, admin 
 
 ## 4. Client rendering notes
 
-- One `THREE.WebGLRenderer` + `EffectComposer` owned by `BackroomsGame`; modes swap `RenderPass.scene/camera` (level0 scene, waiting room scene, pool scene, run level, TV room). Always restore on exit (`endPool`, `endRun`).
+- One `THREE.WebGLRenderer` + `EffectComposer` owned by `BackroomsGame`; modes swap `RenderPass.scene/camera` (level0 scene, waiting room scene, pool scene, run level). Always restore on exit (`endPool`, `endRun`).
 - Lights are fixed in number (hemisphere + flashlight SpotLight + 4 PointLights): changing light counts recompiles every material. Level0 light is baked in `lightmap.ts`. Don't add real lights per object; use additive cones (see `remote.ts` beam) or shader tricks.
 - Level0 geometry is instanced (4 drawings for walls etc.). Poolrooms geometry is merged per material (about 6 meshes), one planar `Reflector` for all water.
-- Quality: `opts.low` (touch devices or `?low`), `settings.resScale`, GTAO and SMAA are enabled only inside the Poolrooms (`poolFx`); `adminPerf('ao'|'smaa'|'sun')` toggles them. Shader compile is throttled by `compile.ts`/`still.ts` (Firefox stalls without parallel compile).
+- Quality: `opts.low` (touch devices or `?low`), `settings.resScale`, GTAO and SMAA are enabled only inside the Poolrooms (`poolFx`); `adminPerf('ao'|'smaa'|'sun')` toggles them. Shader compile is throttled by `compile.ts`/`still.ts` (Firefox stalls without parallel compile). SETTINGS > PERFORMANCE groups the knobs for slow computers: `quality` (GRAPHICS; `Backrooms.tsx` turns it into `opts.low`), `shadows`, `bloom` (live), `fpsLimit` (`capped()` in `game.ts`), `poolAO`/`poolAA` (read in `poolFx`), `texFilter` and `resScale`. `settings.warmup` (SHADER WARM-UP: 0 lazy / 1 quick / 2 full) is read once at boot by `compile.ts`; there is no persistent shader cache on the web, see [shader-cache-escritorio.md](shader-cache-escritorio.md).
 - VHS pass is enabled only while aiming the camcorder, dying, winning, or fade-in (level0); disabled in Poolrooms.
 - Interpolation: remote players and entities render ~150 ms in the past via `interp.ts` (`delay = 1.5 intervals + 2x jitter`); sender stamps `t` (performance.now) in `PlayerState`; world snapshot `t` is server `Date.now()`.
 

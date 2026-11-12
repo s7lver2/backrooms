@@ -240,6 +240,8 @@ export interface ClientToServer {
   hit: (entityId: number) => void;
   /** Fuego amigo: el tiro del rifle dio a este compañero. */
   shoot: (playerId: string) => void;
+  /** Un disparo del rifle (dé o no a algo): las entidades lo oyen. */
+  bang: () => void;
   /** Se ha caído al vacío. */
   fell: () => void;
   chat: (text: string) => void;

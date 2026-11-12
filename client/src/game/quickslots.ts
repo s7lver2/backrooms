@@ -5,7 +5,8 @@ import { AMMO_PACK } from '@backrooms/shared';
 /*
  * La barra de acceso rápido: 4 ranuras (teclas 1–4; la rueda cambia la elegida, X usa la elegida) con el id de un objeto.
  * Para añadir uno (cinta de acordonar, radar...) basta una entrada en HOT: cómo se llama, su icono, si se tiene, cuántos hay
- * y qué pasa al usarlo (`use`) o al elegirlo con la rueda (`pick`, opcional: equipar sin más).
+ * y qué pasa al usarlo (`use`: sacarlo, o guardarlo si ya está en la mano) y cómo se sabe que está en la mano (`held`). Es la parte de cliente de la
+ * ficha de cada objeto (ITEMS, en shared/missions.ts).
  */
 
 export const HOT_SLOTS = 4;
@@ -42,8 +43,8 @@ export interface HotDef {
   count?(o: Own): number;
   /** Lo que pasa al usarlo (número de la ranura, X, clic en la barra). */
   use(p: Player): void;
-  /** Lo que pasa al dejarlo elegido con la rueda. */
-  pick?(p: Player): void;
+  /** ¿Está ya en la mano? (elegir su ranura con la rueda lo saca si no lo está) */
+  held(p: Player): boolean;
   /** Una línea para el detalle. */
   info: string;
 }
@@ -55,7 +56,7 @@ const gear = (g: 'camera' | 'gun', name: string, info: string): HotDef => ({
   frac: g === 'camera' ? (o) => o.battery : (o) => o.ammo / AMMO_PACK,
   info,
   use: (p) => (p.hand === g ? p.hold('none') : void p.place('right', g)),
-  pick: (p) => p.hand !== g && void p.place('right', g),
+  held: (p) => p.hand === g,
 });
 
 export const HOT: Record<string, HotDef> = {
@@ -67,6 +68,7 @@ export const HOT: Record<string, HotDef> = {
     have: (o) => o.caution,
     frac: (o) => o.tape,
     use: (p) => p.equipGadget('caution'),
+    held: (p) => p.gadget === 'caution',
     info: 'Click the floor to mark where the tape starts, click again for where it ends. Right click cancels. G on a tape peels it off.',
   },
   radar: {
@@ -74,6 +76,7 @@ export const HOT: Record<string, HotDef> = {
     icon: 'radar',
     have: (o) => o.radar,
     use: (p) => p.equipGadget('radar'),
+    held: (p) => p.gadget === 'radar',
     info: 'A hologram over the device shows where your teammates are. There is only one on the map.',
   },
   totem: {
@@ -82,6 +85,7 @@ export const HOT: Record<string, HotDef> = {
     have: (o) => o.totem > 0,
     count: (o) => o.totem,
     use: (p) => p.equipGadget('totem'),
+    held: (p) => p.gadget === 'totem',
     info: 'Take it in hand and click to bring back a fallen teammate. They have to run for their life first.',
   },
   watergun: {
@@ -90,7 +94,7 @@ export const HOT: Record<string, HotDef> = {
     have: (o) => !!o.watergun,
     frac: (o) => o.squirt,
     use: (p) => (p.hand === 'watergun' ? p.hold('none') : p.hold('watergun')), // (en las Poolrooms la saca PoolLevel, ver Game.poolHot)
-    pick: (p) => p.hand !== 'watergun' && p.hold('watergun'),
+    held: (p) => p.hand === 'watergun',
     info: 'Hold the left click to spray. Hold G at a drinking fountain in the Poolrooms to refill it; it cannot be refilled in the Backrooms.',
   },
   water: {
@@ -99,6 +103,7 @@ export const HOT: Record<string, HotDef> = {
     have: (o) => o.water > 0,
     count: (o) => o.water,
     use: (p) => p.equipWater(),
+    held: (p) => p.prop === 'water',
     info: 'Take it in hand, then hold the key (or the left click) for half a second to drink. Restores stamina and sanity.',
   },
 };

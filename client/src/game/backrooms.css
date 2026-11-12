@@ -46,12 +46,6 @@
 
 /* la carga: como el arranque de un juego de disquete, arriba a la izquierda (se ve en la tele; esto,
    para lectores de pantalla) */
-.br-load { position: absolute; inset: 0; padding: clamp(28px, 8vh, 72px) var(--br-gut); display: flex; flex-direction: column; gap: 14px; font-size: 16px; line-height: 1.4; }
-.br-load__head { font-size: 22px; margin-bottom: 18px !important; }
-.br-load__bar { display: flex; gap: 3px; margin-top: 10px; }
-.br-load__bar i { width: 14px; height: 18px; background: #1d1d1a; }
-.br-load__bar i[data-on] { background: var(--br-ink); }
-.br-load__pct { color: var(--br-dim); white-space: pre; }
 .br-sr { position: absolute !important; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
 
 /* el menú: la pantalla de un vídeo sintonizado en el canal 3, con la nieve detrás: el canal arriba a
@@ -431,9 +425,22 @@
 .br-meter { font-size: clamp(14px, 2.2vw, 30px); letter-spacing: 0.02em; line-height: 1.1; word-break: break-all; }
 .br-big { font-size: 1.5em; letter-spacing: 0.06em; line-height: 1.3; }
 .br-big__s { font-size: 0.6em; }
-.br-fovprev { width: min(100%, 22em); height: auto; color: var(--br-ink); }
-.br-tape-prev { --a: 1; position: relative; width: 100%; aspect-ratio: 4 / 3; max-height: 11em; display: flex; justify-content: space-between; align-items: flex-start; padding: 0.6em 0.8em; border: 2px solid var(--br-ink); background: #222120 repeating-linear-gradient(0deg, rgba(0, 0, 0, calc(0.45 * var(--a))) 0 1px, transparent 1px 3px); text-shadow: calc(2px * var(--a)) 0 rgba(255, 60, 60, calc(0.7 * var(--a))), calc(-2px * var(--a)) 0 rgba(60, 200, 255, calc(0.5 * var(--a))); }
-.br-tape-prev::after { content: ''; position: absolute; left: 0; right: 0; top: 58%; height: 1.3em; background: rgba(242, 241, 234, calc(0.14 * var(--a))); }
+/* el monitor de la camcorder: la vista previa de los ajustes que se ven (Settings.tsx). --a: cuánta cinta */
+.br-set2__prev:has(.br-mon) { flex-direction: column; align-items: flex-start; justify-content: center; gap: 0.7em; }
+.br-mon { --a: 1; position: relative; flex: none; width: min(100%, 17em); aspect-ratio: 4 / 3; overflow: hidden; border: 2px solid var(--br-ink); background: #000; }
+.br-mon svg { display: block; width: 100%; height: 100%; scale: 1.08; }
+.br-mon[data-sway] svg { animation: br-mon-sway 3.4s ease-in-out infinite; }
+@keyframes br-mon-sway { 0%, 100% { transform: translate(-1.6%, 0.9%) rotate(-0.7deg); } 50% { transform: translate(1.6%, -0.9%) rotate(0.7deg); } }
+.br-mon::before { content: ''; position: absolute; inset: 0; z-index: 1; pointer-events: none; background: repeating-linear-gradient(0deg, rgba(0, 0, 0, calc(0.4 * var(--a))) 0 1px, transparent 1px 3px); }
+.br-mon::after { content: ''; position: absolute; left: 0; right: 0; top: -14%; z-index: 1; height: 12%; pointer-events: none; background: rgba(242, 241, 234, calc(0.16 * var(--a))); animation: br-mon-track 4s linear infinite; }
+@keyframes br-mon-track { to { top: 112%; } }
+.br-mon__osd { position: absolute; inset: 0.5em 0.7em auto; z-index: 2; display: flex; justify-content: space-between; font-size: 0.7em; pointer-events: none; text-shadow: calc(2px * var(--a)) 0 rgba(255, 60, 60, calc(0.8 * var(--a))), calc(-2px * var(--a)) 0 rgba(60, 200, 255, calc(0.6 * var(--a))), var(--br-shadow); }
+.br-mon__foot { position: absolute; left: 0.7em; right: 0.7em; bottom: 0.5em; z-index: 2; font-size: 0.7em; }
+.br-mon__win { position: absolute; inset: 0 0 auto; z-index: 3; display: flex; justify-content: space-between; padding: 0.1em 0.5em; font-size: 0.65em; background: var(--br-ink); color: #000; text-shadow: none; }
+.br-mon__rec { color: var(--br-rec); animation: br-rec 1s steps(1) infinite; }
+.br-mon__pip { position: absolute; left: 0; bottom: 7%; z-index: 2; width: 6%; aspect-ratio: 1; background: var(--br-ink); animation: br-mon-pip 1.2s linear infinite; }
+@keyframes br-mon-pip { to { left: 94%; } }
+@media (prefers-reduced-motion: reduce) { .br-mon[data-sway] svg, .br-mon::after, .br-mon__rec { animation: none; } }
 @media (min-width: 1600px) { .br-set2 { font-size: 1.3em; } .br-rooms { font-size: 1.15em; } }
 .br-fps { position: absolute; top: 8px; right: 12px; z-index: 30; margin: 0; font-size: 14px; letter-spacing: 0.1em; text-shadow: 1px 1px 0 #000; pointer-events: none; }
 @media (max-width: 760px) { .br-set2 { grid-template-columns: 1fr; grid-template-rows: none; height: auto; } .br-set2__side { border-left: 0; border-top: 2px solid var(--br-ink); padding: 12px 0 0; } .br-rooms__row { grid-template-columns: 3.5em minmax(0, 1fr) 4em; } .br-rooms__row > :nth-child(3), .br-rooms__row > :nth-child(4), .br-rooms__row > :nth-child(6) { display: none; } }
@@ -500,6 +507,26 @@
 @keyframes br-ld-jit { 0%, 93%, 96%, 100% { transform: none; } 94% { transform: translateX(6px); } 95% { transform: translateX(-4px) skewX(2deg); } }
 @keyframes br-ld-in { from { opacity: 0; } to { opacity: 1; } }
 @media (prefers-reduced-motion: reduce) { .br-ld, .br-ld__track, .br-ld__tip { animation: none; } .br-ld__track { display: none; } }
+/* la carga inicial (BootLoading.tsx): sobre negro liso, centrada, lo mínimo; si tarda, una alerta */
+.br-boot { position: absolute; inset: 0; z-index: 4; display: flex; align-items: center; justify-content: center; padding: 24px; font-size: clamp(13px, 1.4vw, 18px); }
+/* sobre una partida que aún se está armando: tapa el HUD */
+.br-boot[data-over] { z-index: 50; background: #000; }
+.br-boot[data-over], .br-boot[data-over] * { cursor: var(--br-wait, progress); }
+.br-boot__box { width: min(30em, 100%); display: flex; flex-direction: column; align-items: stretch; gap: clamp(12px, 2.2vh, 20px); text-align: center; }
+.br-boot__title { margin: 0 0 0.4em; font-size: clamp(28px, 5vw, 56px); font-weight: 800; letter-spacing: 0.14em; line-height: 1; text-shadow: 3px 3px 0 #000; }
+.br-boot__bar { display: flex; gap: 3px; }
+.br-boot__bar i { flex: 1; min-width: 0; height: 1.2em; background: #1d1d1a; }
+.br-boot__bar i[data-on] { background: var(--br-ink); }
+.br-boot__bar i[data-live] { background: var(--br-dim); animation: br-rec 0.8s steps(1) infinite; }
+.br-boot__row { display: flex; justify-content: space-between; gap: 1em; text-align: left; font-variant-numeric: tabular-nums; }
+.br-boot__row span:last-child { white-space: pre; }
+.br-boot__note { margin: 0; color: var(--br-dim); font-size: 0.8em; }
+.br-boot__alert { display: flex; flex-direction: column; align-items: center; gap: 8px; margin-top: 4px; color: var(--br-rec); }
+.br-boot__alert p { margin: 0; }
+.br-boot__alert small { color: var(--br-dim); font-size: 0.8em; }
+.br-boot__btn { margin-top: 4px; padding: 0.35em 1.1em; color: var(--br-ink); font: inherit; letter-spacing: inherit; text-shadow: inherit; text-transform: inherit; background: none; border: 2px solid currentColor; }
+.br-boot__btn:hover, .br-boot__btn:focus-visible { background: var(--br-ink); color: #000; text-shadow: none; outline: none; }
+@media (prefers-reduced-motion: reduce) { .br-boot__bar i[data-live] { animation: none; } }
 
 /* la tienda del ordenador: filas con raya, sin cajas */
 .br-shop { flex: 1 1 0; min-height: 0; display: flex; flex-direction: column; gap: 0.7em; overflow-y: auto; }

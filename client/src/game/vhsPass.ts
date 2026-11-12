@@ -31,7 +31,6 @@ export const FilmShader = {
       vec2 sh = vec2(uVhs * 1.6 / uRes.x, 0.0);
       vec3 col = vec3(texture2D(tDiffuse, uv + off + sh).r, texture2D(tDiffuse, uv).g, texture2D(tDiffuse, uv - off - sh).b);
       float l = dot(col, vec3(0.3, 0.59, 0.11));
-      col *= 1.0 - uVhs * 0.07 * (0.5 + 0.5 * sin(vUv.y * uRes.y * 1.5)); // líneas de barrido
       col = mix(col, vec3(l), mad * 0.6);
       float g = hash(floor(vUv * uRes) + floor(uTime * 24.0) * uMove * 13.7) - 0.5;
       col += g * (0.07 + 0.08 * mad + 0.05 * uVhs) * (1.0 - 0.5 * l);
@@ -123,7 +122,7 @@ export const VhsShader = {
       col += step(0.9985, hash(vec2(row, t * 0.7))) * step(0.6, hash(vec2(floor(vUv.x * 7.0), t + row))) * 0.45 * uMove;
       col = mix(col, vec3(g), smoothstep(0.55, 1.0, uCorrupt) * 0.9);
       // líneas de barrido, la banda más clara y el viñeteado
-      col *= 0.94 - 0.05 * uPool + (0.06 + 0.08 * uPool) * sin(vUv.y * uRes.y * 1.5);
+      col *= 0.94 + 0.06 * (1.0 - uPool) * sin(vUv.y * uRes.y * 1.5); // las líneas del barrido (en las Poolrooms, ninguna)
       col += band * 0.06;
       vec2 v = vUv - 0.5;
       col *= 1.0 - dot(v, v) * 0.9;

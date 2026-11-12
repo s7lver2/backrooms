@@ -100,6 +100,12 @@ export class Player {
   jetting = false;
   /** La barra de las Poolrooms la lleva PoolLevel: allí esta pistola no se saca. */
   poolMode = false;
+  /** Poolrooms: lo que PoolLevel dice del cuerpo este fotograma (velocidad real, en el aire, velocidad vertical). */
+  ext?: { speed: number; air: boolean; vy: number };
+  /** Cuánto baja la vista el agachado ahora (m): quien le da la altura de la cámara lo suma para no bajarla dos veces. */
+  get duckLift() {
+    return this.duckD * this.duckK;
+  }
   /** La bombona de buceo puesta en la espalda (si se tiene): se puede guardar en la mochila. */
   tankOn = true;
   get tankWorn() {
@@ -148,6 +154,8 @@ export class Player {
   private recoil = 0;
   /** El jugador ya no manda (muerto, en el ascensor): solo se pinta. */
   frozen = false;
+  /** Con `frozen`: sí se puede mirar alrededor (dentro del ascensor en marcha). */
+  lookFree = false;
   /** Le ha pillado una entidad: el cuerpo cae (y la cámara ya no es suya: la lleva game.ts). */
   dead = false;
   private deadT = 0;
@@ -257,7 +265,7 @@ export class Player {
       this.reachAt = undefined;
       return this.fall(dt);
     }
-    if (this.frozen) c = { ...c, move: new THREE.Vector2(), look: new THREE.Vector2(), jump: false, flash: false, swap: false, slot: -1, wheel: 0, use: false, aim: false };
+    if (this.frozen) c = { ...c, move: new THREE.Vector2(), look: this.lookFree ? c.look : new THREE.Vector2(), jump: false, flash: false, swap: false, slot: -1, wheel: 0, use: false, aim: false };
     const hs = this.hideState;
     if (hs !== 'out') c = { ...c, move: new THREE.Vector2(), jump: false, flash: false, swap: false, aim: false, run: false };
     // mirar por la cámara: se sube al ojo, la vista se cierra y, ya arriba, se mira a través (el modelo se esconde)
@@ -308,7 +316,7 @@ export class Player {
     this.stamina = THREE.MathUtils.clamp(this.stamina + dt * (run ? -1 / 9 : moving ? 1 / 6 : 1 / 4), 0, 1);
     if (this.stamina <= 0) this.winded = true;
     else if (this.stamina > 0.3) this.winded = false;
-    const speed = moving ? (run ? RUN : WALK) * Math.min(1, c.move.length()) * this.speedMul * (this.duck ? 0.5 : 1) * (this.stunT > 0 ? 0 : this.wetT > 0 ? 0.5 : 1) : 0;
+    let speed = moving ? (run ? RUN : WALK) * Math.min(1, c.move.length()) * this.speedMul * (this.duck ? 0.5 : 1) * (this.stunT > 0 ? 0 : this.wetT > 0 ? 0.5 : 1) : 0;
     const f = new THREE.Vector3(-Math.sin(this.yaw), 0, -Math.cos(this.yaw)), r = new THREE.Vector3(-f.z, 0, f.x);
     const v = f.multiplyScalar(c.move.y).add(r.multiplyScalar(c.move.x));
     if (v.lengthSq() > 0) v.normalize().multiplyScalar(speed * dt);
@@ -317,10 +325,11 @@ export class Player {
     const edge = (x: number, z: number) => this.ground && !this.falling && !!this.world.pitAt?.(x, z) && !this.world.pitAt(this.pos.x, this.pos.z);
     if (this.noclip || !(this.blocked(this.pos.x + v.x, this.pos.z) || edge(this.pos.x + v.x, this.pos.z))) this.pos.x += v.x;
     if (this.noclip || !(this.blocked(this.pos.x, this.pos.z + v.z) || edge(this.pos.x, this.pos.z + v.z))) this.pos.z += v.z;
+    if (this.poolMode && this.ext) speed = this.ext.speed; // (Poolrooms: la velocidad real de PoolLevel, para que el Animator case los pasos)
     this.speed = speed;
 
     // saltar y caer: sobre un hueco no hay suelo
-    if (this.poolMode) (this.velY = 0), (this.ground = true), (this.falling = false); // (en las Poolrooms la altura la pone PoolLevel: aquí no hay suelo en 0, y la gravedad hacía temblar el cuerpo en el agua)
+    if (this.poolMode) (this.velY = this.ext?.vy ?? 0), (this.ground = !this.ext?.air), (this.falling = false); // (en las Poolrooms la altura la pone PoolLevel: aquí no hay suelo en 0, y la gravedad hacía temblar el cuerpo en el agua)
     else {
       if (c.jump && this.ground && !this.falling) (this.velY = JUMP * this.jumpMul), (this.ground = false);
       const floor = this.falling || this.world.voidAt(this.pos.x, this.pos.z) ? -Infinity : 0;
@@ -364,7 +373,7 @@ export class Player {
     body.visible = hk < 0.3;
     // el vaivén de una cámara de mano al andar (el cuerpo lo sigue en vertical: los hombros, y con ellos los brazos, no se mueven respecto a la vista)
     this.bob += dt * (speed > 2 ? 11 : 7) * (speed > 0 ? 1 : 0);
-    const amp = this.reduced || !this.ground ? 0 : speed > 2 ? 0.045 : speed > 0 ? 0.025 : 0;
+    const amp = this.reduced || this.poolMode || !this.ground ? 0 : speed > 2 ? 0.045 : speed > 0 ? 0.025 : 0;
     const bobY = Math.sin(this.bob * 2) * amp;
     // agachado: con el Animator la cadera ya baja con la animación (y los pies siguen en el suelo: bajar también el cuerpo los hundía); la vista baja lo mismo que ella (en reposo 0,57 m, andando 0,2), y así los hombros no se alejan de las manos
     // sin Animator (rig antiguo) el cuerpo baja casi lo que la vista
@@ -390,7 +399,7 @@ export class Player {
     this.bones.Neck?.scale.setScalar(0.5);
 
     // la cámara: los ojos, con el vaivén de una cámara de mano al andar
-    const neck = Math.sin(down * 1.45) * 0.12;
+    const neck = this.poolMode ? 0 : Math.sin(down * 1.45) * 0.12; // (en las Poolrooms la cámara es de PoolLevel y no se mueve: si el Player la adelantara, los brazos irían a otro sitio que los objetos)
     // (agachado en un nicho, algo hacia el fondo: de espaldas a la salida)
     const bx = Math.sin(this.hideYaw) * 0.32 * hk, bz = Math.cos(this.hideYaw) * 0.32 * hk;
     this.camera.position.set(this.pos.x - Math.sin(this.yaw) * neck + bx, this.pos.y + EYE - 0.5 * rk - 0.82 * hk - this.duckD * this.duckK + bobY, this.pos.z - Math.cos(this.yaw) * neck + bz);
@@ -581,7 +590,7 @@ export class Player {
 
   /** Vuelve a la partida (el Tótem de la vida): de pie en `at`, con todo lo que llevaba y la vida llena. */
   revive(at: THREE.Vector3, yaw: number) {
-    this.dead = this.frozen = this.fell = this.falling = false;
+    this.dead = this.frozen = this.lookFree = this.fell = this.falling = false;
     this.deadT = 0;
     this.hp = HP_MAX;
     this.stamina = 1;
@@ -726,13 +735,20 @@ export class Player {
   useHot(i: number) {
     const d = this.hot[i] ? HOT[this.hot[i]!] : undefined;
     if (d?.have(this.own)) d.use(this);
+    else this.empty();
   }
 
-  /** La rueda deja elegida la ranura `i` y equipa lo que se equipa solo (camcorder, rifle). */
+  /** La rueda deja elegida la ranura `i` y saca lo que hay en ella; si está vacía (o ya no se tiene), las manos quedan libres: no se queda lo de antes. */
   pickHot(i: number) {
     this.hotSel = i;
     const d = this.hot[i] ? HOT[this.hot[i]!] : undefined;
-    if (d?.have(this.own)) d.pick?.(this);
+    if (!d?.have(this.own)) this.empty();
+    else if (!d.held(this)) d.use(this);
+  }
+  /** Guarda lo de la mano derecha (lo que se saca con la barra rápida); la linterna de la izquierda sigue. */
+  empty() {
+    this.hold('none');
+    this.gadget = this.prop = 'none';
   }
 
   /** Poner `id` en la ranura `i` (o vaciarla con null); un objeto solo está en una ranura. */

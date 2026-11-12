@@ -1,6 +1,7 @@
 import { DEV_LOCAL } from '../devGate';
 import * as THREE from 'three';
 import { isStill } from './still';
+import { settings } from '../settings';
 
 /*
  * Lo que se compila de fondo (la escena siguiente) se aparta mientras alguien interactúa: cada
@@ -20,6 +21,13 @@ if (typeof window !== 'undefined' && DEV_LOCAL && new URLSearchParams(location.s
   } as typeof get;
 }
 
+/*
+ * Cuánto se precompila (ajuste SHADER WARM-UP; se lee una vez al arrancar, así que se aplica al recargar):
+ * 2 completo (todo, también lo oculto), 1 rápido (solo lo visible; lo oculto se compila al mostrarse) y
+ * 0 perezoso (nada: cada programa se compila al pintarse por primera vez, con el tirón que eso trae).
+ */
+const warmup = [0, 1, 2].includes(settings.warmup) ? settings.warmup : 2;
+
 /**
  * Compila los materiales de una escena antes de pintarla: también lo oculto (sin las luces ocultas,
  * que cambiarían la cuenta de luces) y en la variante del destino intermedio, que es donde pinta el
@@ -32,8 +40,15 @@ if (typeof window !== 'undefined' && DEV_LOCAL && new URLSearchParams(location.s
  * pintando con el mismo renderer): para el estado que la escena necesita al compilar.
  */
 export async function compileGently(r: THREE.WebGLRenderer, scene: THREE.Scene, cam: THREE.Camera, around = <T>(fn: () => T) => fn(), progress?: (f: number) => void) {
+  if (warmup === 0) {
+    progress?.(1);
+    if (DEV_LOCAL) console.info('[compile] perezoso: nada precompilado');
+    return;
+  }
+  const quick = warmup === 1;
   const hidden: THREE.Object3D[] = [], items: THREE.Object3D[] = [];
-  scene.traverse((o) => {
+  // en rápido solo lo visible: traverseVisible no entra en lo oculto, así que `hidden` se queda vacío
+  (quick ? scene.traverseVisible : scene.traverse).call(scene, (o: THREE.Object3D) => {
     if (!o.visible && !(o as THREE.Light).isLight) hidden.push(o);
     // con una luz dentro, compilarlo suelto la contaría dos veces: lo coge la pasada final
     if ((o as THREE.Mesh).material && !o.getObjectByProperty('isLight', true)) items.push(o);
@@ -68,9 +83,13 @@ export async function compileGently(r: THREE.WebGLRenderer, scene: THREE.Scene, 
       t = performance.now();
     }
   }
-  await step(() => r.compileAsync(scene, cam));
+  if (quick) {
+    // compileAsync recorrería la escena entera (también lo oculto): aquí solo se espera a los programas ya pedidos
+    const ready = (p: unknown) => (p as { isReady?: () => boolean }).isReady?.() ?? true;
+    while (!(r.info.programs ?? []).every(ready)) await new Promise((res) => setTimeout(res, 10));
+  } else await step(() => r.compileAsync(scene, cam));
   rt.dispose();
   // desarrollo: cuánto ha costado (en Firefox, sin compilación en paralelo, es casi todo bloqueo)
   if (DEV_LOCAL)
-    console.info(`[compile] ${(r.info.programs?.length ?? 0) - stat.from} programas, ${Math.round(stat.busy)} ms bloqueando, ${Math.round(performance.now() - stat.at)} ms en total (${sync ? 'sin' : 'con'} paralelo)`);
+    console.info(`[compile] ${(r.info.programs?.length ?? 0) - stat.from} programas, ${Math.round(stat.busy)} ms bloqueando, ${Math.round(performance.now() - stat.at)} ms en total (${sync ? 'sin' : 'con'} paralelo, ${quick ? 'rápido' : 'completo'})`);
 }

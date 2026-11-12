@@ -23,6 +23,7 @@ Web aparte (antes era el easter egg de `s7lver2/webpage`, que queda congelado). 
 4. **Chat** en la sala de espera y en la partida.
 5. **Niveles**: poolrooms y otros iconos (se diseñan poco a poco). Objetivo: exploración y llegar a un nivel final pasando antes por otros. Se mantiene la procedimentalidad, pero con niveles más grandes y más ricos.
 6. **Hosting gratis** para el multijugador (ver abajo).
+7. **Caché de shaders persistente** (solo en una app de escritorio, con caché de GPU propia y tamaño limitado; en la web no es posible): ver `docs/shader-cache-escritorio.md`. Ya hecho: ajuste SHADER WARM-UP (completo / rápido / perezoso).
 
 ## Notas de hosting
 - Vercel sirve bien el cliente estático, pero sus funciones no mantienen WebSockets abiertos: el servidor de salas va en otro sitio.

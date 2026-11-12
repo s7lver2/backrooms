@@ -8,7 +8,7 @@ import {
   type AdminAction, type AdminInfo, type AdminReply, type ClientToServer, type ServerToClient, type Status, type PlayerState, type Room, type RoomView, type RoomInfo, type Look, type Strip,
 } from '@backrooms/shared';
 import { Match, type Player } from './match';
-import { ACHIEVEMENT_KEYS, levelCaps, solidAt, startOffset } from '@backrooms/shared';
+import { ACHIEVEMENT_KEYS, NOISE_SHOT, NOISE_DROP, levelCaps, solidAt, startOffset } from '@backrooms/shared';
 import { allowedOrigins, handleApi, isAdminName, originOk, userFromCookie } from './auth';
 import { MONEY_LIMIT, parseAdmin } from './admin';
 import { achievementsOf, avatarRef, loadoutOf } from './db';
@@ -682,12 +682,19 @@ io.on('connection', (sock) => {
     if (!r?.match || !p || !q || q === p || r.phase !== 'playing' || p.dead || p.boarded || q.dead || q.boarded || p.st.held !== 'gun' || (q.immuneUntil ?? 0) > Date.now()) return;
     if (Date.now() - p.lastHit < 200 || Math.hypot(p.st.x - q.st.x, p.st.z - q.st.z) > 35) return;
     p.lastHit = Date.now();
+    r.match.noise(p.st.x, p.st.z, NOISE_SHOT);
     q.hp = 0;
     q.dead = true;
     r.deaths++;
     io.to(r.code).emit('dead', q.id);
     push(r);
     checkOver(r);
+  });
+
+  // el estampido de un tiro (también los que fallan): atrae a las entidades
+  sock.on('bang', () => {
+    const r = roomOf(sock.id), p = r?.players.get(sock.id);
+    if (r?.match && p && r.phase === 'playing' && !p.dead && !p.boarded && p.st.held === 'gun') r.match.noise(p.st.x, p.st.z, NOISE_SHOT);
   });
 
   sock.on('photo', () => {
@@ -817,6 +824,7 @@ io.on('connection', (sock) => {
       if (solidAt(r.match.maze, x, z)) (x = p.st.x), (z = p.st.z); // con una pared delante, a sus pies
       const id = 'd' + (++dropNo).toString(36);
       r.drops.set(id, { id, kind, x, z, by: p.id, at: now });
+      r.match.noise(x, z, NOISE_DROP);
       ok = true;
     }
     if (typeof cb === 'function') cb(ok);

@@ -43,7 +43,8 @@ Spanish source comments use some terms; this maps them to code names.
 | drop | item thrown on the ground with Y (ids `d*`, TTL 300 s) |
 | waiting room / WaitingRoom | 6x5 m 3D lobby with computer, button, door, armchairs (`waiting.ts`) |
 | computer | in the waiting room: shop + wardrobe (`Computer.tsx`, `Shop.tsx`) |
-| door / "dive into TV" | intro transitions (`tvRoom.ts`, `diveIntoTv`, waiting door) |
+| door | intro transition of the waiting room (the old "dive into TV" intro, `tvRoom.ts`, was replaced by the 2D loading screen) |
+| loading screen | `Loading.tsx`: 2D VHS OSD between screens. At boot, `BootLoading.tsx` (centred, flat black, no snow) shows the real progress of `BackroomsGame.load` (phases in `LOAD_PHASES`: models, geometry, shaders, menu tapes) and warns when it is slow or stalled |
 | look / loadout / cosmetic | avatar colour + hat + backpack; account loadout stored server-side |
 | VHS / film pass | post-processing shaders (`vhsPass.ts`) |
 | composer | `EffectComposer` owned by `BackroomsGame` |

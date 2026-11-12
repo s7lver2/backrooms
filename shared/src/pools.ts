@@ -55,8 +55,8 @@ export interface PoolTube {
   /** Recorrido recto (90°/45°) hasta la entrada del serpentín, que es el último punto. */
   pts: [number, number, number][];
   /** El serpentín de llegada: eje, sentido de entrada (cardinal) y altura del centro del tubo en su base. */
-  coil: { x: number; z: number; dx: number; dz: number; yEnd: number; /** largo del tramo recto tras el serpentín: acaba empotrado en una pared */ tail?: number };
-  /** Punto empotrado en la pared que hay tras la boca (la boca se alarga hasta ahí, así su abertura nunca queda al aire). */
+  coil: { x: number; z: number; dx: number; dz: number; yEnd: number; /** largo del tramo recto tras el serpentín: acaba abierto, con sitio libre delante */ tail?: number; /** vueltas del serpentín (2–5; sin dato, COIL.turns) */ turns?: number };
+  /** Punto empotrado en la pared que hay tras la boca (la boca se alarga hasta ahí); sin él, la boca se abre en el borde de la galería. */
   back?: [number, number, number];
 }
 /** Una planta: los mismos arrays que la baja (w*h). En `PoolMap.up`: `kind` PK.wall = macizo, salvo que debajo haya suelo y `PoolMap.ceil[i] >= PY.tall` (entonces es un HUECO abierto a la baja). */
@@ -165,21 +165,6 @@ export function poolFloorY(m: PoolMap, x: number, z: number, y: number): { y: nu
   return best ?? low;
 }
 
-/**
- * Túnel sin fondo: si (x, z, y) (metros; y = pies) está dentro de una boca (a menos de 0,8 m sobre su fondo, o 0,3 bajo él), devuelve dónde aparece
- * en la pareja (misma posición relativa en la boca, 1,0 m sobre el fondo para no re-disparar) y su capa; si no, null.
- */
-export function poolPortalAt(m: PoolMap, x: number, z: number, y: number): { x: number; z: number; y: number; layer: 0 | 1 } | null {
-  const cx = Math.floor(x / POOL_CELL), cy = Math.floor(z / POOL_CELL);
-  for (const p of m.portals) for (const [s, o] of [[p.a, p.b], [p.b, p.a]] as const) {
-    if (cx < s.x || cx > s.x + 1 || cy < s.y || cy > s.y + 1) continue;
-    const fy = (s.layer ? m.up : m).ya[s.y * m.w + s.x];
-    if (y > fy + 0.8 || y < fy - 0.3) continue;
-    return { x: (o.x + x / POOL_CELL - s.x) * POOL_CELL, z: (o.y + z / POOL_CELL - s.y) * POOL_CELL, y: (o.layer ? m.up : m).ya[o.y * m.w + o.x] + 1.0, layer: o.layer };
-  }
-  return null;
-}
-
 interface Node {
   x: number;
   y: number;
@@ -190,7 +175,35 @@ interface Node {
   room?: PoolRoom;
 }
 
+/**
+ * Lo bueno que ha salido un mapa (1 = vale): a veces un pasillo no cabe y media planta queda aislada (y se poda), el cruce central se come casi todas
+ * las salas, no sale planta alta o no hay túneles sin fondo ni toboganes. Cada criterio puntúa 0–1 y cuenta el peor.
+ */
+function poolQuality(m: PoolMap) {
+  const N = m.w * m.h;
+  let lo = 0, hi = 0;
+  for (let i = 0; i < N; i++) (lo += m.reach[0][i]), (hi += m.reach[1][i]);
+  const live = m.rooms.filter((r) => { for (let y = r.y; y < r.y + r.h; y++) for (let x = r.x; x < r.x + r.w; x++) if (m.reach[0][y * m.w + x]) return true; return false; }).length;
+  return Math.min(1, lo / 1800, hi / 400, live / 6, m.portals.length ? 1 : 0.5, m.tubes.length > 1 ? 1 : m.tubes.length ? 0.95 : 0.85, m.start.x === m.exit.x && m.start.y === m.exit.y ? 0 : 1);
+}
+
+/**
+ * El mapa de una semilla: se generan candidatos (la semilla y derivadas de ella, siempre las mismas) hasta que uno vale; si ninguno de 16, el mejor.
+ * Sigue siendo puro: la misma semilla da el mismo mapa en el servidor y en cada cliente. El último se guarda: poolMaze y el cliente piden el mismo.
+ */
+let lastPool: { seed: number; m: PoolMap } | undefined;
 export function generatePools(seed: number): PoolMap {
+  if (lastPool?.seed === seed) return lastPool.m;
+  let best: PoolMap | undefined, bs = -1;
+  for (let k = 0; k < 16 && bs < 1; k++) {
+    const m = buildPools(k ? (seed ^ Math.imul(k, 0x9e3779b1)) >>> 0 : seed), q = poolQuality(m);
+    if (q > bs) (best = m), (bs = q);
+  }
+  lastPool = { seed, m: best! };
+  return best!;
+}
+
+function buildPools(seed: number): PoolMap {
   const rnd = mulberry32(seed ^ 0x9001),
     int = (a: number, b: number) => a + Math.floor(rnd() * (b - a + 1)),
     W = 64,
@@ -269,8 +282,8 @@ export function generatePools(seed: number): PoolMap {
     if (c) (c.type = 'showers'), (c.light = 0.45), (c.sun = false);
   }
 
-  // al menos dos salas altas (los toboganes unen torres con serpentines de llegada)
-  for (let n = rooms.filter((r) => r.tall).length; n < 2; n++) {
+  // al menos tres salas altas (los toboganes unen torres con serpentines de llegada)
+  for (let n = rooms.filter((r) => r.tall).length; n < 3; n++) {
     const c = rooms.filter((r) => !r.tall && (r.type === 'pool' || r.type === 'hall') && r.w >= 14 && r.h >= 15).sort((a, b) => b.w * b.h - a.w * a.h)[0];
     if (!c) break;
     c.tall = true;
@@ -565,7 +578,6 @@ export function generatePools(seed: number): PoolMap {
   const m: PoolMap = { w: W, h: H, kind, water, ya, yb, ceil, ramp, dir, tun, vax, voff, up, reach: [new Uint8Array(W * H), new Uint8Array(W * H)], swim: [new Uint8Array(W * H), new Uint8Array(W * H)], portals: [], tubes: [], refills: [], refillsUp: [], start, exit: start, rooms, lamps: [], lampsUp: [], windows: [], columns };
   const N = W * H, STEP = PY.up / 8, lay = (l: number): PoolLayer => (l ? up : m), orig = ceil.slice();
   const hubI = hub ? rooms.indexOf(hub) : -1, ru = mulberry32(seed ^ 0x2f10), ri2 = (a: number, b: number) => a + Math.floor(ru() * (b - a + 1));
-  const hole = (i: number) => ((up.kind[i] = PK.wall), (up.water[i] = 0), (ceil[i] = PY.tall)); // hueco del forjado
   const upFloor = (i: number) => ((up.kind[i] = PK.floor), (up.water[i] = 0), (up.ya[i] = up.yb[i] = PY.up), (up.ramp[i] = 0));
   const upPools: { rim: number[]; core: number[] }[] = [];
   // La planta alta es INDEPENDIENTE de la baja: piezas propias (salas, anillos, lounges, pasarelas) con su forma, repartidas por el mapa y ancladas a las
@@ -577,28 +589,30 @@ export function generatePools(seed: number): PoolMap {
     if (r?.tall || (hubI >= 0 && roomAt[k] === hubI && Math.hypot(i + 0.5 - (HUB.x + HR), j + 0.5 - (HUB.y + HR)) < 5.5)) noUp[k] = 1;
     else if (kind[k] === PK.floor && ceil[k] > 5 && ceil[k] < 8) for (let b = -1; b <= 1; b++) for (let a = -1; a <= 1; a++) if (inb(i + a, j + b)) noUp[at(i + a, j + b)] = 1;
   }
-  /** Suelo en la alta; sobre el agua de una piscina, hueco (se ve desde arriba) salvo en pasarelas (`bridge`). */
-  const put = (k: number, bridge = false) => {
+  /** Suelo en la alta (también sobre las piscinas de abajo: el forjado es cerrado, sin atrios; el único hueco es el de cada escalera). */
+  const put = (k: number) => {
     if (noUp[k] || lock[k] || up.kind[k] === PK.floor || ramp[k]) return;
-    if (!bridge && kind[k] === PK.floor && (water[k] === 2 || (rooms[roomAt[k]]?.type === 'pool' && water[k]))) hole(k);
-    else upFloor(k);
+    upFloor(k);
   };
-  /** Formas: 0 rect, 1 óvalo, 2 anillo (con atrio), 3 L, 4 cruz, 5 nave larga, 6 lounge (con piscina elevada). */
+  /**
+   * La planta alta es un conjunto de SALAS cerradas (como la baja, sin laberinto): rectángulos de 6–11 celdas, alguno en L y algún lounge con piscina elevada,
+   * unidos por pasillos de 2 o 3 celdas abiertos en el macizo, o pegados y fundidos en una sala mayor. Formas: 0 rect, 3 L, 6 lounge (con piscina elevada).
+   */
   type Meta = { cx: number; cy: number; w: number; h: number; sh: number };
   const metas: Meta[] = [];
   const piece = (cx: number, cy: number, w: number, h: number, sh: number) => {
-    const x0 = cx - (w >> 1), y0 = cy - (h >> 1), court: number[] = [], cells: number[] = [];
+    const x0 = cx - (w >> 1), y0 = cy - (h >> 1), cells: number[] = [];
     for (let j = 0; j < h; j++) for (let i = 0; i < w; i++) {
       if (!inb(x0 + i, y0 + j)) continue;
       const u = ((i + 0.5) / w) * 2 - 1, v = ((j + 0.5) / h) * 2 - 1, c = Math.abs(u) < 0.45 && Math.abs(v) < 0.45;
       const inside = sh === 1 ? u * u + v * v <= 1.02 : sh === 2 ? !c : sh === 3 ? !(u > 0.1 && v > 0.1) : sh === 4 ? Math.abs(u) < 0.4 || Math.abs(v) < 0.4 : true;
-      (inside ? cells : court).push(at(x0 + i, y0 + j));
+      if (inside) cells.push(at(x0 + i, y0 + j));
     }
     cells.forEach((k) => put(k));
-    if (sh === 2) court.forEach((k) => { if (up.kind[k] !== PK.floor && !noUp[k] && !lock[k] && kind[k] === PK.floor && !ramp[k]) hole(k); });
     metas.push({ cx, cy, w, h, sh });
   };
-  const size = (sh: number): [number, number] => (sh === 5 ? (ru() < 0.5 ? [ri2(18, 28), ri2(7, 9)] : [ri2(7, 9), ri2(18, 28)]) : [ri2(9, 20), ri2(9, 20)]);
+  const size = (sh: number): [number, number] => (sh === 6 ? [ri2(11, 13), ri2(11, 13)] : [ri2(6, 11), ri2(6, 11)]);
+  const shape = () => { const v = ru(); return v < 0.2 ? 6 : v < 0.4 ? 3 : 0; };
   const hAt = (i: number) => (ramp[i] === PR.stairs ? (ya[i] + yb[i]) / 2 : ya[i]);
   const groundReach = () => { // celdas de suelo alcanzables a pie desde el inicio en la planta baja (sin nadar por agua honda)
     const seen = new Uint8Array(N), stack = [at(start.x, start.y)];
@@ -629,6 +643,11 @@ export function generatePools(seed: number): PoolMap {
     for (let k = 0; k < 8 && ok; k++) {
       const i = at(x0 + dx * k, y0 + dy * k), r = rooms[roomAt[i]];
       if (!r || r.tall || r.type === 'hub' || kind[i] !== PK.floor || water[i] || ya[i] !== PY.deck || yb[i] !== PY.deck || ramp[i] || tun[i] || vax[i]) ok = false;
+      // a cada lado, pared o cubierta seca y llana: una escalera pegada al agua, a los peldaños de una piscina o a un pilar los atravesaba
+      for (const sg of [-1, 1]) {
+        const sx = x0 + dx * k + dy * sg, sy = y0 + dy * k + dx * sg, j = inb(sx, sy) ? at(sx, sy) : -1;
+        if (j < 0 || (kind[j] === PK.wall ? tun[j] : kind[j] !== PK.floor || water[j] || ramp[j] || ya[j] !== PY.deck || vax[j])) ok = false;
+      }
     }
     if (ok) strips.push({ i: at(x0, y0), d });
   }
@@ -640,7 +659,7 @@ export function generatePools(seed: number): PoolMap {
     const idx = Array.from({ length: 8 }, (_, k) => at(x0 + dx * k, y0 + dy * k));
     if (idx.some((k) => usedS.has(k)) || landings.some((o) => Math.abs(o.x - lx) + Math.abs(o.y - ly) < 14)) continue;
     const snap = idx.map((k) => [k, ya[k], yb[k], ramp[k], dir[k], ceil[k], up.kind[k]]);
-    idx.forEach((k, n) => ((ya[k] = n * STEP), (yb[k] = (n + 1) * STEP), (ramp[k] = PR.stairs), (dir[k] = s.d), (ceil[k] = PY.tall), (up.kind[k] = PK.wall)));
+    idx.forEach((k, n) => ((ya[k] = n * STEP), (yb[k] = (n + 1) * STEP), (ramp[k] = PR.stairs), (dir[k] = s.d), (ceil[k] = n < 3 ? ceil[k] : PY.tall), (up.kind[k] = PK.wall))); // (los tres primeros peldaños caben bajo el techo: el hueco del forjado empieza después)
     const rn = groundReach();
     if (rn < reachNow) { snap.forEach(([k, a, b, r, d, c, u]) => ((ya[k] = a), (yb[k] = b), (ramp[k] = r), (dir[k] = d), (ceil[k] = c), (up.kind[k] = u))); continue; }
     reachNow = rn;
@@ -651,15 +670,15 @@ export function generatePools(seed: number): PoolMap {
   for (const l of landings) {
     const dx = PDIRS[l.d][0], dy = PDIRS[l.d][1], pad: number[] = [];
     for (let a = 0; a < 3; a++) for (let b = -1; b <= 1; b++) { const x = l.x + dx * a + dy * b, y = l.y + dy * a + dx * b; if (inb(x, y)) pad.push(at(x, y)); }
-    pad.forEach((k) => put(k, true));
+    pad.forEach((k) => put(k));
     pad.forEach((k) => (lock[k] = 1));
-    const sh = ri2(0, 6), [w, h] = size(sh), off = ri2(2, 7), side = ri2(-3, 3);
+    const sh = shape(), [w, h] = size(sh), off = ri2(2, 6), side = ri2(-3, 3);
     piece(Math.max(4, Math.min(W - 5, l.x + dx * off + dy * side)), Math.max(4, Math.min(H - 5, l.y + dy * off + dx * side)), w, h, sh);
   }
   // piezas sueltas (sin escalera propia): se unen a la más cercana por una pasarela de 3 celdas, o se quedan fuera
-  for (let n = 3 + ri2(0, 3), tries = 0; n > 0 && tries < 60; tries++) {
-    const sh = ri2(0, 6), [w, h] = size(sh), cx = ri2(6, W - 7), cy = ri2(6, H - 7);
-    if (metas.some((o) => Math.max(Math.abs(o.cx - cx), Math.abs(o.cy - cy)) < 9)) continue;
+  for (let n = 7 + ri2(0, 4), tries = 0; n > 0 && tries < 160; tries++) {
+    const sh = shape(), [w, h] = size(sh), cx = ri2(6, W - 7), cy = ri2(6, H - 7);
+    if (metas.some((o) => Math.max(Math.abs(o.cx - cx), Math.abs(o.cy - cy)) < 8)) continue;
     let free = 0;
     for (let j = 0; j < h; j++) for (let i = 0; i < w; i++) { const x = cx - (w >> 1) + i, y = cy - (h >> 1) + j; if (inb(x, y) && !noUp[at(x, y)]) free++; }
     if (free < w * h * 0.6) continue;
@@ -668,34 +687,33 @@ export function generatePools(seed: number): PoolMap {
   }
   for (let a = 1; a < metas.length; a++) {
     const A = metas[a], q = metas.slice(0, a).sort((p, r) => Math.abs(p.cx - A.cx) + Math.abs(p.cy - A.cy) - Math.abs(r.cx - A.cx) - Math.abs(r.cy - A.cy))[0];
+    const wide = ru() < 0.5 ? 1 : 0; // el pasillo: de 3 celdas o de 2
     for (const hFirst of [true, false]) {
       const cells: number[] = [], xr = [Math.min(A.cx, q.cx), Math.max(A.cx, q.cx)], yr = [Math.min(A.cy, q.cy), Math.max(A.cy, q.cy)];
-      for (let t = -1; t <= 1; t++) {
+      for (let t = -1; t <= wide; t++) {
         for (let x = xr[0]; x <= xr[1]; x++) cells.push(at(x, (hFirst ? A.cy : q.cy) + t));
         for (let y = yr[0]; y <= yr[1]; y++) cells.push(at((hFirst ? q.cx : A.cx) + t, y));
       }
       if (cells.some((k) => k < 0 || k >= N || (up.kind[k] !== PK.floor && (noUp[k] || lock[k] || ramp[k])))) continue;
-      cells.forEach((k) => (put(k, true), (lock[k] = 1)));
+      cells.forEach((k) => (put(k), (lock[k] = 1)));
       break;
     }
   }
-  // atrios (6x6 abiertos a la planta baja) y piscinas elevadas (borde de 0,6 m, núcleo hondo de 4x4 a 1,5 m; el techo de debajo baja a 3,0) en las piezas grandes
+  // piscinas elevadas en los lounges (borde de 0,6 m, núcleo hondo de 4x4 a 1,5 m; el techo de debajo baja a 3,0) en las piezas grandes
   for (const M of metas) {
-    if (M.w < 11 || M.h < 11 || M.sh === 2) continue;
-    const v = M.sh === 6 ? 0.5 : ru(), wins: number[] = [];
-    if (v >= 0.65) continue;
+    if (M.w < 11 || M.h < 11 || M.sh !== 6) continue;
+    const wins: number[] = [];
     for (let py = M.cy - (M.h >> 1); py <= M.cy - (M.h >> 1) + M.h - 6; py++) for (let px = M.cx - (M.w >> 1); px <= M.cx - (M.w >> 1) + M.w - 6; px++) {
       let ok = true;
       for (let j = py; j < py + 6 && ok; j++) for (let i = px; i < px + 6; i++) {
         const k = at(i, j);
-        if (!inb(i, j) || up.kind[k] !== PK.floor || lock[k] || (v < 0.25 ? kind[k] !== PK.floor || tun[k] : kind[k] === PK.column) || water[k] === 2 || ramp[k]) { ok = false; break; }
+        if (!inb(i, j) || up.kind[k] !== PK.floor || lock[k] || kind[k] === PK.column || water[k] === 2 || ramp[k]) { ok = false; break; }
       }
       if (ok) wins.push(py * W + px);
     }
     if (!wins.length) continue;
     const w0 = wins[Math.floor(ru() * wins.length)], px = w0 % W, py = (w0 / W) | 0, cells: number[] = [];
     for (let j = py; j < py + 6; j++) for (let i = px; i < px + 6; i++) cells.push(at(i, j));
-    if (v < 0.25) { cells.forEach(hole); continue; }
     const pl = { rim: [] as number[], core: [] as number[] };
     cells.forEach((k, n) => {
       const cx = n % 6, cy = (n / 6) | 0, c = cx >= 1 && cx <= 4 && cy >= 1 && cy <= 4;
@@ -746,56 +764,66 @@ export function generatePools(seed: number): PoolMap {
     if (t > tier || (t === tier && dist[i] > best)) (tier = t), (best = dist[i]), (m.exit = { x: i % W, y: (i / W) | 0 });
   }
 
-  // 7b. un tubo cerrado de la torre de cada sala alta al serpentín de llegada de la siguiente: por encima del edificio, a 90° y 45°
-  for (let ti = 0; towers.length > 1 && ti < towers.length; ti++) {
-    const t = towers[ti], r = towers[(ti + 1) % towers.length].room;
+  // 7b. tubos cerrados desde la galería de cada sala alta (uno al final y, si es larga, otro cerca de la torre) hasta un serpentín en CUALQUIER otra sala:
+  // van por encima del edificio a 90° y bajan en el último tramo. Hasta 6 por mapa.
+  const mouths = [...towers.map((t) => ({ t, z: t.z, back: true })), ...towers.filter((t) => t.gl >= 10).map((t) => ({ t, z: (t.cy + t.sv * 5 + 0.5) * POOL_CELL, back: false }))];
+  const took = new Map<PoolRoom, number>();
+  for (let ti = 0; ti < mouths.length && m.tubes.length < 6; ti++) {
+    const { t, z: tz0, back } = mouths[ti], own = rooms.indexOf(t.room);
+    // adónde llega: a las demás salas por orden, primero las que aún no tienen serpentín
+    const dests = rooms.map((_, k) => rooms[(own + 1 + k + ti) % rooms.length]).filter((d) => d !== t.room && d.type !== 'hub').sort((a, b) => (took.get(a) ?? 0) - (took.get(b) ?? 0));
     // la boca mira hacia atrás, a la pared lateral de la sala: se alarga hasta empotrarla en el muro; si ahí no hay muro macizo, sin tubo
     const wallX = (t.su > 0 ? t.cx : t.cx + 1) * POOL_CELL;
-    if (![-0.45, 0, 0.45].every((l) => kind[at(t.cx - t.su, Math.floor((t.z + l) / POOL_CELL))] === PK.wall)) continue;
-    const blocks: Cell[] = [];
+    if (back && ![-0.45, 0, 0.45].every((l) => kind[at(t.cx - t.su, Math.floor((tz0 + l) / POOL_CELL))] === PK.wall)) continue;
+    for (const r of dests) {
+    const blocks: (Cell & { fit: number })[] = [];
     for (let j = r.y + 1; j < r.y + r.h - 4; j++) for (let i = r.x + 1; i < r.x + r.w - 4; i++) {
       const k0 = at(i, j);
       let ok = ramp[k0] === 0 && ya[k0] <= 0 && water[k0] < 2;
       for (let b = 0; b < 4 && ok; b++) for (let a = 0; a < 4; a++) { const k = at(i + a, j + b); if ((kind[k] !== PK.floor && kind[k] !== PK.column) || water[k] !== water[k0] || ya[k] !== ya[k0] || ramp[k] || tun[k]) { ok = false; break; } }
-      if (ok) blocks.push({ x: i, y: j });
+      // cuántas vueltas caben bajo el techo (2–5); nada bajo una torre, galería o embarcadero
+      let cm: number = PY.tall;
+      for (let b = -1; b < 5 && ok; b++) for (let a = -1; a < 5; a++) { const k = at(i + a, j + b); cm = Math.min(cm, kind[k] === PK.wall ? cm : ceil[k]); if (up.kind[k] === PK.floor && ceil[k] >= PY.tall) ok = false; }
+      const fit = Math.min(5, Math.floor((cm - 0.15 - (ya[k0] + COIL.r * 2 + 0.02)) / (COIL.rise / 5)));
+      if (ok && fit >= 2) blocks.push({ x: i, y: j, fit });
     }
     if (!blocks.length) continue;
-    // el extremo de llegada tiene que acabar contra una pared: se descartan los bloques cuyo tramo recto final no choca con muro macizo a <= 4 celdas
+    // la salida: 2 m de tubo recto tras el serpentín, abierto, y 3 m de suelo llano y libre delante (ni pared, ni columna, ni escalón)
     const sx = t.x + t.d * 5;
     const landing = (b: Cell, a: [number, number]) => {
       const bx0 = (b.x + 2) * POOL_CELL, bz0 = (b.y + 2) * POOL_CELL, fl = ya[at(b.x, b.y)];
       const ex0 = bx0 + COIL.rho * a[1], ez0 = bz0 - COIL.rho * a[0], lat = [-0.45, 0, 0.45];
       const cellK = (x: number, z: number) => at(Math.floor(x / POOL_CELL), Math.floor(z / POOL_CELL));
-      for (let s = 0.25; s <= 6.5; s += 0.25) {
+      for (let s = 0.25; s <= 5; s += 0.25) {
         const ks = lat.map((l) => cellK(ex0 + a[0] * s - a[1] * l, ez0 + a[1] * s + a[0] * l));
-        if (ks.every((k) => kind[k] === PK.wall)) return s < 3 ? null : { a, tail: s + 0.2 };
         const inB = (k: number) => k % W >= b.x && k % W < b.x + 4 && ((k / W) | 0) >= b.y && ((k / W) | 0) < b.y + 4; // en el bloque las columnas se retiran luego
         if (!ks.every((k) => (kind[k] === PK.floor || (kind[k] === PK.column && inB(k))) && ya[k] === fl && !ramp[k] && water[k] < 2)) return null;
       }
-      return null;
+      return { a, tail: 2 };
     };
     // la ruta ortogonal solo es válida si cada tramo avanza hacia delante y mide al menos 3 m (o es nulo)
     const routeOk = (B: Cell, lnd: NonNullable<ReturnType<typeof landing>>) => {
       const bx = (B.x + 2) * POOL_CELL, bz = (B.y + 2) * POOL_CELL, ax = lnd.a, tx = bx + COIL.rho * ax[1], tz = bz - COIL.rho * ax[0], ex = tx - ax[0] * 6, ez = tz - ax[1] * 6;
       const seg = (len: number) => len === 0 || len >= 3;
-      if (ax[1] === 0) return (ex - sx) * t.d >= 3 && seg(Math.abs(ez - t.z));
-      return (tx - sx) * t.d >= 3 && seg(Math.abs(ez - t.z)) && (ez - t.z) * ax[1] >= 0;
+      if (ax[1] === 0) return (ex - sx) * t.d >= 3 && seg(Math.abs(ez - tz0));
+      return (tx - sx) * t.d >= 3 && seg(Math.abs(ez - tz0)) && (ez - tz0) * ax[1] >= 0;
     };
-    const make = (B: Cell, lnd: NonNullable<ReturnType<typeof landing>>) => {
+    const make = (B: Cell, lnd: NonNullable<ReturnType<typeof landing>>, turns: number) => {
       const bx = (B.x + 2) * POOL_CELL, bz = (B.y + 2) * POOL_CELL, floor = ya[at(B.x, B.y)];
-      const yEnd = floor + COIL.r + 0.02, yTop = yEnd + COIL.rise, y0 = PY.tower + COIL.r;
-      const dx = bx - sx, dz = bz - t.z, horiz = Math.abs(dx) >= Math.abs(dz), ax = lnd.a;
+      const yEnd = floor + COIL.r + 0.02, yTop = yEnd + (COIL.rise * turns) / 5, y0 = PY.tower + COIL.r, drop = yTop < y0 - 0.3;
+      const dx = bx - sx, dz = bz - tz0, horiz = Math.abs(dx) >= Math.abs(dz), ax = lnd.a;
       const tx = bx + COIL.rho * ax[1], tz = bz - COIL.rho * ax[0], ex = tx - ax[0] * 6, ez = tz - ax[1] * 6; // la entrada del serpentín: la tangente de la hélice mira a ax
       // solo tramos a 90° (así cruzan las paredes de frente): sale en x, y llega por x o por z
       void horiz;
-      const xy: [number, number][] = [[t.x, t.z], [sx, t.z]];
-      if (ax[1] === 0) xy.push([ex, t.z], [ex, ez], [tx, tz]);
-      else xy.push([tx, t.z], [tx, ez], [tx, tz]);
+      const xy: [number, number][] = [[t.x, tz0], [sx, tz0]];
+      if (ax[1] === 0) xy.push([ex, tz0], [ex, ez], [tx, tz]);
+      else xy.push([tx, tz0], [tx, ez], [tx, tz]);
       for (let q = xy.length - 1; q > 0; q--) if (Math.hypot(xy[q][0] - xy[q - 1][0], xy[q][1] - xy[q - 1][1]) < 0.01) xy.splice(q, 1); // sin tramos nulos
       let tot = 0;
       const cum = xy.map((p, k) => (k ? (tot += Math.hypot(p[0] - xy[k - 1][0], p[1] - xy[k - 1][1])) : 0));
-      const pts: PoolTube['pts'] = xy.map((p, k) => [p[0], y0 + (yTop - y0) * (k === 0 ? 0 : Math.min(1, Math.max(0, (cum[k] - 5) / Math.max(1, tot - 5)))), p[1]]);
-      return { pts, coil: { x: bx, z: bz, dx: ax[0], dz: ax[1], yEnd, tail: lnd.tail }, back: [wallX - t.su * 0.3, y0, t.z] as [number, number, number] };
+      // (un serpentín corto queda más bajo: el tubo va a la altura de la torre y solo baja en el último tramo, ya sobre la sala de llegada)
+      const pts: PoolTube['pts'] = xy.map((p, k) => [p[0], drop ? (k === xy.length - 1 ? yTop : y0) : y0 + (yTop - y0) * (k === 0 ? 0 : Math.min(1, Math.max(0, (cum[k] - 5) / Math.max(1, tot - 5)))), p[1]]);
+      return { pts, coil: { x: bx, z: bz, dx: ax[0], dz: ax[1], yEnd, tail: lnd.tail, turns }, back: back ? ([wallX - t.su * 0.3, y0, tz0] as [number, number, number]) : undefined };
     };
     // en planta: la ruta, el serpentín (un círculo) y la cola de salida, a puntos cada medio metro
     const plan = (tb: PoolTube) => {
@@ -815,15 +843,18 @@ export function generatePools(seed: number): PoolMap {
     // la ruta no atraviesa columnas (miden 0,6 m de radio y llegan al techo de su sala)
     const colsClear = (tb: PoolTube, B: Cell) => {
       const pl = plan({ ...tb, coil: { ...tb.coil, tail: 0 } } as PoolTube).slice(0, -14);
-      return columns.every((c) => (c.x >= B.x && c.x < B.x + 4 && c.y >= B.y && c.y < B.y + 4) || ceil[at(c.x, c.y)] <= PY.tower || pl.every((p) => Math.hypot(p[0] - (c.x + 0.5) * POOL_CELL, p[1] - (c.y + 0.5) * POOL_CELL) > 1.15));
+      const a = tb.pts[tb.pts.length - 2], b = tb.pts[tb.pts.length - 1], fin = Array.from({ length: 13 }, (_, q) => [a[0] + ((b[0] - a[0]) * q) / 12, a[2] + ((b[2] - a[2]) * q) / 12]); // el último tramo baja: ahí cuentan todas las columnas
+      const far = (c: Cell) => (p: number[]) => Math.hypot(p[0] - (c.x + 0.5) * POOL_CELL, p[1] - (c.y + 0.5) * POOL_CELL) > 1.15;
+      return columns.every((c) => (c.x >= B.x && c.x < B.x + 4 && c.y >= B.y && c.y < B.y + 4) || ((ceil[at(c.x, c.y)] <= PY.tower || pl.every(far(c))) && fin.every(far(c))));
     };
     const DIRS: [number, number][] = [[1, 0], [-1, 0], [0, 1], [0, -1]];
-    const good = blocks.flatMap((b) => DIRS.map((a) => ({ b, l: landing(b, a) }))).filter((x): x is { b: Cell; l: NonNullable<ReturnType<typeof landing>> } => !!x.l).filter((x) => routeOk(x.b, x.l)).filter((x) => { const tb = make(x.b, x.l); return colsClear(tb, x.b) && apart(tb); });
+    const good = blocks.flatMap((b) => DIRS.map((a) => ({ b, l: landing(b, a) }))).filter((x): x is { b: (typeof blocks)[number]; l: NonNullable<ReturnType<typeof landing>> } => !!x.l).filter((x) => routeOk(x.b, x.l)).filter((x) => { const tb = make(x.b, x.l, x.b.fit); return colsClear(tb, x.b) && apart(tb); });
     if (!good.length) continue;
     const pick = good[int(0, good.length - 1)], B = pick.b;
     for (let b = 0; b < 4; b++) for (let a = 0; a < 4; a++) if (kind[at(B.x + a, B.y + b)] === PK.column) kind[at(B.x + a, B.y + b)] = PK.floor; // el serpentín se lleva las columnas que estorben
-    m.tubes.push(make(B, pick.l));
-    { // el tubo cruza la planta alta como macizo (y su serpentín deja un hueco hasta arriba)
+    m.tubes.push(make(B, pick.l, int(Math.max(2, B.fit - 2), B.fit)));
+    took.set(r, (took.get(r) ?? 0) + 1);
+    { // el tubo cruza la planta alta como macizo
       const tb = m.tubes[m.tubes.length - 1], ox = rooms.indexOf(t.room);
       for (const [px, pz] of plan(tb)) for (let dj = -2; dj <= 2; dj++) for (let di = -2; di <= 2; di++) {
         const ci = Math.floor(px / POOL_CELL) + di, cj = Math.floor(pz / POOL_CELL) + dj;
@@ -831,8 +862,9 @@ export function generatePools(seed: number): PoolMap {
         const k = at(ci, cj), cxm = (ci + 0.5) * POOL_CELL, czm = (cj + 0.5) * POOL_CELL;
         if (roomAt[k] === ox || Math.hypot(cxm - px, czm - pz) > 1.6) continue;
         (up.kind[k] = PK.wall), (up.water[k] = 0), (up.ramp[k] = 0);
-        if (kind[k] === PK.floor && Math.hypot(cxm - tb.coil.x, czm - tb.coil.z) < 3.4) ceil[k] = PY.tall;
       }
+    }
+    break; // ya tiene tubo
     }
   }
 
@@ -841,6 +873,7 @@ export function generatePools(seed: number): PoolMap {
     const r = t.room, ri = rooms.indexOf(r), cell = (u: number, v: number) => at(t.cx + t.su * u, t.cy + t.sv * v);
     const clear = (u: number, v: number) => {
       const x = (t.cx + t.su * u + 0.5) * POOL_CELL, z = (t.cy + t.sv * v + 0.5) * POOL_CELL;
+      for (const tb of m.tubes) if (Math.hypot(x - tb.coil.x, z - tb.coil.z) < 4) return false; // (ni encima de un serpentín)
       for (const tb of m.tubes) for (let q = 1; q < tb.pts.length; q++) {
         const [ax_, , az_] = tb.pts[q - 1], [bx_, , bz_] = tb.pts[q], dx_ = bx_ - ax_, dz_ = bz_ - az_, l2 = dx_ * dx_ + dz_ * dz_ || 1, f = Math.max(0, Math.min(1, ((x - ax_) * dx_ + (z - az_) * dz_) / l2));
         if (Math.hypot(x - ax_ - f * dx_, z - az_ - f * dz_) < 2.3) return false;
@@ -892,12 +925,11 @@ export function generatePools(seed: number): PoolMap {
     fin();
   }
 
-  m.tubes.length = Math.min(m.tubes.length, 4);
-
 
   // 10. el forjado: bajo suelo de la planta alta el techo baja a PY.ceil (3,0 bajo una piscina elevada); los pilares siguen arriba
   const fd = prune();
   for (let i = 0; i < N; i++) {
+    if (ramp[i] === PR.stairs && ya[i] === yb[i]) ramp[i] = 0; // un peldaño que quedó bajo un foso o una piscina puesta después: fuera
     if (up.kind[i] === PK.floor || up.kind[i] === PK.column) ceil[i] = Math.min(ceil[i], up.water[i] ? 3 : PY.ceil);
   }
   // alcance y masas de agua honda a las que se llega nadando (tocan suelo pisable de su capa)
@@ -1084,7 +1116,7 @@ export function poolMaze(seed: number): Maze {
   const m = generatePools(seed), n = m.w * m.h, open = new Uint8Array(n), lay = new Uint8Array(n);
   const upOpen = (i: number) => m.up.kind[i] === PK.floor && m.up.water[i] < 2;
   for (let i = 0; i < n; i++) {
-    const lo = m.kind[i] !== PK.wall && m.water[i] < 2, hi = upOpen(i);
+    const lo = m.kind[i] === PK.floor && m.water[i] < 2, hi = upOpen(i); // (un pilar no se pisa)
     open[i] = lo || hi ? 1 : 0;
     lay[i] = !lo && hi ? 1 : 0;
   }
@@ -1136,13 +1168,14 @@ export function poolMaze(seed: number): Maze {
   };
   const tank = put(deck.length ? deck : dry, 12), watergun = put(dryRoom.length ? dryRoom : dry, 12);
   const pk = (i: number) => put(i % 2 === 0 && dark.length ? dark : dry, 10) ?? put(dry, 6);
+  const radar = put(dryRoom.length ? dryRoom : dry, 10) ?? put(dry, 4);
   const flashlights = Array.from({ length: 2 + (seed & 1) }, (_, i) => pk(i)).filter((c): c is LCell => !!c);
   const waters = Array.from({ length: 4 + ((seed >> 1) & 1) }, (_, i) => pk(i)).filter((c): c is LCell => !!c);
   // la planta de cada objeto y las celdas limpias (sin la marca `l`)
   const plain = (c: LCell): Cell => (c.l && (lay[c.y * m.w + c.x] = 1), { x: c.x, y: c.y });
   const camera2 = plain(camera), tapes2 = tapes.map(plain), fl2 = flashlights.map(plain), wa2 = waters.map(plain), tank2 = tank ? plain(tank) : null, wg2 = watergun ? plain(watergun) : null;
   return {
-    w: m.w, h: m.h, open, lit: new Uint8Array(n).fill(1), zone: new Uint8Array(n), voids: [], start: m.start, elevator: m.exit, camera: camera2, pistol: null, extraGuns: [], tapes: tapes2, flashlights: fl2, waters: wa2, tank: tank2, watergun: wg2, lay,
+    w: m.w, h: m.h, open, lit: new Uint8Array(n).fill(1), zone: new Uint8Array(n), voids: [], start: m.start, elevator: m.exit, camera: camera2, pistol: null, extraGuns: [], tapes: tapes2, flashlights: fl2, waters: wa2, tank: tank2, watergun: wg2, radar: radar ? plain(radar) : null, lay,
     spawns: spawns.length ? spawns : [m.exit], lamps: m.lamps.map((l) => ({ x: l.x, y: l.y })), props: [], hides: [], rooms: m.rooms.map((r) => ({ x: r.x, y: r.y, w: r.w, h: r.h, zone: 0 })), totem: null,
   };
 }

@@ -84,42 +84,43 @@ export function cleanInv(x: unknown, cap: Inventory = INV_MAX): Inventory {
   return { spares: n('spares'), water: n('water'), totem: n('totem'), ammo: n('ammo'), radar: b('radar'), camera: b('camera'), gun: b('gun'), tank: b('tank'), watergun: b('watergun'), caution: b('caution') };
 }
 
+/**
+ * La ficha de un objeto: el «prefab». Un objeto nuevo es una entrada más aquí (cómo se llama, qué hace, cuánto cuesta, en qué campo del inventario se
+ * guarda y cuántas unidades trae cada compra o recogida), su tope en INV_MAX y, en el cliente, su modelo y su entrada en HOT (quickslots.ts) si se usa
+ * desde la barra rápida. De la ficha salen la tienda y las cuentas del inventario (caber, sumar, tener, quitar): no hay un `if` por objeto.
+ */
+export interface ItemDef {
+  name: string;
+  info: string;
+  price: number;
+  /** El campo de Inventory que lo cuenta (un número, o un booleano si solo se tiene o no). */
+  slot: keyof Inventory;
+  /** Unidades por compra o recogida (por defecto 1). */
+  pack?: number;
+}
+export const ITEMS: Record<ItemId, ItemDef> = {
+  flashlight: { name: 'SPARE FLASHLIGHT', price: 70, info: 'A fresh battery: F when the light dies.', slot: 'spares' },
+  camera: { name: 'CAMCORDER', price: 400, info: 'Film entities. Needed for photo missions.', slot: 'camera' },
+  gun: { name: 'RIFLE', price: 750, info: 'Comes with one magazine.', slot: 'gun' },
+  ammo: { name: 'AMMO', price: 120, info: `${AMMO_PACK} rounds for the rifle.`, slot: 'ammo', pack: AMMO_PACK },
+  water: { name: 'ALMOND WATER', price: 150, info: 'Restores health, stamina and sanity.', slot: 'water' },
+  caution: { name: 'CAUTION TAPE', price: 70, info: 'Mark the way for your team.', slot: 'caution' },
+  radar: { name: 'RADAR', price: 500, info: 'Shows where your teammates are.', slot: 'radar' },
+  tank: { name: 'DIVING TANK', price: 400, info: 'Doubles your air underwater, slows you 15%.', slot: 'tank' },
+  watergun: { name: 'WATER GUN', price: 250, info: 'Soaks and stalls whoever it hits.', slot: 'watergun' },
+  totem: { name: 'TOTEM OF LIFE', price: 650, info: 'Brings back a fallen teammate.', slot: 'totem' },
+};
+const qty = (inv: Inventory, id: ItemId) => Number(inv[ITEMS[id].slot]), pack = (id: ItemId) => ITEMS[id].pack ?? 1;
+const withQty = (inv: Inventory, id: ItemId, n: number): Inventory => ({ ...inv, [ITEMS[id].slot]: typeof inv[ITEMS[id].slot] === 'boolean' ? n > 0 : n });
+
 /** ¿Cabe uno más de `id`? */
-export function canHold(inv: Inventory, id: ItemId) {
-  if (id === 'flashlight') return inv.spares < INV_MAX.spares;
-  if (id === 'ammo') return inv.ammo + AMMO_PACK <= INV_MAX.ammo;
-  if (id === 'water') return inv.water < INV_MAX.water;
-  if (id === 'totem') return inv.totem < INV_MAX.totem;
-  return !inv[id];
-}
+export const canHold = (inv: Inventory, id: ItemId) => qty(inv, id) + pack(id) <= Number(INV_MAX[ITEMS[id].slot]);
 /** Con uno más de `id` (comprado o recogido del suelo). */
-export function addItem(inv: Inventory, id: ItemId): Inventory {
-  const o = { ...inv };
-  if (id === 'flashlight') o.spares++;
-  else if (id === 'ammo') o.ammo += AMMO_PACK;
-  else if (id === 'water') o.water++;
-  else if (id === 'totem') o.totem++;
-  else o[id] = true;
-  return o;
-}
+export const addItem = (inv: Inventory, id: ItemId) => withQty(inv, id, qty(inv, id) + pack(id));
 /** ¿Se puede soltar una unidad de `id`? */
-export function hasItem(inv: Inventory, id: ItemId) {
-  if (id === 'flashlight') return inv.spares > 0;
-  if (id === 'ammo') return inv.ammo >= AMMO_PACK;
-  if (id === 'water') return inv.water > 0;
-  if (id === 'totem') return inv.totem > 0;
-  return inv[id];
-}
+export const hasItem = (inv: Inventory, id: ItemId) => qty(inv, id) >= pack(id);
 /** Sin una unidad de `id` (soltada). El rifle se va sin sus balas: esas siguen en el inventario. */
-export function removeItem(inv: Inventory, id: ItemId): Inventory {
-  const o = { ...inv };
-  if (id === 'flashlight') o.spares--;
-  else if (id === 'ammo') o.ammo -= AMMO_PACK;
-  else if (id === 'water') o.water--;
-  else if (id === 'totem') o.totem--;
-  else o[id] = false;
-  return o;
-}
+export const removeItem = (inv: Inventory, id: ItemId) => withQty(inv, id, qty(inv, id) - pack(id));
 
 export interface ShopItem {
   id: ItemId;
@@ -127,19 +128,8 @@ export interface ShopItem {
   price: number;
   info: string;
 }
-/** La tienda del ordenador de la sala de espera: lo de todo el juego, cada cosa a su precio. */
-export const SHOP: ShopItem[] = [
-  { id: 'flashlight', name: 'SPARE FLASHLIGHT', price: 70, info: 'A fresh battery: F when the light dies.' },
-  { id: 'camera', name: 'CAMCORDER', price: 400, info: 'Film entities. Needed for photo missions.' },
-  { id: 'gun', name: 'RIFLE', price: 750, info: 'Comes with one magazine.' },
-  { id: 'ammo', name: 'AMMO', price: 120, info: `${AMMO_PACK} rounds for the rifle.` },
-  { id: 'water', name: 'ALMOND WATER', price: 150, info: 'Restores health, stamina and sanity.' },
-  { id: 'caution', name: 'CAUTION TAPE', price: 70, info: 'Mark the way for your team.' },
-  { id: 'radar', name: 'RADAR', price: 500, info: 'Shows where your teammates are.' },
-  { id: 'tank', name: 'DIVING TANK', price: 400, info: 'Doubles your air underwater, slows you 15%.' },
-  { id: 'watergun', name: 'WATER GUN', price: 250, info: 'Soaks and stalls whoever it hits.' },
-  { id: 'totem', name: 'TOTEM OF LIFE', price: 650, info: 'Brings back a fallen teammate.' },
-];
+/** La tienda del ordenador de la sala de espera: lo de todo el juego, cada cosa a su precio (sale de ITEMS). */
+export const SHOP: ShopItem[] = (Object.keys(ITEMS) as ItemId[]).map((id) => ({ id, name: ITEMS[id].name, price: ITEMS[id].price, info: ITEMS[id].info }));
 export const shopItem = (id: unknown) => SHOP.find((s) => s.id === id);
 /** Lo que se lleva al comprar `id`: la compra y, con el rifle, un cargador de regalo. */
 export function purchase(inv: Inventory, id: ItemId): Inventory {
