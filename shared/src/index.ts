@@ -2,9 +2,11 @@
 export * from './maze';
 export * from './pools';
 export * from './sim';
+export * from './behaviors';
 export * from './progress';
 export * from './missions';
 export * from './caps';
+export * from './parking';
 import type { EntState, Kind } from './sim';
 import type { Look } from './progress';
 import type { LevelCaps } from './caps';

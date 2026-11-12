@@ -11,8 +11,8 @@ export class GameAudio {
   private out: GainNode;
   private master: GainNode; // el volumen del menú: 0 con el sonido quitado (corrupt() toca `out`, no este)
   private shaper: WaveShaperNode;
-  private amb: GainNode; // el fondo (zumbido, ventilación, siseo): el ajuste AMBIENT
-  private sfx: GainNode; // lo puntual (pasos, disparo, entidades…): el ajuste EFFECTS
+  protected amb: GainNode; // el fondo (zumbido, ventilación, siseo): el ajuste AMBIENT
+  protected sfx: GainNode; // lo puntual (pasos, disparo, entidades…): el ajuste EFFECTS
   private noise: AudioBuffer;
   private nearNext = { bacteria: 0, partygoer: 0 };
   private nodes: AudioNode[] = [];
@@ -61,7 +61,7 @@ export class GameAudio {
     this.amb.gain.value = settings.ambient;
   }
 
-  private loop(src: AudioScheduledSourceNode, ...chain: AudioNode[]) {
+  protected loop(src: AudioScheduledSourceNode, ...chain: AudioNode[]) {
     let n: AudioNode = src;
     for (const x of chain) n.connect(x), (n = x);
     n.connect(this.amb);
@@ -69,7 +69,7 @@ export class GameAudio {
     this.nodes.push(src, ...chain);
   }
 
-  private noiseSrc() {
+  protected noiseSrc() {
     const s = this.ctx.createBufferSource();
     s.buffer = this.noise;
     s.loop = true;
@@ -144,7 +144,7 @@ export class GameAudio {
     this.loop(this.noiseSrc(), hp, hg);
   }
 
-  private burst(dur: number, gain: number, f: number, q = 1, type: BiquadFilterType = 'bandpass', t0 = 0, dest: AudioNode = this.sfx) {
+  protected burst(dur: number, gain: number, f: number, q = 1, type: BiquadFilterType = 'bandpass', t0 = 0, dest: AudioNode = this.sfx) {
     const c = this.ctx, t = c.currentTime + t0, s = c.createBufferSource(), bp = c.createBiquadFilter(), g = c.createGain();
     s.buffer = this.noise;
     s.playbackRate.value = 0.8 + Math.random() * 0.4;
@@ -154,19 +154,25 @@ export class GameAudio {
     g.gain.setValueAtTime(gain, t);
     g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
     s.connect(bp).connect(g).connect(dest);
-    s.start(t, Math.random() * 1.5, dur + 0.05);
+    const bufferDuration = (dur + .05) * s.playbackRate.value;
+    const offset = Math.random() * Math.max(0, Math.min(1.5, this.noise.duration - bufferDuration));
+    s.start(t, offset, bufferDuration);
+    s.addEventListener('ended', () => { s.disconnect(); bp.disconnect(); g.disconnect(); }, { once: true });
+    return s;
   }
 
-  private tone(f: number, dur: number, gain: number, type: OscillatorType = 'square', t0 = 0, f2?: number) {
+  protected tone(f: number, dur: number, gain: number, type: OscillatorType = 'square', t0 = 0, f2?: number, dest: AudioNode = this.sfx) {
     const c = this.ctx, t = c.currentTime + t0, o = c.createOscillator(), g = c.createGain();
     o.type = type;
     o.frequency.setValueAtTime(f, t);
     if (f2) o.frequency.exponentialRampToValueAtTime(f2, t + dur);
     g.gain.setValueAtTime(gain, t);
     g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
-    o.connect(g).connect(this.sfx);
+    o.connect(g).connect(dest);
     o.start(t);
     o.stop(t + dur + 0.05);
+    o.addEventListener('ended', () => { o.disconnect(); g.disconnect(); }, { once: true });
+    return o;
   }
 
   /** Un paso sobre moqueta: un golpe sordo y un roce; en las salas grandes, con su eco. */

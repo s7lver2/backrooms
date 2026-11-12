@@ -1,4 +1,5 @@
 import { bfs, CELL, DIRS as MAZE_DIRS, type Cell, type Maze } from './maze';
+import { runBehaviors } from './behaviors';
 import type { ItemKind } from './index';
 
 /*
@@ -478,7 +479,7 @@ export class EntitySim {
     this.repath -= dt;
     this.routeAge += dt;
     // el cerebro: manda el primer comportamiento de la ficha que quiere
-    for (const b of this.def.brain) if (BRAIN[b](this, s)) break;
+    runBehaviors(this.def.brain, BRAIN, this, s);
     // atasco: yendo a un sitio y sin avanzar 1,5 s, se descarta el camino y se traza otro
     if (this.moving) {
       if ((this.stuckT += dt) > 1.5) {

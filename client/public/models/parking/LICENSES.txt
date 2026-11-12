@@ -1,0 +1,494 @@
+room-kit.glb
+Model Information:
+* title:	Abandoned Building – Modular Environment Kit
+* source:	https://sketchfab.com/3d-models/abandoned-building-modular-environment-kit-376aead6cd3d41bda715cbab99c440fa
+* author:	olegolegperepelica (https://sketchfab.com/olegolegperepelica)
+
+Model License:
+* license type:	CC-BY-4.0 (http://creativecommons.org/licenses/by/4.0/)
+* requirements:	Author must be credited. Commercial use is allowed.
+
+If you use this 3D model in your project be sure to copy paste this credit wherever you share it:
+This work is based on "Abandoned Building – Modular Environment Kit" (https://sketchfab.com/3d-models/abandoned-building-modular-environment-kit-376aead6cd3d41bda715cbab99c440fa) by olegolegperepelica (https://sketchfab.com/olegolegperepelica) licensed under CC-BY-4.0 (http://creativecommons.org/licenses/by/4.0/)
+Changes: textures limited to 1024 px; colour maps encoded as WebP; normal maps retained with lossless WebP encoding after resize; unused data removed; vertex data welded/quantized and meshopt compressed. Authored hierarchy kept. Display geometry removed where described in catalog. Car isolated, centred, grounded and scaled to 4.5 m long.
+
+floor-ceiling-kit.glb
+Model Information:
+* title:	Floors and ceiling (Modular Construction Pack)
+* source:	https://sketchfab.com/3d-models/floors-and-ceiling-modular-construction-pack-e48570d7df9b41e5bbe946a073f08e9b
+* author:	BlackMonolith (https://sketchfab.com/evseevdaniil0011)
+
+Model License:
+* license type:	CC-BY-4.0 (http://creativecommons.org/licenses/by/4.0/)
+* requirements:	Author must be credited. Commercial use is allowed.
+
+If you use this 3D model in your project be sure to copy paste this credit wherever you share it:
+This work is based on "Floors and ceiling (Modular Construction Pack)" (https://sketchfab.com/3d-models/floors-and-ceiling-modular-construction-pack-e48570d7df9b41e5bbe946a073f08e9b) by BlackMonolith (https://sketchfab.com/evseevdaniil0011) licensed under CC-BY-4.0 (http://creativecommons.org/licenses/by/4.0/)
+Changes: textures limited to 1024 px; colour maps encoded as WebP; normal maps retained with lossless WebP encoding after resize; unused data removed; vertex data welded/quantized and meshopt compressed. Authored hierarchy kept. Display geometry removed where described in catalog. Car isolated, centred, grounded and scaled to 4.5 m long.
+
+concrete-stairs.glb
+Model Information:
+* title:	Concrete Stairs 2
+* source:	https://sketchfab.com/3d-models/concrete-stairs-2-8bc4ce5657e548bbacada83f04e7f50d
+* author:	Periltek Games (https://sketchfab.com/PeriltekGames)
+
+Model License:
+* license type:	CC-BY-4.0 (http://creativecommons.org/licenses/by/4.0/)
+* requirements:	Author must be credited. Commercial use is allowed.
+
+If you use this 3D model in your project be sure to copy paste this credit wherever you share it:
+This work is based on "Concrete Stairs 2" (https://sketchfab.com/3d-models/concrete-stairs-2-8bc4ce5657e548bbacada83f04e7f50d) by Periltek Games (https://sketchfab.com/PeriltekGames) licensed under CC-BY-4.0 (http://creativecommons.org/licenses/by/4.0/)
+Changes: textures limited to 1024 px; colour maps encoded as WebP; normal maps retained with lossless WebP encoding after resize; unused data removed; vertex data welded/quantized and meshopt compressed. Authored hierarchy kept. Display geometry removed where described in catalog. Car isolated, centred, grounded and scaled to 4.5 m long.
+
+steel-stairs.glb
+Model Information:
+* title:	Staircase Modular Frame - Steel
+* source:	https://sketchfab.com/3d-models/staircase-modular-frame-steel-c4c326966b4a43c88ad50f5da52d0df9
+* author:	brandon_grey (https://sketchfab.com/brandondmc10)
+
+Model License:
+* license type:	CC-BY-4.0 (http://creativecommons.org/licenses/by/4.0/)
+* requirements:	Author must be credited. Commercial use is allowed.
+
+If you use this 3D model in your project be sure to copy paste this credit wherever you share it:
+This work is based on "Staircase Modular Frame - Steel" (https://sketchfab.com/3d-models/staircase-modular-frame-steel-c4c326966b4a43c88ad50f5da52d0df9) by brandon_grey (https://sketchfab.com/brandondmc10) licensed under CC-BY-4.0 (http://creativecommons.org/licenses/by/4.0/)
+Changes: textures limited to 1024 px; colour maps encoded as WebP; normal maps retained with lossless WebP encoding after resize; unused data removed; vertex data welded/quantized and meshopt compressed. Authored hierarchy kept. Display geometry removed where described in catalog. Car isolated, centred, grounded and scaled to 4.5 m long.
+
+fluorescent-kit.glb
+Model Information:
+* title:	Fluorecent lights
+* source:	https://sketchfab.com/3d-models/fluorecent-lights-bca96f873b0743f88d61cd12b0750507
+* author:	Sean Thomas (https://sketchfab.com/foon.)
+
+Model License:
+* license type:	CC-BY-4.0 (http://creativecommons.org/licenses/by/4.0/)
+* requirements:	Author must be credited. Commercial use is allowed.
+
+If you use this 3D model in your project be sure to copy paste this credit wherever you share it:
+This work is based on "Fluorecent lights" (https://sketchfab.com/3d-models/fluorecent-lights-bca96f873b0743f88d61cd12b0750507) by Sean Thomas (https://sketchfab.com/foon.) licensed under CC-BY-4.0 (http://creativecommons.org/licenses/by/4.0/)
+Changes: textures limited to 512 px; colour maps encoded as WebP; normal maps retained with lossless WebP encoding after resize; unused data removed; vertex data welded/quantized and meshopt compressed. Authored hierarchy kept. Display geometry removed where described in catalog. Car isolated, centred, grounded and scaled to 4.5 m long.
+
+fluorescent-detailed-kit.glb
+Model Information:
+* title:	Fluorescent Light Fixtures - 4x 4096px²
+* source:	https://sketchfab.com/3d-models/fluorescent-light-fixtures-4x-4096px2-2a05034d61dc49bf81b33de44add7aa8
+* author:	Mark Peters (https://sketchfab.com/mark-peters)
+
+Model License:
+* license type:	CC-BY-4.0 (http://creativecommons.org/licenses/by/4.0/)
+* requirements:	Author must be credited. Commercial use is allowed.
+
+If you use this 3D model in your project be sure to copy paste this credit wherever you share it:
+This work is based on "Fluorescent Light Fixtures - 4x 4096px²" (https://sketchfab.com/3d-models/fluorescent-light-fixtures-4x-4096px2-2a05034d61dc49bf81b33de44add7aa8) by Mark Peters (https://sketchfab.com/mark-peters) licensed under CC-BY-4.0 (http://creativecommons.org/licenses/by/4.0/)
+Changes: textures limited to 1024 px; colour maps encoded as WebP; normal maps retained with lossless WebP encoding after resize; unused data removed; vertex data welded/quantized and meshopt compressed. Authored hierarchy kept. Display geometry removed where described in catalog. Car isolated, centred, grounded and scaled to 4.5 m long.
+
+pipe-kit.glb
+Model Information:
+* title:	Old Pipes Bundle – Modular Industrial Pack
+* source:	https://sketchfab.com/3d-models/old-pipes-bundle-modular-industrial-pack-fbe3129ea77243ca92c8219f269ac5cf
+* author:	Alex Krush (https://sketchfab.com/Alex_Krush)
+
+Model License:
+* license type:	CC-BY-4.0 (http://creativecommons.org/licenses/by/4.0/)
+* requirements:	Author must be credited. Commercial use is allowed.
+
+If you use this 3D model in your project be sure to copy paste this credit wherever you share it:
+This work is based on "Old Pipes Bundle – Modular Industrial Pack" (https://sketchfab.com/3d-models/old-pipes-bundle-modular-industrial-pack-fbe3129ea77243ca92c8219f269ac5cf) by Alex Krush (https://sketchfab.com/Alex_Krush) licensed under CC-BY-4.0 (http://creativecommons.org/licenses/by/4.0/)
+Changes: textures limited to 1024 px; colour maps encoded as WebP; normal maps retained with lossless WebP encoding after resize; unused data removed; vertex data welded/quantized and meshopt compressed. Authored hierarchy kept. Display geometry removed where described in catalog. Car isolated, centred, grounded and scaled to 4.5 m long.
+
+red-pipe-kit.glb
+Model Information:
+* title:	Rusty water pipes
+* source:	https://sketchfab.com/3d-models/rusty-water-pipes-aed9bc4e429243d98bf640b5a37a9532
+* author:	Plaxa (https://sketchfab.com/plaxa3)
+
+Model License:
+* license type:	CC-BY-4.0 (http://creativecommons.org/licenses/by/4.0/)
+* requirements:	Author must be credited. Commercial use is allowed.
+
+If you use this 3D model in your project be sure to copy paste this credit wherever you share it:
+This work is based on "Rusty water pipes" (https://sketchfab.com/3d-models/rusty-water-pipes-aed9bc4e429243d98bf640b5a37a9532) by Plaxa (https://sketchfab.com/plaxa3) licensed under CC-BY-4.0 (http://creativecommons.org/licenses/by/4.0/)
+Changes: textures limited to 1024 px; colour maps encoded as WebP; normal maps retained with lossless WebP encoding after resize; unused data removed; vertex data welded/quantized and meshopt compressed. Authored hierarchy kept. Display geometry removed where described in catalog. Car isolated, centred, grounded and scaled to 4.5 m long.
+
+duct-kit.glb
+Model Information:
+* title:	Modular Ventilation Duct Kit Free
+* source:	https://sketchfab.com/3d-models/modular-ventilation-duct-kit-free-d4e35aa0424a43ec9f34d7f8341236a0
+* author:	AMMediaGames (https://sketchfab.com/AMMediaGames)
+
+Model License:
+* license type:	CC-BY-4.0 (http://creativecommons.org/licenses/by/4.0/)
+* requirements:	Author must be credited. Commercial use is allowed.
+
+If you use this 3D model in your project be sure to copy paste this credit wherever you share it:
+This work is based on "Modular Ventilation Duct Kit Free" (https://sketchfab.com/3d-models/modular-ventilation-duct-kit-free-d4e35aa0424a43ec9f34d7f8341236a0) by AMMediaGames (https://sketchfab.com/AMMediaGames) licensed under CC-BY-4.0 (http://creativecommons.org/licenses/by/4.0/)
+Changes: textures limited to 1024 px; colour maps encoded as WebP; normal maps retained with lossless WebP encoding after resize; unused data removed; vertex data welded/quantized and meshopt compressed. Authored hierarchy kept. Display geometry removed where described in catalog. Car isolated, centred, grounded and scaled to 4.5 m long.
+
+duct-detailed-kit.glb
+Model Information:
+* title:	Modular Airduct Rectangular 01 4k
+* source:	https://sketchfab.com/3d-models/modular-airduct-rectangular-01-4k-af366ffad3bf4ae7ad9309158f5ebec0
+* author:	mohamedhussien (https://sketchfab.com/mohamedhussien)
+
+Model License:
+* license type:	CC-BY-4.0 (http://creativecommons.org/licenses/by/4.0/)
+* requirements:	Author must be credited. Commercial use is allowed.
+
+If you use this 3D model in your project be sure to copy paste this credit wherever you share it:
+This work is based on "Modular Airduct Rectangular 01 4k" (https://sketchfab.com/3d-models/modular-airduct-rectangular-01-4k-af366ffad3bf4ae7ad9309158f5ebec0) by mohamedhussien (https://sketchfab.com/mohamedhussien) licensed under CC-BY-4.0 (http://creativecommons.org/licenses/by/4.0/)
+Changes: textures limited to 1024 px; colour maps encoded as WebP; normal maps retained with lossless WebP encoding after resize; unused data removed; vertex data welded/quantized and meshopt compressed. Authored hierarchy kept. Display geometry removed where described in catalog. Car isolated, centred, grounded and scaled to 4.5 m long.
+
+round-duct-kit.glb
+Model Information:
+* title:	Air Duct Kit - (HVAC / Pipes / Air Conditioning)
+* source:	https://sketchfab.com/3d-models/air-duct-kit-hvac-pipes-air-conditioning-499f1dfa825d4505828ee6454bc63cb2
+* author:	gerulf.doesinger (https://sketchfab.com/gerulf.doesinger)
+
+Model License:
+* license type:	SKETCHFAB Standard (https://sketchfab.com/licenses)
+* requirements:	Under basic restrictions, use worldwide, on all types of media, commercially or not, and in all types of derivative works
+
+Changes: textures limited to 1024 px; colour maps encoded as WebP; normal maps retained with lossless WebP encoding after resize; unused data removed; vertex data welded/quantized and meshopt compressed. Authored hierarchy kept. Display geometry removed where described in catalog. Car isolated, centred, grounded and scaled to 4.5 m long.
+
+fan-kit.glb
+Model Information:
+* title:	Ventilation Duct
+* source:	https://sketchfab.com/3d-models/ventilation-duct-34b5be84762f40cb9e5f5f672bbb6728
+* author:	Gunnar Correa (https://sketchfab.com/gunnarcorrea)
+
+Model License:
+* license type:	CC-BY-4.0 (http://creativecommons.org/licenses/by/4.0/)
+* requirements:	Author must be credited. Commercial use is allowed.
+
+If you use this 3D model in your project be sure to copy paste this credit wherever you share it:
+This work is based on "Ventilation Duct" (https://sketchfab.com/3d-models/ventilation-duct-34b5be84762f40cb9e5f5f672bbb6728) by Gunnar Correa (https://sketchfab.com/gunnarcorrea) licensed under CC-BY-4.0 (http://creativecommons.org/licenses/by/4.0/)
+Changes: textures limited to 512 px; colour maps encoded as WebP; normal maps retained with lossless WebP encoding after resize; unused data removed; vertex data welded/quantized and meshopt compressed. Authored hierarchy kept. Display geometry removed where described in catalog. Car isolated, centred, grounded and scaled to 4.5 m long.
+
+cable-tray-kit.glb
+Model Information:
+* title:	Ladder Cable Tray
+* source:	https://sketchfab.com/3d-models/ladder-cable-tray-0093ed9fcdbf4a9daa29394870ec1b60
+* author:	AlfazalEng (https://sketchfab.com/AlfazalEng)
+
+Model License:
+* license type:	CC-BY-4.0 (http://creativecommons.org/licenses/by/4.0/)
+* requirements:	Author must be credited. Commercial use is allowed.
+
+If you use this 3D model in your project be sure to copy paste this credit wherever you share it:
+This work is based on "Ladder Cable Tray" (https://sketchfab.com/3d-models/ladder-cable-tray-0093ed9fcdbf4a9daa29394870ec1b60) by AlfazalEng (https://sketchfab.com/AlfazalEng) licensed under CC-BY-4.0 (http://creativecommons.org/licenses/by/4.0/)
+Changes: textures limited to 512 px; colour maps encoded as WebP; normal maps retained with lossless WebP encoding after resize; unused data removed; vertex data welded/quantized and meshopt compressed. Authored hierarchy kept. Display geometry removed where described in catalog. Car isolated, centred, grounded and scaled to 4.5 m long.
+
+door.glb
+Model Information:
+* title:	Metal Door
+* source:	https://sketchfab.com/3d-models/metal-door-a68f3ce9f4cd4a9b92b43932612c547a
+* author:	exiS7-Gs (https://sketchfab.com/exiS7-Gs)
+
+Model License:
+* license type:	CC-BY-4.0 (http://creativecommons.org/licenses/by/4.0/)
+* requirements:	Author must be credited. Commercial use is allowed.
+
+If you use this 3D model in your project be sure to copy paste this credit wherever you share it:
+This work is based on "Metal Door" (https://sketchfab.com/3d-models/metal-door-a68f3ce9f4cd4a9b92b43932612c547a) by exiS7-Gs (https://sketchfab.com/exiS7-Gs) licensed under CC-BY-4.0 (http://creativecommons.org/licenses/by/4.0/)
+Changes: textures limited to 1024 px; colour maps encoded as WebP; normal maps retained with lossless WebP encoding after resize; unused data removed; vertex data welded/quantized and meshopt compressed. Authored hierarchy kept. Display geometry removed where described in catalog. Car isolated, centred, grounded and scaled to 4.5 m long.
+
+lockers.glb
+Model Information:
+* title:	Metal School Lockers
+* source:	https://sketchfab.com/3d-models/metal-school-lockers-7f1460adacd346a4a68c3e5f7a5d0d43
+* author:	Zixel (https://sketchfab.com/Zixel_3d)
+
+Model License:
+* license type:	CC-BY-4.0 (http://creativecommons.org/licenses/by/4.0/)
+* requirements:	Author must be credited. Commercial use is allowed.
+
+If you use this 3D model in your project be sure to copy paste this credit wherever you share it:
+This work is based on "Metal School Lockers" (https://sketchfab.com/3d-models/metal-school-lockers-7f1460adacd346a4a68c3e5f7a5d0d43) by Zixel (https://sketchfab.com/Zixel_3d) licensed under CC-BY-4.0 (http://creativecommons.org/licenses/by/4.0/)
+Changes: textures limited to 1024 px; colour maps encoded as WebP; normal maps retained with lossless WebP encoding after resize; unused data removed; vertex data welded/quantized and meshopt compressed. Authored hierarchy kept. Display geometry removed where described in catalog. Car isolated, centred, grounded and scaled to 4.5 m long.
+
+locker-alternate.glb
+Model Information:
+* title:	Industrial - Locker
+* source:	https://sketchfab.com/3d-models/industrial-locker-1938d4d4c5bc440390159c7eb301c407
+* author:	Anfossi Valentin (https://sketchfab.com/lebiff)
+
+Model License:
+* license type:	SKETCHFAB Standard (https://sketchfab.com/licenses)
+* requirements:	Under basic restrictions, use worldwide, on all types of media, commercially or not, and in all types of derivative works
+
+Changes: textures limited to 1024 px; colour maps encoded as WebP; normal maps retained with lossless WebP encoding after resize; unused data removed; vertex data welded/quantized and meshopt compressed. Authored hierarchy kept. Display geometry removed where described in catalog. Car isolated, centred, grounded and scaled to 4.5 m long.
+
+electrical-box.glb
+Model Information:
+* title:	Industrial Electrical Box
+* source:	https://sketchfab.com/3d-models/industrial-electrical-box-de13c96dad014bf098df03030f314fee
+* author:	VRTESTER (https://sketchfab.com/VRTESTER)
+
+Model License:
+* license type:	CC-BY-4.0 (http://creativecommons.org/licenses/by/4.0/)
+* requirements:	Author must be credited. Commercial use is allowed.
+
+If you use this 3D model in your project be sure to copy paste this credit wherever you share it:
+This work is based on "Industrial Electrical Box" (https://sketchfab.com/3d-models/industrial-electrical-box-de13c96dad014bf098df03030f314fee) by VRTESTER (https://sketchfab.com/VRTESTER) licensed under CC-BY-4.0 (http://creativecommons.org/licenses/by/4.0/)
+Changes: textures limited to 1024 px; colour maps encoded as WebP; normal maps retained with lossless WebP encoding after resize; unused data removed; vertex data welded/quantized and meshopt compressed. Authored hierarchy kept. Display geometry removed where described in catalog. Car isolated, centred, grounded and scaled to 4.5 m long.
+
+electrical-cabinet-kit.glb
+Model Information:
+* title:	Electrical Distribution Cabinet
+* source:	https://sketchfab.com/3d-models/electrical-distribution-cabinet-5dd2ce8a5baf4efca7179ed821084a21
+* author:	Arsen Ismailov (https://sketchfab.com/fdgasd7)
+
+Model License:
+* license type:	CC-BY-4.0 (http://creativecommons.org/licenses/by/4.0/)
+* requirements:	Author must be credited. Commercial use is allowed.
+
+If you use this 3D model in your project be sure to copy paste this credit wherever you share it:
+This work is based on "Electrical Distribution Cabinet" (https://sketchfab.com/3d-models/electrical-distribution-cabinet-5dd2ce8a5baf4efca7179ed821084a21) by Arsen Ismailov (https://sketchfab.com/fdgasd7) licensed under CC-BY-4.0 (http://creativecommons.org/licenses/by/4.0/)
+Changes: textures limited to 1024 px; colour maps encoded as WebP; normal maps retained with lossless WebP encoding after resize; unused data removed; vertex data welded/quantized and meshopt compressed. Authored hierarchy kept. Display geometry removed where described in catalog. Car isolated, centred, grounded and scaled to 4.5 m long.
+
+tool-chest.glb
+Model Information:
+* title:	Metal Tool Chest
+* source:	https://sketchfab.com/3d-models/metal-tool-chest-cf3bd23b018148ccad43574114571268
+* author:	Prince Obrymec (https://sketchfab.com/prince-obrymec)
+
+Model License:
+* license type:	SKETCHFAB Standard (https://sketchfab.com/licenses)
+* requirements:	Under basic restrictions, use worldwide, on all types of media, commercially or not, and in all types of derivative works
+
+Changes: textures limited to 1024 px; colour maps encoded as WebP; normal maps retained with lossless WebP encoding after resize; unused data removed; vertex data welded/quantized and meshopt compressed. Authored hierarchy kept. Display geometry removed where described in catalog. Car isolated, centred, grounded and scaled to 4.5 m long.
+
+office-chair.glb
+Model Information:
+* title:	Lowpoly Office Chair
+* source:	https://sketchfab.com/3d-models/lowpoly-office-chair-e5719afff2464e5e810115532e16cc05
+* author:	sleepyjoshua (https://sketchfab.com/sleepyjoshua)
+
+Model License:
+* license type:	CC-BY-4.0 (http://creativecommons.org/licenses/by/4.0/)
+* requirements:	Author must be credited. Commercial use is allowed.
+
+If you use this 3D model in your project be sure to copy paste this credit wherever you share it:
+This work is based on "Lowpoly Office Chair" (https://sketchfab.com/3d-models/lowpoly-office-chair-e5719afff2464e5e810115532e16cc05) by sleepyjoshua (https://sketchfab.com/sleepyjoshua) licensed under CC-BY-4.0 (http://creativecommons.org/licenses/by/4.0/)
+Changes: textures limited to 512 px; colour maps encoded as WebP; normal maps retained with lossless WebP encoding after resize; unused data removed; vertex data welded/quantized and meshopt compressed. Authored hierarchy kept. Display geometry removed where described in catalog. Car isolated, centred, grounded and scaled to 4.5 m long.
+
+cardboard-box.glb
+Model Information:
+* title:	LowPoly Cardboard Box
+* source:	https://sketchfab.com/3d-models/lowpoly-cardboard-box-f2b1e7d7d4cc4a699a969a3e0fe8d211
+* author:	PolyProps3D (https://sketchfab.com/PolyProps3D)
+
+Model License:
+* license type:	CC-BY-4.0 (http://creativecommons.org/licenses/by/4.0/)
+* requirements:	Author must be credited. Commercial use is allowed.
+
+If you use this 3D model in your project be sure to copy paste this credit wherever you share it:
+This work is based on "LowPoly Cardboard Box" (https://sketchfab.com/3d-models/lowpoly-cardboard-box-f2b1e7d7d4cc4a699a969a3e0fe8d211) by PolyProps3D (https://sketchfab.com/PolyProps3D) licensed under CC-BY-4.0 (http://creativecommons.org/licenses/by/4.0/)
+Changes: textures limited to 512 px; colour maps encoded as WebP; normal maps retained with lossless WebP encoding after resize; unused data removed; vertex data welded/quantized and meshopt compressed. Authored hierarchy kept. Display geometry removed where described in catalog. Car isolated, centred, grounded and scaled to 4.5 m long.
+
+waste-bin.glb
+Model Information:
+* title:	Free Game-Ready Waste Container Model
+* source:	https://sketchfab.com/3d-models/free-game-ready-waste-container-model-d7d0c1c248fe43a58e5e4d0c4acfe59d
+* author:	LQC (https://sketchfab.com/LowestQualityContent)
+
+Model License:
+* license type:	CC-BY-4.0 (http://creativecommons.org/licenses/by/4.0/)
+* requirements:	Author must be credited. Commercial use is allowed.
+
+If you use this 3D model in your project be sure to copy paste this credit wherever you share it:
+This work is based on "Free Game-Ready Waste Container Model" (https://sketchfab.com/3d-models/free-game-ready-waste-container-model-d7d0c1c248fe43a58e5e4d0c4acfe59d) by LQC (https://sketchfab.com/LowestQualityContent) licensed under CC-BY-4.0 (http://creativecommons.org/licenses/by/4.0/)
+Changes: textures limited to 1024 px; colour maps encoded as WebP; normal maps retained with lossless WebP encoding after resize; unused data removed; vertex data welded/quantized and meshopt compressed. Authored hierarchy kept. Display geometry removed where described in catalog. Car isolated, centred, grounded and scaled to 4.5 m long.
+
+curb-kit.glb
+Model Information:
+* title:	Modular sidewalk curb kit
+* source:	https://sketchfab.com/3d-models/modular-sidewalk-curb-kit-c762ff5b7d294f36b8349f8ca3662eaa
+* author:	Just8 (https://sketchfab.com/Just8)
+
+Model License:
+* license type:	CC-BY-4.0 (http://creativecommons.org/licenses/by/4.0/)
+* requirements:	Author must be credited. Commercial use is allowed.
+
+If you use this 3D model in your project be sure to copy paste this credit wherever you share it:
+This work is based on "Modular sidewalk curb kit" (https://sketchfab.com/3d-models/modular-sidewalk-curb-kit-c762ff5b7d294f36b8349f8ca3662eaa) by Just8 (https://sketchfab.com/Just8) licensed under CC-BY-4.0 (http://creativecommons.org/licenses/by/4.0/)
+Changes: textures limited to 512 px; colour maps encoded as WebP; normal maps retained with lossless WebP encoding after resize; unused data removed; vertex data welded/quantized and meshopt compressed. Authored hierarchy kept. Display geometry removed where described in catalog. Car isolated, centred, grounded and scaled to 4.5 m long.
+
+stop-sign.glb
+Model Information:
+* title:	[CC0] Free Stop Sign
+* source:	https://sketchfab.com/3d-models/cc0-free-stop-sign-5019e538fdc14e4fbef91328c9d4ff50
+* author:	Sano (https://sketchfab.com/sanogdv)
+
+Model License:
+* license type:	SKETCHFAB Standard (https://sketchfab.com/licenses)
+* requirements:	Under basic restrictions, use worldwide, on all types of media, commercially or not, and in all types of derivative works
+
+Changes: textures limited to 512 px; colour maps encoded as WebP; normal maps retained with lossless WebP encoding after resize; unused data removed; vertex data welded/quantized and meshopt compressed. Authored hierarchy kept. Display geometry removed where described in catalog. Car isolated, centred, grounded and scaled to 4.5 m long.
+
+garage-props.glb
+Model Information:
+* title:	Garage props
+* source:	https://sketchfab.com/3d-models/garage-props-034ef0317f5d4bc6a76b0489daa189eb
+* author:	miot_00 (https://sketchfab.com/miot_00)
+
+Model License:
+* license type:	CC-BY-4.0 (http://creativecommons.org/licenses/by/4.0/)
+* requirements:	Author must be credited. Commercial use is allowed.
+
+If you use this 3D model in your project be sure to copy paste this credit wherever you share it:
+This work is based on "Garage props" (https://sketchfab.com/3d-models/garage-props-034ef0317f5d4bc6a76b0489daa189eb) by miot_00 (https://sketchfab.com/miot_00) licensed under CC-BY-4.0 (http://creativecommons.org/licenses/by/4.0/)
+Changes: textures limited to 1024 px; colour maps encoded as WebP; normal maps retained with lossless WebP encoding after resize; unused data removed; vertex data welded/quantized and meshopt compressed. Authored hierarchy kept. Display geometry removed where described in catalog. Car isolated, centred, grounded and scaled to 4.5 m long.
+
+sign-kit.glb
+Model Information:
+* title:	Lowpoly Modular Street Sign 3 Vol1
+* source:	https://sketchfab.com/3d-models/lowpoly-modular-street-sign-3-vol1-99260de784964422b51156cfb7521fa0
+* author:	B._.render (https://sketchfab.com/Brendan_489)
+
+Model License:
+* license type:	CC-BY-4.0 (http://creativecommons.org/licenses/by/4.0/)
+* requirements:	Author must be credited. Commercial use is allowed.
+
+If you use this 3D model in your project be sure to copy paste this credit wherever you share it:
+This work is based on "Lowpoly Modular Street Sign 3 Vol1" (https://sketchfab.com/3d-models/lowpoly-modular-street-sign-3-vol1-99260de784964422b51156cfb7521fa0) by B._.render (https://sketchfab.com/Brendan_489) licensed under CC-BY-4.0 (http://creativecommons.org/licenses/by/4.0/)
+Changes: textures limited to 512 px; colour maps encoded as WebP; normal maps retained with lossless WebP encoding after resize; unused data removed; vertex data welded/quantized and meshopt compressed. Authored hierarchy kept. Display geometry removed where described in catalog. Car isolated, centred, grounded and scaled to 4.5 m long.
+
+car.glb
+Model Information:
+* title:	Garage props
+* source:	https://sketchfab.com/3d-models/garage-props-034ef0317f5d4bc6a76b0489daa189eb
+* author:	miot_00 (https://sketchfab.com/miot_00)
+
+Model License:
+* license type:	CC-BY-4.0 (http://creativecommons.org/licenses/by/4.0/)
+* requirements:	Author must be credited. Commercial use is allowed.
+
+If you use this 3D model in your project be sure to copy paste this credit wherever you share it:
+This work is based on "Garage props" (https://sketchfab.com/3d-models/garage-props-034ef0317f5d4bc6a76b0489daa189eb) by miot_00 (https://sketchfab.com/miot_00) licensed under CC-BY-4.0 (http://creativecommons.org/licenses/by/4.0/)
+Changes: textures limited to 1024 px; colour maps encoded as WebP; normal maps retained with lossless WebP encoding after resize; unused data removed; vertex data welded/quantized and meshopt compressed. Authored hierarchy kept. Display geometry removed where described in catalog. Car isolated, centred, grounded and scaled to 4.5 m long.
+
+skinwalker.glb
+Model Information:
+* title:	Escape The Backrooms Skinstealer
+* source:	https://sketchfab.com/3d-models/escape-the-backrooms-skinstealer-119e366f12b644ad87605fdad9f00d45
+* author:	taggedk (https://sketchfab.com/taggedk)
+
+Model License:
+* license type:	CC-BY-4.0 (http://creativecommons.org/licenses/by/4.0/)
+* requirements:	Author must be credited. Commercial use is allowed.
+
+If you use this 3D model in your project be sure to copy paste this credit wherever you share it:
+This work is based on "Escape The Backrooms Skinstealer" (https://sketchfab.com/3d-models/escape-the-backrooms-skinstealer-119e366f12b644ad87605fdad9f00d45) by taggedk (https://sketchfab.com/taggedk) licensed under CC-BY-4.0 (http://creativecommons.org/licenses/by/4.0/)
+Changes: user-provided Mixamo rig and six animations consolidated into one GLB; UV orientation restored; tangents generated; weights normalized to four influences; textures reduced to 1024px; meshopt compression. Animation archive did not bundle a licence file; user supplied these as Mixamo exports.
+
+textures/concrete-*.webp
+Model Information:
+* title:	Seamless PBR Texture Concrete 01
+* source:	https://sketchfab.com/3d-models/seamless-pbr-texture-concrete-01-64e67e4fb8a14ddeae07bd91d50fc846
+* author:	Arthur.Zim (https://sketchfab.com/Arthur.Zim)
+
+Model License:
+* license type:	CC-BY-4.0 (http://creativecommons.org/licenses/by/4.0/)
+* requirements:	Author must be credited. Commercial use is allowed.
+
+If you use this 3D model in your project be sure to copy paste this credit wherever you share it:
+This work is based on "Seamless PBR Texture Concrete 01" (https://sketchfab.com/3d-models/seamless-pbr-texture-concrete-01-64e67e4fb8a14ddeae07bd91d50fc846) by Arthur.Zim (https://sketchfab.com/Arthur.Zim) licensed under CC-BY-4.0 (http://creativecommons.org/licenses/by/4.0/)
+Changes: resized to 1024px and encoded as WebP; preview geometry omitted.
+
+generator-original/ (original files, not optimized)
+Model Information:
+* title:	Small Electric Generator
+* source:	https://sketchfab.com/3d-models/small-electric-generator-9bace223c69e4f4bb0e138b0d379ae37
+* author:	H10_Official (https://sketchfab.com/H10_Official)
+
+Model License:
+* license type:	CC-BY-ND-4.0 (http://creativecommons.org/licenses/by-nd/4.0/)
+* requirements:	Author must be credited. Modified versions can not be distributed. Commercial use is allowed.
+
+If you use this 3D model in your project be sure to copy paste this credit wherever you share it:
+This work is based on "Small Electric Generator" (https://sketchfab.com/3d-models/small-electric-generator-9bace223c69e4f4bb0e138b0d379ae37) by H10_Official (https://sketchfab.com/H10_Official) licensed under CC-BY-ND-4.0 (http://creativecommons.org/licenses/by-nd/4.0/)
+
+ADDITIONAL PARKING PROPS — original bundled notices
+damaged-trash-can
+Model Information:
+* title:	Realistic Trash Can Damaged (LOWPOLY) Free
+* source:	https://sketchfab.com/3d-models/realistic-trash-can-damaged-lowpoly-free-1f124d5de6364378bb937d5bf7c9da6d
+* author:	Carlbon 3D (https://sketchfab.com/3DCarlbon)
+
+Model License:
+* license type:	CC-BY-4.0 (http://creativecommons.org/licenses/by/4.0/)
+* requirements:	Author must be credited. Commercial use is allowed.
+
+If you use this 3D model in your project be sure to copy paste this credit wherever you share it:
+This work is based on "Realistic Trash Can Damaged (LOWPOLY) Free" (https://sketchfab.com/3d-models/realistic-trash-can-damaged-lowpoly-free-1f124d5de6364378bb937d5bf7c9da6d) by Carlbon 3D (https://sketchfab.com/3DCarlbon) licensed under CC-BY-4.0 (http://creativecommons.org/licenses/by/4.0/)
+
+traffic-cone
+Model Information:
+* title:	Roadsign & Cones Pack
+* source:	https://sketchfab.com/3d-models/roadsign-cones-pack-6cce13f3eb3946a9bbae864c3343326d
+* author:	kris vidotto (https://sketchfab.com/kvidotto)
+
+Model License:
+* license type:	CC-BY-4.0 (http://creativecommons.org/licenses/by/4.0/)
+* requirements:	Author must be credited. Commercial use is allowed.
+
+If you use this 3D model in your project be sure to copy paste this credit wherever you share it:
+This work is based on "Roadsign & Cones Pack" (https://sketchfab.com/3d-models/roadsign-cones-pack-6cce13f3eb3946a9bbae864c3343326d) by kris vidotto (https://sketchfab.com/kvidotto) licensed under CC-BY-4.0 (http://creativecommons.org/licenses/by/4.0/)
+
+weathered-barrier
+Model Information:
+* title:	Weathered Concrete Barriers
+* source:	https://sketchfab.com/3d-models/weathered-concrete-barriers-58b198cf6f054a68882852924c6a2a2c
+* author:	Guy in a Poncho (https://sketchfab.com/ponchoguy)
+
+Model License:
+* license type:	CC-BY-4.0 (http://creativecommons.org/licenses/by/4.0/)
+* requirements:	Author must be credited. Commercial use is allowed.
+
+If you use this 3D model in your project be sure to copy paste this credit wherever you share it:
+This work is based on "Weathered Concrete Barriers" (https://sketchfab.com/3d-models/weathered-concrete-barriers-58b198cf6f054a68882852924c6a2a2c) by Guy in a Poncho (https://sketchfab.com/ponchoguy) licensed under CC-BY-4.0 (http://creativecommons.org/licenses/by/4.0/)
+
+emergency-light
+Model Information:
+* title:	Low Poly Exit Sign â€“ Emergency Light 3D Model
+* source:	https://sketchfab.com/3d-models/low-poly-exit-sign-emergency-light-3d-model-fdbada9b16c4448c9fc6377a8e6b271d
+* author:	KenVeel (https://sketchfab.com/KenVeel)
+
+Model License:
+* license type:	CC-BY-4.0 (http://creativecommons.org/licenses/by/4.0/)
+* requirements:	Author must be credited. Commercial use is allowed.
+
+If you use this 3D model in your project be sure to copy paste this credit wherever you share it:
+This work is based on "Low Poly Exit Sign â€“ Emergency Light 3D Model" (https://sketchfab.com/3d-models/low-poly-exit-sign-emergency-light-3d-model-fdbada9b16c4448c9fc6377a8e6b271d) by KenVeel (https://sketchfab.com/KenVeel) licensed under CC-BY-4.0 (http://creativecommons.org/licenses/by/4.0/)
+
+GARAGE COLUMN — source notice (selected components, scaled and optimized)
+Model Information:
+* title:	Basement Parking Garage Environment Underground
+* source:	https://sketchfab.com/3d-models/basement-parking-garage-environment-underground-1ce0cc998a654a408d25832ab620a5d1
+* author:	PolyNeast (https://sketchfab.com/polyNeast)
+
+Model License:
+* license type:	SKETCHFAB Standard (https://sketchfab.com/licenses)
+* requirements:	Under basic restrictions, use worldwide, on all types of media, commercially or not, and in all types of derivative works
+
+Interactive locker and room-door derivatives retain the existing Zixel and olegolegperepelica notices above; mesh separation, hinge setup, scaling, WebP and meshopt modifications are documented in CREDITS.md.
+
+
+STAGED GENERATOR LP — original supplied notice
+Model Information:
+* title:	Generator LP
+* source:	https://sketchfab.com/3d-models/generator-lp-9127ac84a3c84d56be6e3993ed350eff
+* author:	YoeriBervoets (https://sketchfab.com/YoeriBervoets)
+
+Model License:
+* license type:	CC-BY-4.0 (http://creativecommons.org/licenses/by/4.0/)
+* requirements:	Author must be credited. Commercial use is allowed.
+
+If you use this 3D model in your project be sure to copy paste this credit wherever you share it:
+This work is based on "Generator LP" (https://sketchfab.com/3d-models/generator-lp-9127ac84a3c84d56be6e3993ed350eff) by YoeriBervoets (https://sketchfab.com/YoeriBervoets) licensed under CC-BY-4.0 (http://creativecommons.org/licenses/by/4.0/)
+Modifications: complete assembly joined, grounded/centred, uniform 1.4 m scaling, 2K WebP textures and meshopt. Repair interaction paused.
+
+### Smiler
+
+`parking/smiler.glb` is adapted from **Accurate Smiler Backrooms Blender 3.22** by **ultramirage10**, licensed under **CC-BY-4.0**. Source: https://sketchfab.com/3d-models/accurate-smiler-backrooms-blender-322-902975161a7047baa5cda8fb7b5a292e � author: https://sketchfab.com/ultramirage10 � license: https://creativecommons.org/licenses/by/4.0/ . Changes: baked static bind pose, centered/oriented/rescaled, narrowed and elongated individual teeth, compressed GLB; runtime omits black pupil pieces and adds glow, chromatic fringes and smoke. Original archive is preserved.

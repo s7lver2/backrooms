@@ -1,0 +1,56 @@
+.parking-preview { position: fixed; inset: 0; background: #252d29; color: #d6dbce; font: 11px/1.6 ui-monospace, Consolas, monospace; }
+.parking-preview-canvas, .parking-preview-canvas canvas { width: 100%; height: 100%; display: block; }
+.parking-preview header { position: absolute; top: 18px; left: 22px; pointer-events: none; text-shadow: 0 1px 3px #18221c; }
+.parking-preview header strong { display: block; font-size: 17px; }
+.parking-preview header span { display: block; opacity: .7; }
+.parking-preview nav { position: absolute; right: 18px; top: 20px; display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 5px; max-width: 480px; }
+.parking-preview nav a, .parking-preview nav button { padding: 5px 8px; border: 1px solid #77857980; background: #26332bd9; color: #d6dbce; text-decoration: none; font: inherit; cursor: pointer; }
+.parking-preview nav a[aria-current] { border-color: #c3ceaa; background: #56644dd9; }
+.parking-preview footer { position: absolute; bottom: 18px; left: 22px; pointer-events: none; text-shadow: 0 1px 3px #18221c; }
+.parking-preview-crosshair { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); opacity: .5; pointer-events: none; }
+.parking-preview-loading { position: absolute; inset: 0; display: grid; place-items: center; background: #222b26; padding: 32px; text-align: center; }
+@media (max-width: 800px) { .parking-preview nav { top: 100px; left: 20px; right: auto; justify-content: flex-start; } }
+
+.parking-preview-interaction { position: absolute; bottom: 80px; left: 50%; transform: translateX(-50%); font-size: 13px; text-shadow: 0 1px 3px #000; pointer-events: none; }
+.parking-preview-storage { position: absolute; bottom: 44px; left: 22px; text-shadow: 0 1px 3px #000; pointer-events: none; }
+
+.parking-preview-objective { position:absolute;bottom:108px;left:22px;text-shadow:0 1px 3px #000;pointer-events:none; }
+.parking-preview-repair:not([hidden]) { position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);width:128px;height:128px;display:grid;place-items:center;pointer-events:none;text-shadow:0 1px 3px #000; }
+.parking-preview-repair svg { position:absolute;inset:0;width:100%;height:100%;transform:rotate(-90deg); }
+.parking-preview-repair circle { fill:none;stroke:#c5d2b3;stroke-width:5;stroke-linecap:round; }
+.parking-preview-repair .repair-track { stroke:#26352d; }
+.parking-preview-repair span { font-size:22px; }
+.parking-preview-repair small { position:absolute;top:132px;white-space:nowrap; }
+
+.parking-preview-round { position:absolute;left:22px;bottom:132px;pointer-events:none;text-shadow:0 1px 3px #000; }
+
+.parking-preview-canvas { position: relative; overflow: hidden; }
+.parking-preview-canvas[data-smiler-gaze]::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  opacity: calc(.62 * var(--gaze-strength));
+  background:
+    linear-gradient(90deg, #70243e80, transparent 24% 76%, #175d6480),
+    repeating-linear-gradient(0deg, #100912 0 2px, transparent 2px 7px, #52b6af48 7px 8px, transparent 8px 13px);
+}
+.parking-preview-canvas[data-smiler-gaze]:not([data-reduce-motion]) canvas {
+  animation: parking-gaze-shift 1.4s steps(1, end) infinite;
+}
+.parking-preview-canvas[data-smiler-gaze]:not([data-reduce-motion])::after {
+  animation: parking-gaze-lines 2.2s steps(3, end) infinite;
+}
+@keyframes parking-gaze-shift {
+  0%, 64%, 100% { transform: scale(1.025); }
+  30% { transform: translateX(calc(-1% * var(--gaze-strength))) scale(1.025); }
+  80% { transform: translateX(calc(1.2% * var(--gaze-strength))) scale(1.025); }
+}
+@keyframes parking-gaze-lines {
+  from { background-position: 0 0, 0 0; }
+  to { background-position: 0 0, 0 26px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .parking-preview-canvas[data-smiler-gaze]:not([data-reduce-motion]) canvas,
+  .parking-preview-canvas[data-smiler-gaze]:not([data-reduce-motion])::after { animation: none; }
+}

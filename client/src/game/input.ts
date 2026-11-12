@@ -15,6 +15,7 @@ export interface Controls {
   jump: boolean;
   flash: boolean; // pulsaciones: true solo el fotograma en que se pulsan
   grab: boolean; // G: recoger
+  bagHeld?: boolean; // E mantenida: reparacion local del generador.
   bag: boolean; // E: el inventario
   aim: boolean; // clic derecho mantenido: mirar por la cámara
   zoom: number; // la rueda mirando por la cámara (pasos)
@@ -287,6 +288,7 @@ export class Input {
       flash: p.has('flash'),
       grab: p.has('grab'),
       bag: p.has('bag'),
+      bagHeld: this.active && !this.suspend && k.has('KeyE'),
       aim: this.holds.has('aim'),
       zoom: this.zoomV,
       fire: p.has('fire'),
