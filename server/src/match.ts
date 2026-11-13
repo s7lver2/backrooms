@@ -1,5 +1,5 @@
 import {
-  Breath, levelCaps, seesXZ, CELL, DIFFICULTY, HIT_DAMAGE, EntitySim, TV_REACH, centerOf, generateMaze, poolMaze, hideStates, itemSpots, solidAt, tickHides, totemSpot, tvPoint, tvSites, NOISE_RUN, NOISE_SHOT,
+  Breath, levelCaps, seesXZ, CELL, DIFFICULTY, HIT_DAMAGE, EntitySim, TV_REACH, centerOf, generateMaze, poolMaze, suitesMaze, hideStates, itemSpots, solidAt, tickHides, totemSpot, tvPoint, tvSites, NOISE_RUN, NOISE_SHOT,
   type Difficulty, type Inventory, type Ups, type Look, type Mission, type HideState, type EntState, type ItemSpot, type Kind, type Maze, type Noise, type PlayerState, type SimTarget, type WorldSnapshot,
 } from '@backrooms/shared';
 
@@ -124,12 +124,12 @@ export class Match {
   /** Nivel sin entidades (las Poolrooms, mientras no tengan sus propias). */
   private noEnts: boolean;
 
-  constructor(readonly seed: number, difficulty: Difficulty = 'normal', players = 1, levelId = 'level0') {
+  constructor(readonly seed: number, difficulty: Difficulty = 'normal', players = 1, levelId = 'level0', floor = 1) {
     this.speed = DIFFICULTY[difficulty].speed;
     this.grace = DIFFICULTY[difficulty].grace;
     const caps = levelCaps(levelId);
     this.noEnts = !caps.ents;
-    this.maze = caps.pool ? poolMaze(seed) : generateMaze(seed, players);
+    this.maze = caps.hotel ? suitesMaze(seed, floor) : caps.pool ? poolMaze(seed) : generateMaze(seed, players);
     this.maze.totem = this.noEnts ? null : totemSpot(this.maze, seed, players);
     this.hides = hideStates(this.maze);
     const D = DIFFICULTY[difficulty];

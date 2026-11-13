@@ -1,6 +1,7 @@
 /** Lo que comparten el cliente y el servidor: los puertos fijos, el protocolo de las salas y la lógica de la partida. */
 export * from './maze';
 export * from './pools';
+export * from './suites';
 export * from './lockers';
 export * from './sim';
 export * from './progress';
@@ -49,6 +50,8 @@ export const TAPES_NEEDED = 8;
 
 /** Lo que cada jugador manda ~15 veces por segundo (el servidor lo reparte a su sala; también en la sala de espera). */
 export interface PlayerState {
+  /** Cuenta de saltos del bucle de Las Suites (`wrapX`): al subir, el servidor acepta el salto de posición sin recortarlo. */
+  tp?: number;
   x: number;
   y: number;
   z: number;
@@ -110,7 +113,7 @@ export type Difficulty = 'easy' | 'normal' | 'hard';
 export const DIFFICULTY: Record<Difficulty, { speed: number; grace: number; life: number; ents: number; loot: number; money: number }> = {
   easy: { speed: 0.85, grace: 16, life: 84, ents: 1, loot: 1, money: 0.75 },
   normal: { speed: 1, grace: 10, life: 54, ents: 2, loot: 0.8, money: 1 },
-  hard: { speed: 1.2, grace: 6, life: 36, ents: 3, loot: 0.5, money: 1.5 },
+  hard: { speed: 1.05, grace: 6, life: 36, ents: 3, loot: 0.5, money: 1.5 },
 };
 export const ROOM_NAME_MAX = 20;
 /** Lo que el propietario puede cambiar de la sala (en el lobby). */
@@ -136,6 +139,8 @@ export interface Room extends RoomSettings {
   round: number;
   /** El nivel de la ronda (clave de LEVELS en shared/missions.ts). */
   levelId: string;
+  /** Las Suites: la planta de la ronda (1-5). */
+  floor?: number;
   /** Capacidades del nivel (levelCaps(levelId)): qué componentes del jugador están activos. */
   caps: LevelCaps;
   /** Fase `starting`: las 3 misiones a votar con sus votos. Vacío en las demás fases. */
@@ -203,7 +208,7 @@ export const SCALE = { x: -3.7, z: 1.6, r: 0.6 }; // (cerca de la pared oeste, e
 export type Joined = { id: string; room: RoomView } | { error: string };
 
 /** Un objeto de la partida: cinta, linterna, cámara o rifle. */
-export type ItemKind = 'tape' | 'flashlight' | 'camera' | 'gun' | 'water' | 'totem' | 'radar' | 'tank' | 'watergun' | 'loot' | 'locker';
+export type ItemKind = 'tape' | 'flashlight' | 'camera' | 'gun' | 'water' | 'totem' | 'radar' | 'tank' | 'watergun' | 'loot' | 'locker' | 'gen';
 export interface WorldSnapshot {
   /** Reloj del servidor (Date.now()) al tomar el snapshot: las entidades se interpolan con él, no con la hora de llegada. */
   t?: number;

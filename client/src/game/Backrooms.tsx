@@ -11,7 +11,7 @@ import Hotbar from './Hotbar';
 import TotemUi from './Totem';
 import { HOT } from './quickslots';
 import { setCursors } from './cursors';
-import { AMMO_PACK, DIFFICULTY, type Inventory as SrvInv, type ItemId, type RoomView, type RoundResult } from '@backrooms/shared';
+import { AMMO_PACK, DIFFICULTY, levelsOpen, type Inventory as SrvInv, type ItemId, type RoomView, type RoundResult } from '@backrooms/shared';
 import { useNet, useServer } from '../net';
 import { avatarUrl, useAccount } from '../account';
 import { Avatar, AuthScreen, DiscordButton, AccountBox, AccountMenu, AchievementsScreen, Toasts, type AuthMode } from './Account';
@@ -21,6 +21,8 @@ import { Crosshair } from './Crosshair';
 import { onSetting, settings, useSettings } from '../settings';
 import Lobby, { ServerNotice } from './Lobby';
 import Computer, { guestLook } from './Computer';
+import ShopGrid from './ShopGrid';
+import { cleanLook } from '@backrooms/shared';
 import Board, { BoardHint } from './Board';
 import { DIFF } from './RoomSettings';
 import End from './End';
@@ -188,7 +190,7 @@ function waitInv(s: SrvInv, hot: (string | null)[] = ['caution', null, null, nul
 function Mission({ hud, room }: { hud: Hud; room: RoomView | null }) {
   const i = hud.inv, m = hud.mission, up = hud.ascent;
   const aboard = (room?.ascent?.boarded ?? []).map((id) => room?.players.find((p) => p.id === id)?.name || 'ANON');
-  const goal = !m ? '' : m.done ? 'ELEVATOR OPEN' : m.kind === 'photos' && !i.camera ? 'FIND A CAMCORDER' : m.text;
+  const goal = !m ? '' : m.done ? (room?.levelId === 'suites' ? 'ELEVATOR OR STAIRS OPEN' : 'ELEVATOR OPEN') : m.kind === 'photos' && !i.camera ? 'FIND A CAMCORDER' : m.text;
   const blocks = (n: number, of: number) => (
     <>
       {'▮'.repeat(n)}
@@ -197,6 +199,7 @@ function Mission({ hud, room }: { hud: Hud; room: RoomView | null }) {
   );
   return (
     <div className="br-mission" aria-live="polite">
+      {room?.levelId === 'suites' && room.floor && <p className="br-osd__dim">FLOOR {room.floor} / 5</p>}
       {m && (
         <p className={m.done ? 'br-lift__t' : undefined} data-urgent={(m.done && !!up && !up.boarded) || undefined}>
           {goal}
@@ -343,6 +346,7 @@ export default function Backrooms({ onQuit, onWin }: { onQuit: () => void; onWin
   const adminRef = useRef(false);
   adminRef.current = !!acct.me?.admin;
   useEffect(() => void (game.current && (game.current.adminOn = !!acct.me?.admin)), [acct.me?.admin]);
+  useEffect(() => void (game.current && (game.current.myLook = acct.me ? cleanLook(acct.me.loadout) : guestLook())), [acct.me]); // mi skin, para mi propio cuerpo
   const [locker, setLocker] = useState<string | null>(null); // la taquilla que se está abriendo (id)
   // la rueda de emotes (mantener B en la sala de espera) y los emotes que abren mis logros
   const [wheel, setWheel] = useState(false);
@@ -415,6 +419,7 @@ export default function Backrooms({ onQuit, onWin }: { onQuit: () => void; onWin
         await new Promise((r) => setTimeout(r, 400)); // un instante al 100 % antes de pasar al título
         if (alive) setScreen('menu');
         if (alive && (dev?.has('pool') || dev?.has('poolmap'))) (setScreen('play'), g.devPool(dev.has('poolmap')));
+        else if (alive && dev?.has('suites')) (setScreen('play'), g.devSuites());
         else if (alive && dev?.has('runlevel')) (setScreen('play'), g.devRun()); // desarrollo: ?runlevel arranca «Run for your life» sin sala
       })
       .catch((e) => (console.error('load failed', e), alive && setFailed(true)))
@@ -527,6 +532,7 @@ export default function Backrooms({ onQuit, onWin }: { onQuit: () => void; onWin
     if (cursor.current) cursor.current.style.display = 'none';
     // desarrollo: &seed=N fija el laberinto
     const fixed = DEV_LOCAL ? Number(new URLSearchParams(location.search).get('seed')) : 0;
+    game.current!.myLook = acct.me ? cleanLook(acct.me.loadout) : guestLook();
     game.current!.start(fixed || (Math.random() * 2 ** 31) | 0);
     setScreen('play');
   }, []);
@@ -614,7 +620,8 @@ export default function Backrooms({ onQuit, onWin }: { onQuit: () => void; onWin
     const room = roomRef.current, sock = net.sock;
     if (!room || !sock) return;
     enter();
-    game.current!.start(room.seed, { sock, id: sock.id!, life: DIFFICULTY[room.difficulty].life, players: room.players.length, index: Math.max(0, room.players.findIndex((p) => p.id === sock.id)), inv: invRef.current ?? undefined, mission: room.mission, level: room.levelId, caps: room.caps });
+    game.current!.myLook = acct.me ? cleanLook(acct.me.loadout) : guestLook();
+    game.current!.start(room.seed, { sock, id: sock.id!, life: DIFFICULTY[room.difficulty].life, players: room.players.length, index: Math.max(0, room.players.findIndex((p) => p.id === sock.id)), inv: invRef.current ?? undefined, mission: room.mission, level: room.levelId, floor: room.floor, caps: room.caps });
     setNotice('');
     setComputer(false);
     setScreen('play');
@@ -712,7 +719,7 @@ export default function Backrooms({ onQuit, onWin }: { onQuit: () => void; onWin
     input.unlock();
     let alive = true;
     const done = () => alive && sock.emit('ready', true);
-    game.current!.warmLevel(room.seed, room.players.length, room.levelId).then(done, done);
+    game.current!.warmLevel(room.seed, room.players.length, room.levelId, room.floor).then(done, done);
     return () => void ((alive = false), (input.suspend = input.noLock = false));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [doorDone, voting, net.sock]);
@@ -1063,9 +1070,12 @@ export default function Backrooms({ onQuit, onWin }: { onQuit: () => void; onWin
           </div>
         </div>
       )}
+      {screen === 'play' && hud?.shop && net.room && game.current?.assets && (
+        <ShopGrid seed={net.room.seed} floor={net.room.floor} open={levelsOpen(net.room.players.map((p) => p.ups))} bank={net.room.bank} inv={game.current.player?.inventory ?? null} sock={net.sock} assets={game.current.assets} onBought={(id) => game.current?.buyHere(id)} />
+      )}
       {screen === 'play' && hud && game.current?.assets && (
         <Inventory
-          open={!!hud.bag}
+          open={!!hud.bag && !hud.shop}
           inv={hud.inv}
           assets={game.current.assets!}
           look={net.room?.players.find((p) => p.id === net.me)?.look}

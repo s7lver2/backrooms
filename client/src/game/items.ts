@@ -49,7 +49,7 @@ function aimPoint(tg: Target, eye: THREE.Vector3, fwd: THREE.Vector3) {
 interface Pickup {
   id: string;
   obj: THREE.Object3D;
-  kind: 'tape' | 'camera' | 'gun' | 'flashlight' | 'water' | 'totem' | 'radar' | 'ammo' | 'caution' | 'tank' | 'watergun' | 'loot' | 'uno' | 'monster' | 'locker';
+  kind: 'tape' | 'camera' | 'gun' | 'flashlight' | 'water' | 'totem' | 'radar' | 'ammo' | 'caution' | 'tank' | 'watergun' | 'loot' | 'uno' | 'monster' | 'locker' | 'gen';
   taken: boolean;
   /** La altura a la que flota y el brillo de su rareza. */
   y: number;
@@ -71,7 +71,7 @@ export class Items {
   open = false;
   /** La misión está cumplida: el ascensor se abre al acercarse. */
   ready = false;
-  onWin?: () => void;
+  onWin?: (stairs?: boolean) => void;
   /** El jugador pulsa G ante una taquilla: la abre el minijuego (game.ts / Backrooms.tsx). */
   onLocker?: (id: string) => void;
   onKill?: (t: Target, from: THREE.Vector3) => void;
@@ -159,7 +159,23 @@ export class Items {
         put('l' + i, 'locker', c, lk, 1.8, Math.atan2(-w[0], -w[1]), { x: cc.x + w[0] * (CELL / 2 - 0.4), z: cc.z + w[1] * (CELL / 2 - 0.4) });
       } else put('v' + i, 'loot', c, lootModel(spotRarity('v' + i, c)), 0.24, i); // el botín: solo para vender
     });
+    // los cuadros eléctricos de Las Suites: sin modelo propio (ya están en la pared), solo el sitio al que apuntar
+    (m.gens ?? []).forEach((c, i) => {
+      const holder = new THREE.Group(), cc = center(c), pp = m.props.find((q) => q.kind === 'panel' && q.cell.x === c.x && q.cell.y === c.y); // (donde cuelga el cuadro, escondido en una suite)
+      holder.position.set(cc.x + (pp?.off?.[0] ?? 0), 1.4, cc.z + (pp?.off?.[1] ?? 0));
+      this.root.add(holder);
+      this.pickups.push({ id: 'e' + i, obj: holder, kind: 'gen', taken: false, y: 1.4 });
+    });
     world.root.add(this.root);
+  }
+  /** ¿Hay corriente? (todos los cuadros eléctricos del mapa activados; sin cuadros, siempre.) */
+  get powered() {
+    return this.pickups.every((p) => p.kind !== 'gen' || p.taken);
+  }
+  /** Cuadros activados y total. */
+  get gens() {
+    const g = this.pickups.filter((p) => p.kind === 'gen');
+    return { on: g.filter((p) => p.taken).length, n: g.length };
   }
 
   /** Un paso de físicas de un objeto soltado: gravedad, rebote en el suelo, choque con las paredes y rozamiento hasta quedarse quieto. */
@@ -191,37 +207,69 @@ export class Items {
   }
 
   /** Lo recogible más cerca y de frente, a menos de REACH. */
+  /** ¿Hay algo para coger a menos de 2 m de mis ojos, mire a donde mire? (entonces G no es para hablar con nadie) */
+  close() {
+    const eye = this.camera.getWorldPosition(new THREE.Vector3());
+    return this.pickups.some((p) => !p.taken && !p.pending && p.obj.position.distanceTo(eye) < 2);
+  }
+  private nearDx = 0;
   private nearest() {
     const eye = this.camera.getWorldPosition(new THREE.Vector3()), fwd = this.camera.getWorldDirection(new THREE.Vector3());
     let best: Pickup | undefined, bd = Infinity;
+    const span = this.world.maze.span, sw = span ? (span[1] - span[0]) * CELL : 0; // (Las Suites: en las otras copias del pasillo se ven sus copias, y se cogen igual)
+    this.nearDx = 0;
     for (const p of this.pickups) {
       if (p.taken || p.pending) continue;
       // lo que no cabe ni se ofrece (el servidor lo rechazaría): el tope de cada cosa y el sitio de la mochila
       const inv = { ...this.player.inventory, loot: perks.loot };
-      if (p.kind === 'loot' ? !hasRoom(inv, perks.stats, 'loot') : p.kind !== 'tape' && p.kind !== 'locker' && !canHold(inv, p.kind, perks.stats)) continue;
-      const to = p.obj.position.clone().sub(eye), d = to.length();
-      if (d > REACH + 1.62 * 0.5 || to.normalize().dot(fwd) < 0.5) continue;
-      if (d < bd) (bd = d), (best = p);
+      if (p.kind === 'loot' ? !hasRoom(inv, perks.stats, 'loot') : p.kind !== 'tape' && p.kind !== 'locker' && p.kind !== 'gen' && !canHold(inv, p.kind, perks.stats)) continue;
+      for (const dx of sw ? [0, -sw, sw] : [0]) {
+        const to = p.obj.position.clone().sub(eye), d0 = to.x;
+        to.x = d0 + dx;
+        const d = to.length();
+        if (d > REACH + 1.62 * 0.5 || to.normalize().dot(fwd) < 0.5) continue;
+        if (d < bd) (bd = d), (best = p), (this.nearDx = dx);
+      }
     }
     return best;
+  }
+
+  /** Las Suites: el pasillo se repite (cada 24 m el mapa es el mismo), así que cada objeto tiene sus copias a un lado y a otro, que lo imitan (y se van con él al cogerlo). */
+  private ghosts = new Map<Pickup, THREE.Object3D[]>();
+  private ghostsSync() {
+    const span = this.world.maze.span;
+    if (!span) return;
+    const w = (span[1] - span[0]) * CELL, live = new Set(this.pickups);
+    for (const [p, gs] of this.ghosts) if (!live.has(p)) (gs.forEach((g) => g.removeFromParent()), this.ghosts.delete(p));
+    for (const p of this.pickups) {
+      let gs = this.ghosts.get(p);
+      if (!gs) this.ghosts.set(p, (gs = [0, 1].map(() => p.obj.clone(true))));
+      gs.forEach((g, i) => {
+        if (!g.parent) this.root.add(g);
+        g.visible = p.obj.visible && !p.taken;
+        g.position.copy(p.obj.position).x += (i ? 1 : -1) * w;
+        g.rotation.copy(p.obj.rotation);
+      });
+    }
   }
 
   update(t: number, dt: number, c: Controls) {
     const pl = this.player;
     for (const p of this.pickups) {
       if (p.taken) continue;
-      if (p.kind === 'locker') continue; // (de pie, quieta)
+      if (p.kind === 'locker' || p.kind === 'gen') continue; // (de pie, quieta)
       if (p.phys) this.fall(p, dt);
       else (p.obj.rotation.y += dt * 0.8), (p.obj.position.y = p.y + Math.sin(t * 1.6 + p.obj.position.x * 3) * 0.04);
       pulse(p.fx, t);
     }
     this.flash = Math.max(0, this.flash - dt * 4);
+    this.ghostsSync();
 
     const near = this.nearest();
-    this.hint = near ? ({ tape: 'tape', camera: 'camcorder', gun: 'rifle', flashlight: 'flashlight', water: 'almond water', totem: 'totem of life', radar: 'radar', ammo: 'ammo', caution: 'caution tape', tank: 'diving tank', watergun: 'water gun', loot: 'artifact', uno: 'uno reverse', monster: 'monster', locker: 'locker' } as const)[near.kind] : null;
+    this.hint = near ? ({ tape: 'tape', camera: 'camcorder', gun: 'rifle', flashlight: 'flashlight', water: 'almond water', totem: 'totem of life', radar: 'radar', ammo: 'ammo', caution: 'caution tape', tank: 'diving tank', watergun: 'water gun', loot: 'artifact', uno: 'uno reverse', monster: 'monster', locker: 'locker', gen: 'power switch' } as const)[near.kind] : null;
     if (c.grab && near?.kind === 'locker') this.onLocker?.(near.id);
     else if (c.grab) {
-      const p = near;
+      const p = near, ndx = this.nearDx;
       // la mano baja a por él; es tuyo cuando llega
       const take = (p: Pickup) => {
         const got = () => {
@@ -245,7 +293,7 @@ export class Items {
             pl.autoSlot(p.kind);
           }
         };
-        if (pl.reach(p.obj.getWorldPosition(new THREE.Vector3()), got)) p.taken = true;
+        if (pl.reach(p.obj.getWorldPosition(new THREE.Vector3()).add(new THREE.Vector3(ndx, 0, 0)), got)) p.taken = true;
         else if (this.claim) (p.taken = true), got(); // el servidor ya se lo ha dado: sin gesto
       };
       if (p && this.claim) {
@@ -372,12 +420,13 @@ export class Items {
   private elevator(t: number) {
     const w = this.world, door = w.elevator.position, d = Math.hypot(this.player.pos.x - door.x, this.player.pos.z - door.z);
     const ready = this.ready;
-    if (ready && !this.open && d < 3) {
+    this.world.genLeds.forEach((m, i) => m.color.setHex(this.pickups.find((p) => p.id === 'e' + i)?.taken ? 0x33ff66 : 0xff3322));
+    if (ready && this.powered && !this.open && d < 3) {
       this.open = w.elevatorOpen = true;
       this.audio?.elevator();
       w.cab.open();
     }
-    if (!ready && d < 1.3 && t > this.rejectAt) {
+    if (!(ready && this.powered) && d < 1.3 && t > this.rejectAt) {
       this.rejectAt = t + 1.5;
       this.audio?.reject();
     }
@@ -386,6 +435,11 @@ export class Items {
     if (this.open && !this.won && Math.hypot(this.player.pos.x - cab.x, this.player.pos.z - cab.z) < CELL * 0.3) {
       this.won = true;
       this.onWin?.();
+    }
+    // la escalera de servicio (Las Suites): arriba del todo (el rellano, a una planta de altura), con la misión hecha, se pasa de planta (en silencio y a oscuras)
+    if (w.maze.stairs && !this.won && this.player.pos.y > 2.2) {
+      if (ready) (this.won = true), this.onWin?.(true);
+      else if (t > this.rejectAt) (this.rejectAt = t + 1.5), this.audio?.reject();
     }
   }
 }

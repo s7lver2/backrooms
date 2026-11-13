@@ -91,6 +91,8 @@ export class WaitingRoom {
   /** El emote en marcha (0 ninguno; ver PlayerState.emote). */
   emote = 0;
   private emoteUntil = 0;
+  /** 0 → 1: la cámara pasa de mis ojos a verme bailar. */
+  private emK = 0;
   private emoteAt = -1e9;
   private hop?: { from: THREE.Vector3; t: number };
   // la escena
@@ -648,6 +650,17 @@ export class WaitingRoom {
     cam.position.set(this.pos.x, y, this.pos.z).lerp(vp, e);
     _q.setFromEuler(_e.set(this.pitch, this.yaw, 0, 'YXZ'));
     cam.quaternion.copy(_q).slerp(vq, e);
+    // con un emote en marcha, la cámara se pone delante para verte bailar (y vuelve a tus ojos al acabar); la sala es pequeña: sin salirse de ella
+    this.emK += ((this.emote && this.mode === 'free' && this.seat !== 'chair' ? 1 : 0) - this.emK) * Math.min(1, dt * 5);
+    if (this.emK > 0.01) {
+      const fx = -Math.sin(this.yaw), fz = -Math.cos(this.yaw), cx = WAIT_HALF.x - 0.25, cz = WAIT_HALF.z - 0.25, at = (d: number) => _v.set(clamp(this.pos.x + fx * d, -cx, cx), 1.35 + this.py * 0.5, clamp(this.pos.z + fz * d, -cz, cz));
+      let tp = at(2.3).clone();
+      if (Math.hypot(tp.x - this.pos.x, tp.z - this.pos.z) < 1.5) tp = at(-2.3).clone(); // (contra una pared: por detrás)
+      const look = new THREE.Vector3(this.pos.x, 0.95 + this.py * 0.6, this.pos.z), qd = new THREE.Quaternion().setFromRotationMatrix(new THREE.Matrix4().lookAt(tp, look, new THREE.Vector3(0, 1, 0)));
+      const k = smooth(this.emK);
+      cam.position.lerp(tp, k);
+      cam.quaternion.slerp(qd, k);
+    }
     // al sentarse o levantarse, la cámara viaja (no salta)
     if (this.hop) {
       this.hop.t += dt / 0.45;

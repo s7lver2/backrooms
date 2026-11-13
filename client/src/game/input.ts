@@ -30,7 +30,7 @@ export interface Controls {
   pause: boolean;
   /** Space mantenido (contener la respiración en un escondite). */
   hold?: boolean;
-  /** C o Ctrl izquierdo mantenido: agacharse (solo lo usa el nivel «Run for your life»; allí Shift/RUN también agacha). */
+  /** C mantenida: agacharse (solo lo usa el nivel «Run for your life»; allí Shift/RUN también agacha). */
   crouch?: boolean;
   /** Clic izquierdo y G mantenidos (el chorro de la pistola de agua y la recarga). */
   fireHeld?: boolean;
@@ -110,6 +110,7 @@ export class Input {
     const KEYS: Record<string, Pulse> = { Space: 'jump', KeyF: 'flash', KeyG: 'grab', KeyE: 'bag', KeyR: 'reload', KeyQ: 'swap', KeyX: 'use', KeyY: 'drop' };
     on('keydown', (e) => {
       if (!this.active || (e.target as HTMLElement | null)?.tagName === 'INPUT') return; // escribiendo (el chat): no es para el juego
+      if ((e.ctrlKey || e.metaKey) && this.locked) e.preventDefault(); // Ctrl+R, Ctrl+S, Ctrl+F...: no son del navegador mientras se juega (Ctrl+W/T/N no los suelta Firefox: ver Keyboard Lock más abajo)
       if (e.repeat) return; // (la repetición de Esc tras reanudar volvía a pausar)
       // tras reanudar con Esc el navegador no da el puntero hasta un gesto: cualquier otra tecla lo es
       if (this.needClick && e.code !== 'Escape' && !this.suspend) this.lock(true);
@@ -298,7 +299,7 @@ export class Input {
       use: p.has('use'),
       pause: p.has('pause') && performance.now() >= this.guardUntil,
       hold: settings.toggleBreath ? this.toggled : k.has('Space'),
-      crouch: k.has('KeyC') || k.has('ControlLeft'),
+      crouch: k.has('KeyC'),
       fireHeld: this.fireDown,
       grabHeld: k.has('KeyG'),
       slotHeld: [0, 1, 2, 3].find((i) => k.has('Digit' + (i + 1))) ?? -1,

@@ -7,7 +7,7 @@
  */
 
 export type Cell = { x: number; y: number };
-export type PropKind = 'vent' | 'socket' | 'armchair' | 'exit' | 'door' | 'cabinet' | 'shelf' | 'chair' | 'chair2' | 'desk' | 'crt' | 'lamp';
+export type PropKind = 'vent' | 'socket' | 'armchair' | 'exit' | 'door' | 'cabinet' | 'shelf' | 'chair' | 'chair2' | 'desk' | 'crt' | 'lamp' | 'suitedoor' | 'bed' | 'sofa' | 'luggage' | 'bin' | 'mirror' | 'plant' | 'nightstand' | 'tlamp' | 'wardrobe' | 'wingchair' | 'bistro' | 'reception' | 'stairs' | 'steeldoor' | 'grandoor' | 'faceling' | 'trolley' | 'cart' | 'panel';
 /** Tipos de zona (cada sala tiene una; el resto, pasillos, es 0): el suelo y la luz cambian de tono para reconocerlas. */
 export const ZONE = { none: 0, pits: 1, hall: 2, cubicles: 3, office: 4, shelves: 5 } as const;
 export interface Maze {
@@ -17,6 +17,14 @@ export interface Maze {
   lit: Uint8Array; // w*h, 1 = zona con fluorescentes, 0 = zona apagada
   zone: Uint8Array; // w*h, tipo de zona (ZONE)
   voids: Cell[]; // huecos al vacío (suelo abierto que no se pisa)
+  /** Las Suites: la planta (1-5), que da el número de las puertas. */
+  floor?: number;
+  /** Mapa periódico (Las Suites): las columnas [desde, hasta) donde va lo único (objetos, botín): el jugador no sale de ahí, las demás son copias. */
+  span?: [number, number];
+  /** Las Suites: la celda del descansillo de arriba de la escalera de servicio (la de verdad, en la copia del medio): al llegar con la misión hecha, se sube de planta. */
+  stairs?: Cell;
+  /** Las Suites: los cuadros eléctricos que hay que activar (en la copia del medio) para que el ascensor tenga corriente. */
+  gens?: Cell[];
   start: Cell;
   elevator: Cell; // un callejón de una celda: la cabina
   camera: Cell;
@@ -26,7 +34,8 @@ export interface Maze {
   flashlights: Cell[]; // linternas sueltas (repuestos: la que se lleva se gasta)
   spawns: Cell[]; // arranque de bacteria y partygoer, y candidatos para las que reaparezcan
   lamps: Cell[]; // celdas con panel de luz encendido
-  props: { cell: Cell; kind: PropKind; rot: number }[];
+  /** `rot`: índice de DIRS hacia donde mira (o, en lo que se apoya en una pared, hacia la pared). `off`: metros (x, z) desde el centro de la celda, para lo que no cae en el centro (Las Suites). */
+  props: { cell: Cell; kind: PropKind; rot: number; off?: [number, number] }[];
   /**
    * Nichos en las paredes donde esconderse: `cell` es la celda del nicho (en `open` sigue siendo pared: para
    * todo lo demás es pared; solo se dibuja hueca) y `side` el índice de DIRS hacia la celda abierta de la boca.

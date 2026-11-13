@@ -162,7 +162,7 @@ export class ElevatorCab {
       btn(30, 226, '!', '#8a6a00', '#ffcf3a'), btn(66, 226, 'STOP', '#7a1410', '#e2362c', '#fff');
     });
     box(0.018, 0.62, 0.24, steel, sx - 0.009, 1.22, -0.36);
-    const kp = new THREE.Mesh(own(new THREE.PlaneGeometry(0.22, 0.6)), own(new THREE.MeshStandardMaterial({ map: keys, roughness: 0.45, metalness: 0.5, emissiveMap: keys, emissive: 0xffffff, emissiveIntensity: 0.25 })));
+    const kp = new THREE.Mesh(own(new THREE.PlaneGeometry(0.22, 0.6)), own(new THREE.MeshStandardMaterial({ map: keys, roughness: 0.45, metalness: 0.5, emissiveMap: keys, emissive: 0xffffff, emissiveIntensity: 0.05 })));
     kp.rotation.y = -Math.PI / 2;
     kp.position.set(sx - 0.019, 1.22, -0.36);
     this.group.add(kp);

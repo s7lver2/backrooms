@@ -11,7 +11,7 @@ import { perks } from './perks';
  * de la sala. El saldo sale de `room.bank`, que el servidor actualiza al comprar: se ve en vivo, también cuando compra otro.
  */
 
-export default function Shop({ bank, inv, sock, assets, open }: { bank: number; inv: Inventory | null; sock?: Sock; assets?: Assets; open?: ReadonlySet<string> }) {
+export default function Shop({ bank, inv, sock, assets, open, onBought }: { bank: number; inv: Inventory | null; sock?: Sock; assets?: Assets; open?: ReadonlySet<string>; onBought?: (id: ItemId) => void }) {
   const icons = useMemo(() => (assets ? gearIcons(assets) : null), [assets]);
   const [msg, setMsg] = useState<{ t: string; bad: boolean }>({ t: '', bad: false });
   const [busy, setBusy] = useState(false);
@@ -21,6 +21,7 @@ export default function Shop({ bank, inv, sock, assets, open }: { bank: number; 
     sock.emit('buy', id, (r) => {
       setBusy(false);
       sound(r.ok ? 'buy' : 'denied');
+      if (r.ok) onBought?.(id);
       setMsg(r.ok ? { t: `BOUGHT ${name}`, bad: false } : { t: (r.error ?? 'COULD NOT BUY').toUpperCase(), bad: true });
     });
     // sin respuesta del servidor no se queda bloqueado

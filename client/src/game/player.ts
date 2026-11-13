@@ -4,8 +4,9 @@ import type { World } from './world';
 import { FLASH } from './lightmap';
 import type { Assets } from './game';
 import { settings } from '../settings';
-import { AMMO_PACK, HP_MAX, MONSTER, WATER_HEAL, addItem, hasItem, removeItem, type Inventory, type ItemId } from '@backrooms/shared';
+import { AMMO_PACK, HP_MAX, MONSTER, WATER_HEAL, addItem, hasItem, removeItem, type Inventory, type ItemId, type Look } from '@backrooms/shared';
 import { Rig } from './rig';
+import { Cosmetics } from './cosmetics';
 import { build } from './anim/core';
 import { HOT, HOT_SLOTS } from './quickslots';
 import { perks } from './perks';
@@ -42,7 +43,7 @@ const REACH_T = 0.85; // lo que dura recoger algo, en segundos
 const DRINK_T = 0.05; // lo que se mantiene la lata para beberla (s): antes 0,5; ahora casi instantáneo (>0 para no dividir por cero en la barra)
 /** Balance: enfocar con la camcorder (mirar por el visor) frena un 8 %. */
 export const CAM_AIM_SLOW = 0.92;
-const WALK = 1.6, RUN = 3.6, JUMP = Math.sqrt(2 * 9.8 * 0.9), G = 9.8, R = 0.3;
+const WALK = 1.7, RUN = 3.85, JUMP = Math.sqrt(2 * 9.8 * 0.9), G = 9.8, R = 0.3;
 
 /** Un modelo escalado para que su lado mayor mida `size`, centrado en el origen y girado `ry`. */
 export function fit(o: THREE.Object3D, size: number, ry = 0) {
@@ -182,6 +183,8 @@ export class Player {
   private recoil = 0;
   /** El jugador ya no manda (muerto, en el ascensor): solo se pinta. */
   frozen = false;
+  /** En la tienda del Faceling: sin manos ni objetos a la vista. */
+  away = false;
   /** Con `frozen`: sí se puede mirar alrededor (dentro del ascensor en marcha). */
   lookFree = false;
   /** Le ha pillado una entidad: el cuerpo cae (y la cámara ya no es suya: la lleva game.ts). */
@@ -212,6 +215,8 @@ export class Player {
       for (const s of ['Left', 'Right'] as const) An.ik.goals.push({ chain: `${s}Arm`, weight: 1, rate: 16, target: () => this.gripT[s], pole: () => this.gripT[s]?.pole ?? null });
     }
     world.root.add(this.rig.root);
+    this.cos = new Cosmetics(this.rig.root);
+    world.root.add(this.cos.root);
     this.bones = Object.fromEntries(['Head', 'Neck', 'RightArm', 'RightForeArm', 'RightHand', 'RightHandMiddle1', 'LeftArm', 'LeftForeArm', 'LeftHand', 'LeftHandMiddle1'].map((n) => [n, this.rig.bone(n)]));
     // los objetos de la mano, a escala de mano y apuntando al frente (-z): el rifle y la linterna
     // miran a +z en su modelo; la cámara, a +x
@@ -356,7 +361,7 @@ export class Player {
     const moving = c.move.length() > 0.05, run = c.run && moving && !this.winded && !this.duck;
     // ~9 s corriendo; se recupera en ~6 s andando y ~4 s parado; agotado, no se corre hasta el 30 %
     if (this.buffT > 0) (this.stamina = 1), (this.winded = false);
-    else this.stamina = THREE.MathUtils.clamp(this.stamina + dt * (run ? -1 / (9 * perks.stats.stamina) : moving ? 1 / 6 : 1 / 4), 0, 1);
+    else this.stamina = THREE.MathUtils.clamp(this.stamina + dt * (run ? -1 / (11 * perks.stats.stamina) : moving ? 1 / 6 : 1 / 4), 0, 1);
     if (this.stamina <= 0) this.winded = true;
     else if (this.stamina > 0.3) this.winded = false;
     let speed = moving ? (run ? RUN : WALK) * Math.min(1, c.move.length()) * this.speedMul * this.buffSpeed * perks.stats.speed * (this.duck ? 0.5 : 1) * (this.stunT > 0 ? 0 : this.wetT > 0 ? 0.5 : 1) * (this.aiming ? CAM_AIM_SLOW : 1) : 0;
@@ -375,7 +380,7 @@ export class Player {
     if (this.poolMode) (this.velY = this.ext?.vy ?? 0), (this.ground = !this.ext?.air), (this.falling = false); // (en las Poolrooms la altura la pone PoolLevel: aquí no hay suelo en 0, y la gravedad hacía temblar el cuerpo en el agua)
     else {
       if (c.jump && this.ground && !this.falling) (this.velY = JUMP * this.jumpMul), (this.ground = false);
-      const floor = this.falling || this.world.voidAt(this.pos.x, this.pos.z) ? -Infinity : 0;
+      const floor = this.falling || this.world.voidAt(this.pos.x, this.pos.z) ? -Infinity : (this.world.floorAt?.(this.pos.x, this.pos.z) ?? 0); // (los mundos falsos no tienen escaleras)
       this.velY -= G * dt;
       this.pos.y += this.velY * dt;
       if (this.pos.y <= floor) (this.pos.y = floor), (this.velY = 0), (this.ground = true);
@@ -437,6 +442,7 @@ export class Player {
     // con algo en las manos el torso y los brazos se quedan quietos (ver `torso`); el vaivén lo pone el balanceo de más abajo
     body.updateMatrixWorld(true);
     this.bones.Head?.scale.setScalar(0.001);
+    this.cos.update(this.pitch, false); // (mi skin: el color y la mochila; el gorro no, que está dentro de la cabeza)
     // con la cámara en el ojo, los brazos no se ven (estarían delante de la lente)
     for (const s of ['LeftArm', 'RightArm']) this.bones[s]?.scale.setScalar(this.aiming || this.scoped ? 0.001 : 1);
     this.bones.Neck?.scale.setScalar(0.5);
@@ -516,6 +522,7 @@ export class Player {
       if (!rk && gd.left) grip('Left', it, gd.left);
     }
     if (hk >= 0.3) for (const it of Object.values(this.items)) it.visible = false;
+    if (this.away) (body.visible = false), Object.values(this.items).forEach((it) => (it.visible = false));
     this.rig.animator?.ik.run(dt); // (los agarres y el resto del IK, ya con los objetivos de este fotograma)
     // el objeto va con la mano: si el brazo no llega al agarre (objeto lejos del hombro) o aún se está acomodando, el objeto se acerca a
     // la muñeca lo que falte, en vez de quedarse en el aire con la mano lejos. Se recalcula cada fotograma desde su sitio (placeItems), sin acumular
@@ -967,7 +974,13 @@ export class Player {
     else if (this.belt === 'none') this.belt = it;
   }
 
+  /** Mi aspecto (el color del traje y la mochila). */
+  private cos: Cosmetics;
+  setLook(l: Look) {
+    this.cos.set(l);
+  }
   dispose() {
+    this.cos.dispose();
     for (const it of Object.values(this.items)) it.removeFromParent();
     this.jet.pts?.removeFromParent();
     this.rig.root.removeFromParent();

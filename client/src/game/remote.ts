@@ -113,6 +113,8 @@ export class Remote {
   dancing = '';
   private emoting = 0;
   floorShadow = false;
+  /** Es mi propio cuerpo (se ve al mirar hacia abajo): sin cabeza, nombre, sombra ni objetos (esos son los de la vista en primera persona). */
+  self = false;
   private shadow = new THREE.Mesh(new THREE.PlaneGeometry(0.95, 0.95).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ map: BLOB, transparent: true, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -2 }));
   onStep?: (r: Remote, run: boolean) => void;
   private walked = 0;
@@ -330,6 +332,7 @@ export class Remote {
     }
     this.label.visible = live;
     this.label.position.set(this.pos.x, this.pos.y + 2.15 - 0.85 * this.crouch, this.pos.z);
+    if (this.self) (this.label.visible = this.shadow.visible = this.beam.visible = this.glow.visible = false), Object.values(this.items).forEach((i) => (i.visible = false));
   }
 
   dispose() {

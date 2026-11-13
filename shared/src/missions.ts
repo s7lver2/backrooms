@@ -33,13 +33,23 @@ export interface LevelDef {
 export const LEVELS: Record<string, LevelDef> = {
   level0: { id: 'level0', name: 'LEVEL 0', title: 'THE LOBBY', blurb: 'DAMP CARPET. FLUORESCENT HUM. NO WAY OUT BUT FORWARD.' },
   poolrooms: { id: 'poolrooms', name: 'LEVEL 37', title: 'THE POOLROOMS', blurb: 'WARM WATER. WHITE TILE. SOMETHING BREATHES UNDER THE SURFACE.', luck: 1.8, unlock: 'pool' },
+  suites: { id: 'suites', name: 'LEVEL -20', title: 'THE SUITES', blurb: 'WARM LIGHT. RED WALLPAPER. THE STAFF SMILES, AND THERE IS NO FACE TO SMILE WITH.', luck: 1.4 },
 };
 /** Niveles aún en desarrollo: solo salen si un admin los elige (no entran en el sorteo de rondas). Quitar el nombre de aquí cuando estén listos. */
-export const DEV_LEVELS = [] as readonly string[];
+export const DEV_LEVELS = ['suites'] as readonly string[];
 /** Las misiones de las Poolrooms: aguantar o encontrar jabones (aún no hay entidades que fotografiar). */
 export const poolMissions = (seed: number, round: number): Mission[] => {
   const r = rng(seed ^ Math.imul(round + 1, 0x9e3779b1));
   return [makeMission('survive', r, `m${round}-0`, 0), makeMission('soaps', r, `m${round}-1`, 0)];
+};
+/** Las misiones de las Suites: aguantar o recoger objetos del hotel (el resto, cuadros y recepción, llegará con el nivel entero). */
+export const suitesMissions = (seed: number, round: number, floor = 1): Mission[] => {
+  const r = rng(seed ^ Math.imul(round + 1, 0x9e3779b1));
+  // cada planta pide más (un minuto o una cinta cada dos plantas, hasta las 8 que hay) y paga más (+25 % por planta)
+  return [makeMission('survive', r, `m${round}-0`, 0), makeMission('tapes', r, `m${round}-1`, 0)].map((m) => {
+    const goal = m.kind === 'tapes' ? Math.min(8, m.goal + (floor >> 1)) : m.goal + 60 * (floor - 1);
+    return { ...m, goal, text: missionText(m.kind, goal), reward: round10((m.reward * goal * (1 + 0.25 * (floor - 1))) / m.goal) };
+  });
 };
 /** Niveles especiales: no entran en el sorteo (los lleva el cliente aparte). */
 export const SPECIAL_LEVELS = ['runforyourlife'] as const;
@@ -216,6 +226,18 @@ export interface ShopItem {
 }
 /** La tienda del ordenador de la sala de espera: lo de todo el juego, cada cosa a su precio (sale de ITEMS). */
 export const SHOP: ShopItem[] = (Object.keys(ITEMS) as ItemId[]).map((id) => ({ id, name: ITEMS[id].name, price: ITEMS[id].price, info: ITEMS[id].info }));
+/** Lo que vende un Faceling: pocas cosas y un 20 % más caras (4 o 5 al azar según la semilla y la planta: iguales para todos los Facelings y jugadores de la ronda). */
+export function facelingStock(seed: number, floor = 1, open?: ReadonlySet<string>): ShopItem[] {
+  const pool = SHOP.filter((s) => !open || itemOpen(s.id, open));
+  let a = (seed ^ Math.imul(floor, 0x9e3779b1)) >>> 0;
+  const rnd = () => (a = (Math.imul(a, 1664525) + 1013904223) >>> 0) / 4294967296;
+  rnd();
+  for (let i = pool.length - 1; i > 0; i--) {
+    const j = (rnd() * (i + 1)) | 0;
+    [pool[i], pool[j]] = [pool[j], pool[i]];
+  }
+  return pool.slice(0, rnd() < 0.5 ? 4 : 5).map((s) => ({ ...s, price: Math.ceil(s.price * 1.2) }));
+}
 export const shopItem = (id: unknown) => SHOP.find((s) => s.id === id);
 /** Lo que se lleva al comprar `id`: la compra y, con el rifle, un cargador de regalo. */
 export function purchase(inv: Inventory, id: ItemId, r = 0): Inventory {
@@ -372,4 +394,7 @@ export interface RoundResult {
   /** El saldo común después de la ronda. */
   bank: number;
   fates: Record<string, Fate>;
+  /** Las Suites: la planta de la ronda que viene, y si el ascensor falló y cayó a la 1. */
+  floor?: number;
+  fell?: boolean;
 }

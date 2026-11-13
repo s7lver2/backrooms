@@ -53,6 +53,10 @@ class Voice {
   speaking = new Set<string>();
   /** Estado del micrófono: sin pedir, en marcha o denegado/ausente. */
   state: 'idle' | 'on' | 'denied' = 'idle';
+  /** Por qué no hay micrófono: sin HTTPS el navegador ni lo ofrece (solo en localhost o https). */
+  why = '';
+  /** Conexiones de voz establecidas y las que debería haber. */
+  linked = () => [[...this.peers.values()].filter((p) => p.pc.connectionState === 'connected').length, this.peers.size];
   /** Estoy emitiendo (tecla pulsada o micro abierto). */
   talking = false;
 
@@ -154,7 +158,7 @@ class Voice {
       }
       p.level = this.meter(ms);
     };
-    pc.onconnectionstatechange = () => pc.connectionState === 'failed' && this.peers.get(id) === p && (this.drop(id), this.sock && this.open(id));
+    pc.onconnectionstatechange = () => (this.bump(), pc.connectionState === 'failed') && this.peers.get(id) === p && (this.drop(id), this.sock && this.open(id));
     if (this.me < id) {
       void (async () => {
         try {
@@ -227,6 +231,7 @@ class Voice {
         this.state = 'on';
       } catch {
         this.state = 'denied';
+        this.why = navigator.mediaDevices ? 'MIC BLOCKED' : 'MIC NEEDS HTTPS';
       }
       this.bump();
     })();

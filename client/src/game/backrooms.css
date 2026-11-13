@@ -707,6 +707,7 @@
 .br-wheel { position: absolute; inset: 0; z-index: 40; display: flex; align-items: center; justify-content: center; background: rgba(0, 0, 0, 0.55); font-size: clamp(11px, 1.5vh, 15px); }
 .br-wheel__ring { position: relative; width: 34em; height: 34em; }
 .br-wheel__it { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%) translate(calc(var(--x) * 13.5em), calc(var(--y) * 13.5em)); min-width: 7em; padding: 0.55em 0.7em; font: inherit; letter-spacing: 0.08em; color: var(--br-ink); background: #0c0b08; border: 1px solid var(--br-ink); opacity: 0.4; cursor: not-allowed; }
+.br-wheel__ic { display: block; width: 2.6em; height: 2.6em; margin: 0 auto 0.25em; }
 .br-wheel__it[data-open] { opacity: 1; cursor: pointer; }
 .br-wheel__it[data-hot] { background: var(--br-ink); color: #0c0b08; opacity: 1; }
 .br-wheel__it[data-hot]:not([data-open]) { background: #2a2820; color: var(--br-ink); }
@@ -714,3 +715,8 @@
 .br-wheel__mid b { font-size: 1.5em; letter-spacing: 0.15em; }
 .br-tree__card > * { flex-shrink: 0; }
 .br-tree__info { min-height: 0 !important; }
+
+/* Las Suites: el ascensor falla; la luz se va, parpadea y vuelve */
+@keyframes br-blackout { 0%, 18% { opacity: 0; } 22% { opacity: 1; } 30% { opacity: 0.2; } 36%, 52% { opacity: 1; } 58% { opacity: 0.5; } 100% { opacity: 1; } }
+.br[data-fell] > nav { animation: br-blackout 2.6s steps(1, end) both; }
+@media (prefers-reduced-motion: reduce) { .br[data-fell] > nav { animation: none; } }

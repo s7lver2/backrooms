@@ -6,7 +6,7 @@ import { perks } from './perks';
 import { GLTFLoader, type GLTF } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { MeshoptDecoder } from 'three/examples/jsm/libs/meshopt_decoder.module.js';
 import { compileGently } from './compile';
-import { CELL, generateMaze } from './maze';
+import { CELL, SUITE_L, generateMaze, suitesMaze, wrapX } from './maze';
 import { World, center, HEIGHT } from './world';
 import { FLASH } from './lightmap';
 import { Input, type Controls } from './input';
@@ -60,6 +60,8 @@ export interface Mp {
   mission?: ActiveMission | null;
   /** El nivel de la ronda (LEVELS): por ahora level0 (el laberinto) o poolrooms. */
   level?: string;
+  /** Las Suites: la planta (1-5). */
+  floor?: number;
   /** Capacidades del nivel que manda el servidor (LevelCaps): qué componentes del jugador están activos. */
   caps?: LevelCaps;
 }
@@ -161,6 +163,8 @@ export interface Hud {
   mission: MissionHud | null;
   /** Tras subir el primero al ascensor: si yo ya subí y los segundos que quedan para cerrar la ronda. Null si nadie ha subido. */
   ascent: { boarded: boolean; left: number } | null;
+  /** La tienda del Faceling está abierta (Las Suites). */
+  shop: boolean;
   /** Lo que haría G ahora si no es recoger algo («TURN OFF TV»). */
   act: string | null;
   /** El Tótem de la vida: el selector (compañeros caídos a los que se puede revivir; null cerrado), el nivel «Run for your life» si lo estoy corriendo, los avisos y los segundos de inmunidad que quedan. */
@@ -177,7 +181,7 @@ const _spec = new THREE.Vector3(), _want = new THREE.Vector3(), _none = new THRE
 const DIR = '/models/backrooms/';
 /** Segundos de viaje dentro del ascensor (ya con las puertas cerradas) antes de que la grabación se corte a negro. */
 const RIDE = 3.5;
-export const MODELS = ['hazmat', 'bacteria', 'partygoer', 'balloon', 'camcorder', 'vhs', 'gun', 'flashlight', 'water', 'elevator', 'vent', 'socket', 'exit', 'door', 'armchair', 'cabinet', 'shelf', 'chair', 'chair2', 'desk', 'crt', 'lamp', 'duct', 'radar', 'totem', 'hospital/stretcher', 'hospital/stools', 'hospital/curtain', 'hospital/extinguisher', 'hospital/cupboard', 'hospital/clock', 'hospital/exitdoor', 'hospital/locker', 'hospital/drip', 'hospital/wheelchair', 'hospital/shelf'] as const;
+export const MODELS = ['hazmat', 'bacteria', 'partygoer', 'balloon', 'camcorder', 'vhs', 'gun', 'flashlight', 'water', 'elevator', 'vent', 'socket', 'exit', 'door', 'armchair', 'cabinet', 'shelf', 'chair', 'chair2', 'desk', 'crt', 'lamp', 'duct', 'radar', 'totem', 'hospital/stretcher', 'hospital/stools', 'hospital/curtain', 'hospital/extinguisher', 'hospital/cupboard', 'hospital/clock', 'hospital/exitdoor', 'hospital/locker', 'hospital/drip', 'hospital/wheelchair', 'hospital/shelf', 'suites/door', 'suites/bed', 'suites/sofa', 'suites/secretary', 'suites/faceling', 'suites/chair', 'suites/wardrobe', 'suites/table', 'suites/luggage', 'suites/bin', 'suites/mirror', 'suites/plant', 'suites/panel'] as const;
 export type ModelName = (typeof MODELS)[number];
 export const TEXTURES = ['wall', 'carpet', 'ceiling'] as const;
 
@@ -315,6 +319,8 @@ export class BackroomsGame {
   items?: Items;
   /** Las televisiones de la misión «TURN OFF THE TVS» (si es esa). */
   tvs?: Tvs;
+  /** El aviso de G de la puerta que tienes delante (Las Suites). */
+  private doorAct: string | null = null;
   /** La misión de la ronda: en una sala, la del servidor (progreso y si está cumplida); solo, una sencilla que se lleva aquí. */
   private mission: ActiveMission | null = null;
   /** Tras subir el primero: segundos que quedaban al llegar el aviso, cuándo llegó y quiénes han subido. */
@@ -350,6 +356,9 @@ export class BackroomsGame {
   private spare: Remote[] = [];
   /** El aspecto de cada jugador de la sala (lo manda el servidor con la sala). */
   private looks = new Map<string, Look>();
+  /** Mi aspecto (el de mi cuenta o el de invitado) cuando no hay sala que lo dé. */
+  myLook?: Look;
+  private lookOf = (id?: string) => this.looks.get(id ?? '') ?? this.myLook ?? DEFAULT_LOOK;
   private entMap = new Map<number, Entity>();
   private offNet: (() => void)[] = [];
   private sendT = 0;
@@ -714,6 +723,7 @@ export class BackroomsGame {
     this.world?.dispose();
     this.black = 0;
     this.winning = false;
+    this.viaStairs = false;
     this.dying = -1;
     this.killer = undefined;
     this.outT = -1;
@@ -728,22 +738,29 @@ export class BackroomsGame {
     this.breath.reset();
     this.vhs.uniforms.uCorrupt.value = 0;
     this.hides = []; // (las Poolrooms no tienen nichos; sin esto quedan los de la ronda anterior)
-    this.caps = mp?.caps ?? levelCaps(mp?.level ?? 'level0');
+    this.caps = mp?.caps ?? levelCaps(mp?.level ?? this.devLevel ?? 'level0');
     if (mp && this.caps.pool) return void this.startPool(seed, mp);
+    // Las Suites: más luz de ambiente y la niebla más lejos (hotel cálido, no sótano); el resto de niveles, lo de siempre
+    this.hemi.intensity = this.caps.hotel ? 0.45 : 0.16;
+    (this.scene.fog as THREE.Fog).far = this.caps.hotel ? 24 : 19;
+    (this.scene.fog as THREE.Fog).color.set(this.caps.hotel ? 0x1d0c0a : 0x17130a);
+    this.points.forEach((l) => l.color.set(this.caps.hotel ? 0xffd2a0 : 0xffefc6)); // las luces puntuales que dan el brillo al cuarzo: cálidas en el hotel
+    if (this.bloom) (this.bloom.strength = this.caps.hotel ? 0.62 : 0.55), (this.bloom.threshold = this.caps.hotel ? 0.9 : 0.92), (this.bloom.radius = this.caps.hotel ? 0.9 : 0.6);
     // desarrollo: &god, inmortal
     this.god = !mp && DEV_LOCAL && new URLSearchParams(location.search).has('god');
-    const w = (this.world = new World(generateMaze(seed, mp?.players ?? 1), this.assets!));
+    const w = (this.world = new World(this.caps.hotel ? suitesMaze(seed, mp?.floor) : generateMaze(seed, mp?.players ?? 1), this.assets!, this.caps.hotel));
     w.maze.totem = totemSpot(w.maze, seed, mp?.players ?? 1); // el Tótem de la vida, si toca (como en el servidor)
     this.scene.add(w.root);
     const m = w.maze, s = m.start;
     this.hides = hideStates(m);
     const p = (this.player = new Player(w, this.assets!, this.camera, this.flash, this.opts.reduced));
+    p.setLook(this.lookOf(mp?.id)); // (mi skin sobre mi cuerpo en primera persona)
     if (mp?.life) p.life = mp.life;
     p.onDrink = () => (this.audio?.drink(), this.mp?.sock.emit('drink'));
     this.hookGear(p);
     if (mp) p.load(mp.inv ?? START_INV); // en una sala se empieza con el inventario del servidor (tienda y lo conservado), no desnudo
     // mirando hacia el primer lado abierto (con yaw = 0 se mira a -z)
-    const side = [[1, 0], [-1, 0], [0, 1], [0, -1]].find(([dx, dy]) => m.open[(s.y + dy) * m.w + s.x + dx]) ?? [0, -1];
+    const side = this.caps.hotel ? [-1, 0] : [[1, 0], [-1, 0], [0, 1], [0, -1]].find(([dx, dy]) => m.open[(s.y + dy) * m.w + s.x + dx]) ?? [0, -1];
     const at0 = center(s), [sx, sz] = startOffset(mp?.index ?? 0);
     if (mp) (at0.x += sx), (at0.z += sz);
     p.spawn(at0, Math.atan2(-side[0], -side[1]));
@@ -756,7 +773,7 @@ export class BackroomsGame {
     // la misión: la del servidor o, solo, una al azar (las cintas solo se colocan si la misión es encontrarlas)
     this.mission = mp ? (mp.mission ?? null) : this.soloMission(m);
     const it = (this.items = new Items(w, this.assets!, p, this.camera, this.audio, this.mission?.kind === 'tapes'));
-    it.onWin = () => this.win();
+    it.onWin = (stairs) => this.win(stairs);
     it.onLocker = (id) => this.onLocker?.(id);
     it.ready = !!this.mission?.done;
     if (this.mission?.kind === 'tvs') {
@@ -801,6 +818,7 @@ export class BackroomsGame {
     const c = this.input.read();
     if (this.run) return this.runFrame(dt, c);
     this.vhs.uniforms.uPool.value = this.film.uniforms.uVhs.value = this.pool instanceof PoolLevel ? 1 : 0; // (el aspecto de cinta de las Poolrooms: sin amarillo, con barrido y croma)
+    this.film.uniforms.uWarm.value = this.caps.hotel && !this.run ? 1 : 0; // (Las Suites: el color cálido del hotel)
     if (this.pool) return this.poolFrame(dt, c);
     if (this.totemOpen && c.bag) (c.bag = false), this.closeTotem(); // Esc o E cierran el selector del Tótem
     // el inventario: E lo abre y lo cierra (Escape también lo cierra, sin pausar)
@@ -816,6 +834,18 @@ export class BackroomsGame {
     if (this.player) (this.player.speedMul = this.cheats.speed), (this.player.jumpMul = this.cheats.jump);
     if (this.brightLight) this.brightLight.visible = this.cheats.bright;
     if (!this.spectating || this.player?.dead) this.player?.update(dt, c);
+    if (this.caps.hotel && this.player) {
+      // Las Suites: el pasillo se cierra sobre sí mismo (shared/src/suites.ts). Quien acaba de entrar del vestíbulo NO salta: la puerta se cierra a su espalda y recorre la última copia
+      // (igual que las demás); el salto empieza al pasar a la anterior
+      const px = this.player.pos.x, span = SUITE_L * CELL;
+      if (px >= 3 * span) this.hallIn = true;
+      else if (this.hallIn && px >= 2 * span) px < 3 * span - 1.2 && this.world?.closeGrand();
+      else {
+        this.hallIn = false;
+        const nx = wrapX(px);
+        this.player.pos.x = nx;
+      }
+    }
     // escondido, las manos están quietas: nada de recoger, disparar ni linterna
     const hiding = !!this.player && this.player.hideState !== 'out';
     let cc = hiding ? { ...c, grab: false, fire: false, reload: false, flash: false, swap: false, slot: -1, wheel: 0, use: false, aim: false, zoom: 0 } : c;
@@ -823,12 +853,32 @@ export class BackroomsGame {
     if (this.dying < 0) {
       this.gadgets && (cc = this.gadgets.update(dt, cc));
       this.player && this.tvs && (cc = this.tvs.update(dt, this.player, cc, this.audio));
+      this.doorAct = null;
+      if (this.world && this.caps.hotel && this.player && !this.player.dead && !this.tvs?.hint && !this.items?.hint) {
+        const d = this.world.nearDoor(this.player.pos.x, this.player.pos.z, this.player.yaw); // Las Suites: G abre y cierra las puertas de las suites
+        if (d) ((this.doorAct = d.tgt ? 'CLOSE DOOR' : 'OPEN DOOR'), cc.grab && (this.world.toggleDoor(d), (cc = { ...cc, grab: false })));
+      }
+      if (this.world && this.mp && this.caps.hotel && this.player && !this.player.dead && !this.doorAct && !this.tvs?.hint && !this.items?.hint && !this.items?.close() && this.world.nearCounter(this.player.pos.x, this.player.pos.z, this.player.yaw)) {
+        this.doorAct = 'TALK TO THE FACELING'; // Las Suites: la tienda de recepción
+        if (cc.grab) (this.openShop(), (cc = { ...cc, grab: false }));
+      }
+      if (this.world && this.caps.hotel && this.player && !this.doorAct && this.items && !this.items.hint) {
+        const it = this.items, e = this.world.maze.elevator, q = this.player.pos, gs = it.gens;
+        if (q.y > 2.2 && !it.ready) this.doorAct = 'FLOOR DOOR LOCKED · FINISH THE MISSION';
+        else if (e && Math.hypot(q.x - (e.x + 0.5) * CELL, q.z - (e.y + 0.5) * CELL) < 3) {
+          if (!it.powered) this.doorAct = `ELEVATOR HAS NO POWER · SWITCH ON THE PANELS ${gs.on}/${gs.n}`;
+          else if (!it.ready) this.doorAct = 'ELEVATOR OFFLINE · FINISH THE MISSION';
+        }
+      }
       this.items?.update(this.t, dt, cc);
       if (cc.drop) this.dropSelected();
     }
     if (!this.mp) this.soloTick();
     this.hideFrame(dt, c.hold);
     this.monsters(dt);
+    if (this.shopOpen && !this.bagOpen) this.shopOpen = false; // (cualquier cosa que cierre la mochila —una pausa, la muerte, un reinicio— cierra la tienda)
+    if (this.shopOpen && (this.dying >= 0 || this.winning)) this.closeBag();
+    if (this.shopOpen || this.shopT > 0) this.shopCam(dt);
     if (this.mp) this.netFrame(dt, c);
     if (this.dying >= 0 && !this.spectating) this.dyingFrame(dt);
     // pasos: uno cada ~0,7 m andando (algo más largos corriendo), si se pisa suelo
@@ -846,6 +896,7 @@ export class BackroomsGame {
       // el zumbido: el del tubo que tienes encima (y nada en un apagón)
       this.audio?.power((near[0]?.level ?? 0) * (0.4 + 0.6 * THREE.MathUtils.clamp(1 - Math.sqrt(near[0]?.d ?? 99) / 6, 0, 1)));
       if (p) this.audio?.ambient(dt, this.openness(p.pos), 1 - p.sanity);
+      if (this.caps.hotel) this.audio?.muzak(dt);
       if (p) this.audio?.pit(this.world.pitNear(p.pos.x, p.pos.z));
       const du = (this.dust.material as THREE.ShaderMaterial).uniforms;
       du.uCam.value.copy(this.camera.position);
@@ -861,8 +912,8 @@ export class BackroomsGame {
     u.uFlash.value = this.items?.flash ?? 0;
     // en el ascensor: puertas, arranque y un rato de viaje (la cámara tiembla con la cabina); luego la grabación se corta a negro
     const cab = this.world?.cab;
-    if (this.winning && cab) this.camera.position.y += cab.shake;
-    if (this.winning && (!cab || cab.rideT > RIDE)) this.black = Math.min(1, this.black + dt / 1.5);
+    if (this.winning && cab && !this.viaStairs) this.camera.position.y += cab.shake;
+    if (this.winning && (!cab || this.viaStairs || cab.rideT > RIDE)) this.black = Math.min(1, this.black + dt / 1.5);
     u.uBlack.value = Math.max(this.black, this.fadeIn / 0.9);
     u.uAspect.value = this.fadeIn > 0 && !p?.aiming && this.dying < 0 && !this.winning ? 1 : this.camera.aspect;
     // la foto: se pinta el fotograma del flash y se queda congelado un instante
@@ -903,7 +954,7 @@ export class BackroomsGame {
     if (pl && this.mp?.inv?.tank) inv.tank = true;
     const hidden = !!p && p.hideState !== 'out';
     const ms = this.mission, up = this.ascent;
-    return { mission: ms ? { kind: ms.kind, text: ms.text, line: missionLine(ms), progress: ms.progress, goal: ms.goal, done: ms.done } : null, ascent: up ? { boarded: !!this.mp && up.boarded.includes(this.mp.id), left: Math.max(0, up.left - (performance.now() - up.at) / 1000) } : null, act: hidden || this.run ? null : this.tvs?.hint ?? pl?.act ?? null, totem: this.totemHud(), needClick: this.input.needClick, bag: this.bagOpen, note: this.gadgets?.note ?? null, hint: hidden || this.run || this.tvs?.hint ? null : this.gadgets?.hint ?? this.items?.hint ?? pl?.hint ?? null, hide: this.dying >= 0 || this.winning || this.spectating ? null : hidden ? (p!.hideState === 'hidden' ? 'leave' : null) : this.hideNear() ? 'hide' : null, breath: p?.concealed ? { air: this.breath.air, warn: this.inspected, held: this.holding } : null, drink: p?.dead ? 0 : p?.drinking ?? 0, refill: pl?.fill ?? 0, inv, aiming: !!p?.aiming, scoped: !!p?.scoped && !this.spectating, zoom: p?.zoom ?? 1, focus: !!this.items?.focus, tapes: this.items?.tapes ?? 0, photos: this.items?.photos ?? 0, ammo: p?.has.gun ? p.ammo : null, spare: p?.spare ?? 0, battery, time: this.t, hp: p?.hp ?? HP_MAX, hps: this.hps, spectating: this.spectating && !this.run ? (this.remotes.get(this.watching)?.name ?? '') : null, watchList: this.spectating && !this.run ? [...this.remotes.values()].map((r) => ({ name: r.name, on: r.id === this.watching && this.specView !== 'free', dead: r.dead })) : undefined, specView: this.spectating && !this.run ? this.specView : undefined };
+    return { mission: ms ? { kind: ms.kind, text: ms.text, line: missionLine(ms), progress: ms.progress, goal: ms.goal, done: ms.done } : null, ascent: up ? { boarded: !!this.mp && up.boarded.includes(this.mp.id), left: Math.max(0, up.left - (performance.now() - up.at) / 1000) } : null, act: hidden || this.run ? null : this.tvs?.hint ?? this.doorAct ?? pl?.act ?? null, totem: this.totemHud(), needClick: this.input.needClick, bag: this.bagOpen && !this.shopOpen, shop: this.bagOpen && this.shopOpen, note: this.gadgets?.note ?? null, hint: hidden || this.run || this.tvs?.hint ? null : this.gadgets?.hint ?? this.items?.hint ?? pl?.hint ?? null, hide: this.dying >= 0 || this.winning || this.spectating ? null : hidden ? (p!.hideState === 'hidden' ? 'leave' : null) : this.hideNear() ? 'hide' : null, breath: p?.concealed ? { air: this.breath.air, warn: this.inspected, held: this.holding } : null, drink: p?.dead ? 0 : p?.drinking ?? 0, refill: pl?.fill ?? 0, inv, aiming: !!p?.aiming, scoped: !!p?.scoped && !this.spectating, zoom: p?.zoom ?? 1, focus: !!this.items?.focus, tapes: this.items?.tapes ?? 0, photos: this.items?.photos ?? 0, ammo: p?.has.gun ? p.ammo : null, spare: p?.spare ?? 0, battery, time: this.t, hp: p?.hp ?? HP_MAX, hps: this.hps, spectating: this.spectating && !this.run ? (this.remotes.get(this.watching)?.name ?? '') : null, watchList: this.spectating && !this.run ? [...this.remotes.values()].map((r) => ({ name: r.name, on: r.id === this.watching && this.specView !== 'free', dead: r.dead })) : undefined, specView: this.spectating && !this.run ? this.specView : undefined };
   }
 
   /** Lo abierto que es el sitio: las celdas libres en 7 × 7 alrededor (0–1). */
@@ -1207,14 +1258,16 @@ export class BackroomsGame {
   }
 
   /** Dentro del ascensor: las puertas se cierran, la grabación se corta a negro y «Noclip». */
-  private win() {
+  private viaStairs = false;
+  private win(stairs = false) {
     this.winning = true;
+    this.viaStairs = stairs;
     this.player!.frozen = this.player!.lookFree = true; // quieto, pero mira alrededor: el viaje se ve desde dentro
-    this.world?.cab.board();
+    if (!stairs) this.world?.cab.board(); // (por la escalera no hay cabina: se corta a negro sin más)
     this.bagOpen = false;
     unlock('backrooms');
     this.mp?.sock.emit('ascend', this.player!.inventory); // sube con lo que lleva; el servidor lo acota y cierra la ronda cuando suben todos o se acaba el tiempo
-    setTimeout(() => this.onWin?.(), RIDE * 1000 + 2600);
+    setTimeout(() => this.onWin?.(), (stairs ? 0 : RIDE * 1000) + 2600);
   }
 
   // desarrollo: dos dianas quietas delante del inicio, para probar fotos y tiros sin entidades
@@ -1245,9 +1298,40 @@ export class BackroomsGame {
     this.input.suspend = true;
     this.input.unlock();
   }
+  /** La tienda del Faceling: abierta, como la mochila (E o Esc la cierran). */
+  shopOpen = false;
+  private hallIn = false;
+  private tp = 0; // los saltos de posición legítimos (se lo cuenta al servidor)
+  private sentX = 0;
+  /** 0 → 1 mientras la cámara se va de mis ojos a la vista de lado del Faceling (y de vuelta). */
+  private shopT = 0;
+  private shopV?: { x: number; z: number; dx: number; dz: number };
+  openShop() {
+    const p = this.player;
+    this.shopV = p && this.world?.shopView(p.pos.x, p.pos.z);
+    this.shopOpen = true;
+    this.openBag();
+  }
+  /** La cámara de la tienda: al Faceling, de perfil y a la izquierda de la pantalla, mirando hacia la tienda. Va después de que el jugador ponga la suya. */
+  private shopCam(dt: number) {
+    const v = this.shopV, cam = this.camera;
+    this.shopT = THREE.MathUtils.clamp(this.shopT + (this.shopOpen ? dt : -dt) / 0.7, 0, 1);
+    if (this.player) this.player.away = this.shopT > 0.15; // (con la cámara ya en camino, fuera manos y objetos)
+    if (!v || this.shopT <= 0) return;
+    const e = this.shopT * this.shopT * (3 - 2 * this.shopT);
+    // de frente: la cámara delante de él (hacia donde mira) y apuntando un poco a su derecha (la nuestra, mirándole), para que quede a la izquierda de la pantalla
+    const tgt = new THREE.Vector3(v.x, 1.5, v.z), pos = tgt.clone().add(new THREE.Vector3(v.dx * 1.25, 0.02, v.dz * 1.25)), look = tgt.clone().add(new THREE.Vector3(v.dz * 0.5, -0.04, -v.dx * 0.5)); // (muy cerca: de la cara al pecho)
+    const q = new THREE.Quaternion().setFromRotationMatrix(new THREE.Matrix4().lookAt(pos, look, new THREE.Vector3(0, 1, 0)));
+    cam.position.lerp(pos, e);
+    cam.quaternion.slerp(q, e);
+  }
+  buyHere(id: ItemId) {
+    this.player?.receive(id);
+  }
   closeBag() {
     this.audio?.cue('bagClose');
     this.bagOpen = false;
+    this.shopOpen = false;
     this.input.suspend = false;
     this.input.lock();
   }
@@ -1315,6 +1399,7 @@ export class BackroomsGame {
       wr.scene.add(wr.camera);
       const lp = (this.player = new Player(stub, this.assets!, wr.camera, this.flash, this.opts.reduced));
       lp.poolMode = true;
+      lp.setLook(this.lookOf(mp.id)); // (mi skin en la sala de espera)
       lp.drinkOff = true;
       this.lobbyP = true;
       wr.camera.add(this.flash, this.flash.target); // (leaveWaiting la devuelve a la cámara del juego)
@@ -1391,6 +1476,8 @@ export class BackroomsGame {
   setLooks(room: RoomView) {
     this.looks = new Map(room.players.map((p) => [p.id, p.look]));
     for (const [id, r] of this.remotes) r.setLook(this.looks.get(id) ?? DEFAULT_LOOK);
+    const me = this.mp ?? this.waitMp;
+    if (me) this.player?.setLook(this.lookOf(me.id));
   }
 
   /** Lo que la sala dice de sí misma (propietario, fase, ajustes): la pantalla del ordenador y, si empieza la partida, la entrada. */
@@ -1430,15 +1517,15 @@ export class BackroomsGame {
    * Durante la votación de la misión: se prepara el nivel que viene (el laberinto de la semilla y su mundo, con los materiales ya compilados en
    * la carga) para que al empezar la partida no haya tirón. Cede el hilo entre un paso y otro; resuelve cuando está.
    */
-  async warmLevel(seed: number, players: number, level = 'level0') {
+  async warmLevel(seed: number, players: number, level = 'level0', floor = 1) {
     const a = this.assets;
     if (level === 'poolrooms') return void (await loadPoolKit()); // (el nivel se arma al empezar; las piezas ya están bajadas y leídas)
     if (!a) return;
     const tick = () => new Promise((r) => setTimeout(r, 30));
     await tick();
-    const maze = generateMaze(seed, players);
+    const hotel = levelCaps(level).hotel, maze = hotel ? suitesMaze(seed, floor) : generateMaze(seed, players);
     await tick();
-    new World(maze, a).dispose();
+    new World(maze, a, hotel).dispose();
     await tick();
   }
 
@@ -1788,6 +1875,7 @@ export class BackroomsGame {
     this.inspected = !!w.insp?.includes(mp.id);
   }
 
+  /** Mi propio cuerpo con mi skin: se ve al mirar hacia abajo (sin cabeza; algo atrás para que el torso no tape la cámara). */
   /** Cada fotograma en una sala: los demás, lo que yo mando (15 Hz) y, si estoy muerto, la cámara del compañero. */
   private netFrame(dt: number, c: Controls) {
     for (const r of this.remotes.values()) r.update(dt);
@@ -1885,7 +1973,11 @@ export class BackroomsGame {
     if (this.pool instanceof PoolLevel) return this.poolState(this.pool);
     // volatile: si el túnel va atascado, este estado se pierde en vez de encolarse (el siguiente lleva lo último); t: la hora de ahora, para que
     // los demás reconstruyan mi ritmo aunque los paquetes lleguen tarde o juntos
-    this.mp.sock.volatile.emit('state', { x: p.pos.x, y: p.pos.y, z: p.pos.z, yaw: p.yaw, pitch: p.pitch, anim: 'Neutral Idle', dance: p.dancing || undefined, variant: p.variant || undefined, light: p.lightOn, duck: p.duck, held: p.concealed || p.hand === 'watergun' ? 'none' : p.hand, hiding: p.concealed, holding: this.holding, t: performance.now() });
+    // Las Suites: al servidor se le cuenta siempre la copia del medio del pasillo (donde están los objetos); el salto al entrar o salir del vestíbulo es un teletransporte legítimo (`tp`)
+    const sx = this.caps.hotel ? wrapX(p.pos.x) : p.pos.x;
+    if (Math.abs(sx - this.sentX) > 10) this.tp++;
+    this.sentX = sx;
+    this.mp.sock.volatile.emit('state', { x: sx, tp: this.tp, y: p.pos.y, z: p.pos.z, yaw: p.yaw, pitch: p.pitch, anim: 'Neutral Idle', dance: p.dancing || undefined, variant: p.variant || undefined, light: p.lightOn, duck: p.duck, held: p.concealed || p.hand === 'watergun' ? 'none' : p.hand, hiding: p.concealed, holding: this.holding, t: performance.now() });
   }
 
   /** Estado de la red para depurar (consola: `__game.netInfo()`): ping, jitter y retraso de dibujo de cada jugador y del mundo. */
@@ -2430,6 +2522,13 @@ x ${f(s.x)}  y ${f(s.y)}  z ${f(s.z)}  yaw ${f(s.yaw)}  pitch ${f(s.pitch)}`;
     if (k === 'smaa' && fx) fx.smaa.enabled = !fx.smaa.enabled;
     if (k === 'sun' && pl) pl.sun.castShadow = !pl.sun.castShadow;
     return { ao: !!fx?.ao.enabled, smaa: !!fx?.smaa.enabled, sun: !!pl?.sun.castShadow };
+  }
+
+  /** Desarrollo: el nivel de una partida en solitario (?suites). */
+  private devLevel?: string;
+  devSuites() {
+    this.devLevel = 'suites';
+    this.start(1);
   }
 
   /** Solo: regenerar el mapa con otra semilla (el nivel actual). */

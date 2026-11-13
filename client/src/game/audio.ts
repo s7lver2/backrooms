@@ -297,6 +297,43 @@ export class GameAudio {
   }
 
   private mad?: GainNode;
+  private muz?: GainNode;
+  private muzNext = 0;
+  private muzI = 0;
+  /**
+   * Las Suites: el hilo musical, lejos y apagado (piano eléctrico sobre Cmaj7 · Am7 · Dm7 · G7, algo desafinado). Cada fotograma:
+   * cuando toca, un acorde arpegiado; entre acorde y acorde, silencio, y de vez en cuando la campanilla de un ascensor lejano.
+   */
+  muzak(dt: number) {
+    const c = this.ctx;
+    if (!this.muz) {
+      const lp = c.createBiquadFilter();
+      lp.type = 'lowpass';
+      lp.frequency.value = 1300;
+      this.muz = c.createGain();
+      this.muz.gain.value = 0.7;
+      this.muz.connect(lp).connect(this.amb);
+      this.nodes.push(this.muz, lp);
+    }
+    if ((this.muzNext -= dt) > 0) return;
+    this.muzNext = 5 + Math.random() * 3;
+    const chords = [[261.6, 329.6, 392, 493.9], [220, 261.6, 329.6, 392], [293.7, 349.2, 440, 523.3], [196, 246.9, 293.7, 349.2]], ch = chords[this.muzI++ % 4], det = 2 ** ((Math.random() * 24 - 12) / 1200);
+    [...ch, ch[2] * 2, ch[1] * 2].forEach((f, i) => {
+      const t = c.currentTime + i * 0.45 + Math.random() * 0.03;
+      for (const [m, g] of [[1, 0.05], [2, 0.014]] as const) {
+        const o = c.createOscillator(), e = c.createGain();
+        o.frequency.value = f * m * det;
+        e.gain.setValueAtTime(0.0001, t);
+        e.gain.exponentialRampToValueAtTime(g, t + 0.02);
+        e.gain.exponentialRampToValueAtTime(0.0001, t + 2.2);
+        o.connect(e).connect(this.muz!);
+        o.start(t);
+        o.stop(t + 2.3);
+      }
+    });
+    if (Math.random() < 0.25) this.tone(1320, 0.9, 0.012, 'sine', 3 + Math.random() * 2); // una campanilla de ascensor, lejos
+  }
+
   private open = 0;
   private nextAmb = 10;
   /**

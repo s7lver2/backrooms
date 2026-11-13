@@ -126,7 +126,7 @@ export interface SimTarget {
 const CONE = (50 * Math.PI) / 180, REACH = 1.2;
 // la inspección: hasta dónde se fija en un nicho, lo que dura frente a él, lo que tarda en notar que no contienes
 // el aire (con el margen de la red) y el enfriamiento del nicho tras una
-const HIDE_RANGE = 2 * CELL + 0.3, INSPECT_T = [4, 5.5] as const, REACT = 0.9, BAD_T = 0.7, COOL = 20;
+const HIDE_RANGE = 2 * CELL + 0.3, INSPECT_T = [2.5, 3.5] as const, REACT = 0.9, BAD_T = 0.7, COOL = 20;
 // a cuánto te ven: a oscuras, bajo los fluorescentes y con la linterna encendida; el haz en la cara, a 0,3 rad
 const SIGHT_DARK = 7, SIGHT_LIT = 14, SIGHT_TORCH = 20, BEAM = 0.3;
 // el salto: si lleva FAR_T s a más de FAR_ROUTE celdas de ruta del jugador más cercano, sin verlo nadie ni a menos de
@@ -533,7 +533,7 @@ export class EntitySim {
       return undefined;
     }
     const d = Math.hypot(h.fx - this.x, h.fz - this.z);
-    if (d > 0.3 && s.walk < 5) {
+    if (d > 0.3 && s.walk < 3) {
       // a la boca, andando
       s.walk += dt;
       const k = Math.min(d, 1.8 * dt) / d;
@@ -555,7 +555,7 @@ export class EntitySim {
       // no hay nadie: se marcha
       h.cd = COOL;
       stop();
-      (this.state = 'wander'), (this.alert = 0), (this.rest = 3), (this.path = []);
+      (this.state = 'wander'), (this.alert = 0), (this.rest = 1), (this.path = []);
     }
     return undefined;
   }
@@ -625,7 +625,8 @@ const BRAIN: Record<BehaviorId, (e: EntitySim, s: Sense) => boolean> = {
     }
     if (s.rate > 0) e.lost = 0;
     // te ha perdido: aún se acuerda un poco (si vuelve a verte, persigue antes)
-    else if ((e.lost += s.dt) > D.lose) return e.calm(2, 0.5), false;
+    // (si lo último que vio fue a alguien meterse en un nicho, se rinde antes: no se queda plantado esperando a que salga)
+    else if ((e.lost += s.dt * (s.hides.some((h) => h.occ && Math.hypot(h.x - e.seen.x, h.z - e.seen.z) < 3 * CELL) ? 3 : 1)) > D.lose) return e.calm(1, 0.5), false;
     e.track(e.seen.x, e.seen.z);
     // en la misma celda que un jugador, directo a él
     const near = s.targets.find((t) => Math.hypot(t.x - e.x, t.z - e.z) < CELL * 1.2 && seesXZ(e.solid, e.x, e.z, t.x, t.z) && !e.blockedAt(t.x, t.z));
@@ -679,7 +680,7 @@ export function waterSpots(m: Maze, n = 8): Cell[] {
   const used = new Set<number>(), key = (c: Cell) => c.y * m.w + c.x;
   [m.start, m.elevator, m.camera, ...(m.pistol ? [m.pistol] : []), ...m.extraGuns, ...m.tapes, ...m.flashlights, ...m.voids, ...m.props.map((p) => p.cell)].forEach((c) => used.add(key(c)));
   const free: Cell[] = [];
-  for (let y = 0; y < m.h; y++) for (let x = 0; x < m.w; x++) if (m.open[y * m.w + x] && !used.has(y * m.w + x)) free.push({ x, y });
+  for (let y = 0; y < m.h; y++) for (let x = m.span?.[0] ?? 0; x < (m.span?.[1] ?? m.w); x++) if (m.open[y * m.w + x] && !used.has(y * m.w + x)) free.push({ x, y });
   // orden fijo pero revuelto (un hash de la celda)
   const h = (c: Cell) => Math.imul((c.x * 73856093) ^ (c.y * 19349663) ^ (m.w * 83492791), 0x9e3779b1) >>> 0;
   free.sort((a, b) => h(a) - h(b));
@@ -705,7 +706,7 @@ export function totemSpot(m: Maze, seed: number, players: number): Cell | null {
   const h = (c: Cell) => Math.imul((c.x * 19349663) ^ (c.y * 73856093) ^ seed, 0x85ebca6b) >>> 0;
   const far = (a: Cell, b: Cell, k: number) => Math.abs(a.x - b.x) + Math.abs(a.y - b.y) >= k;
   const free: Cell[] = [];
-  for (let y = 0; y < m.h; y++) for (let x = 0; x < m.w; x++) if (m.open[y * m.w + x] && !used.has(y * m.w + x)) free.push({ x, y });
+  for (let y = 0; y < m.h; y++) for (let x = m.span?.[0] ?? 0; x < (m.span?.[1] ?? m.w); x++) if (m.open[y * m.w + x] && !used.has(y * m.w + x)) free.push({ x, y });
   free.sort((a, b) => h(a) - h(b));
   return free.find((c) => far(c, m.start, 14) && far(c, m.elevator, 6) && [m.camera, ...m.tapes, ...m.flashlights, ...water].every((o) => far(c, o, 5))) ?? null;
 }
@@ -721,7 +722,7 @@ export function radarSpot(m: Maze): Cell | null {
   const h = (c: Cell) => Math.imul((c.x * 83492791) ^ (c.y * 73856093) ^ (m.w * 19349663), 0xc2b2ae35) >>> 0;
   const far = (a: Cell, b: Cell, k: number) => Math.abs(a.x - b.x) + Math.abs(a.y - b.y) >= k;
   const free: Cell[] = [];
-  for (let y = 0; y < m.h; y++) for (let x = 0; x < m.w; x++) if (m.open[y * m.w + x] && !used.has(y * m.w + x)) free.push({ x, y });
+  for (let y = 0; y < m.h; y++) for (let x = m.span?.[0] ?? 0; x < (m.span?.[1] ?? m.w); x++) if (m.open[y * m.w + x] && !used.has(y * m.w + x)) free.push({ x, y });
   free.sort((a, b) => h(a) - h(b));
   return free.find((c) => far(c, m.start, 16) && far(c, m.elevator, 6) && others.every((o) => far(c, o, 4))) ?? free.find((c) => far(c, m.start, 8)) ?? null;
 }
@@ -734,7 +735,7 @@ export function lootSpots(m: Maze, n = 9): Cell[] {
   const used = new Set<number>(), key = (c: Cell) => c.y * m.w + c.x, rd = radarSpot(m);
   [m.start, m.elevator, m.camera, ...(m.pistol ? [m.pistol] : []), ...m.extraGuns, ...m.tapes, ...m.flashlights, ...waterSpots(m), ...(rd ? [rd] : []), ...(m.tank ? [m.tank] : []), ...(m.watergun ? [m.watergun] : []), ...m.voids, ...m.props.map((p) => p.cell)].forEach((c) => c && used.add(key(c)));
   const free: Cell[] = [];
-  for (let y = 0; y < m.h; y++) for (let x = 0; x < m.w; x++) if (m.open[y * m.w + x] && !used.has(y * m.w + x)) free.push({ x, y });
+  for (let y = 0; y < m.h; y++) for (let x = m.span?.[0] ?? 0; x < (m.span?.[1] ?? m.w); x++) if (m.open[y * m.w + x] && !used.has(y * m.w + x)) free.push({ x, y });
   const h = (c: Cell) => Math.imul((c.x * 2654435761) ^ (c.y * 40503) ^ (m.h * 19349663), 0x85ebca6b) >>> 0;
   free.sort((a, b) => h(a) - h(b));
   const far = (a: Cell, b: Cell, k: number) => Math.abs(a.x - b.x) + Math.abs(a.y - b.y) >= k;
@@ -756,9 +757,10 @@ export function itemSpots(m: Maze): ItemSpot[] {
   if (m.watergun) add('p0', 'watergun', m.watergun);
   const rd = radarSpot(m);
   if (rd) add('r0', 'radar', rd);
+  (m.gens ?? []).forEach((cell, i) => add('e' + i, 'gen', cell)); // (los cuadros eléctricos: se "cogen" con G para encenderlos)
   add('c', 'camera', m.camera);
   if (m.pistol) add('g', 'gun', m.pistol);
   m.extraGuns.forEach((cell, i) => add('g' + (i + 1), 'gun', cell));
   lootSpots(m).forEach((cell, i) => (i % 8 === 7 ? add('l' + i, 'locker', cell) : add('v' + i, 'loot', cell))); // una de cada ocho es una taquilla
   return out;
-}
+}
