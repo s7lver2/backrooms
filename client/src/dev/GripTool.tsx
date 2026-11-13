@@ -468,7 +468,14 @@ export default function GripTool() {
 
         {piece ? (
           <>
-            <h3>{label(sel)} · {piece.slot}</h3>
+            <h3>{label(sel)} · {piece.slot === 'head' ? 'hat' : 'backpack'}</h3>
+            <div className="gt-tabs">
+              {([['head', 'hat (head)'], ['back', 'backpack (back)']] as const).map(([s, t]) => (
+                <button key={s} type="button" data-on={piece.slot === s || undefined} onClick={() => edit(sel + 'slot', () => (piece.slot = s))}>
+                  {t}
+                </button>
+              ))}
+            </div>
             {PIECE_FIELDS.map(([k, name, min, max, st]) => (
               <Num key={k} label={name} v={piece[k]} min={min} max={max} step={st} on={(n) => edit(sel + k, () => (piece[k] = n))} />
             ))}

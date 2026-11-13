@@ -14,6 +14,7 @@ import { Dust, MONO, bagTex, clamp, decal, hash, softTex, type Bag, type Box } f
  */
 
 const H = WAIT_HALF;
+const SX = H.x / 3, SZ = H.z / 2.5; // cuánto creció la sala respecto a la original (3 × 2,5): lo que tenía coordenadas sueltas se estira con ella
 const BW = 768, BH = 508;
 
 /** La pizarra: el número de ronda y el nivel al que lleva la puerta (nombre, título y una línea de ambiente), a tiza. La misión se vota al cruzar la puerta. */
@@ -71,7 +72,7 @@ export class Decor {
   readonly boxes: Box[] = [];
   /** Dónde se apunta para usar la máquina y la lámpara, y hasta dónde llega el brazo. */
   readonly vendAt = new THREE.Vector3(2.2, 1.1, -1.15);
-  readonly lampAt = new THREE.Vector3(2.62, 1.3, -2.12);
+  readonly lampAt = new THREE.Vector3(H.x - 0.38, 1.3, -H.z + 0.38);
   lampOn = true;
   private board!: THREE.CanvasTexture;
   private lampLight = new THREE.PointLight(0xfff0c8, 3.2, 6, 1.4);
@@ -140,7 +141,7 @@ export class Decor {
         x.fill();
       }
     });
-    const rug = decal(2.7, 1.7, std(0xffffff, 1), [0.25, 0.003, 0.45], -Math.PI / 2, 0);
+    const rug = decal(2.7 * SX, 1.7 * SZ, std(0xffffff, 1), [0.25 * SX, 0.003, 0.45 * SZ], -Math.PI / 2, 0);
     (rug.material as THREE.MeshStandardMaterial).map = rugTex;
     rug.renderOrder = 0;
     add(rug);
@@ -152,7 +153,7 @@ export class Decor {
         x.fill();
       }
     });
-    add(decal(1.6, 3.2, stain(scuff), [0.1, 0.006, -0.7], -Math.PI / 2, 0), decal(1.3, 1.9, stain(scuff), [-1.7, 0.006, -0.2], -Math.PI / 2, 0.4), decal(1.2, 1.6, stain(scuff, 0xb09a60), [1.9, 0.006, 0.4], -Math.PI / 2, 1.3));
+    add(decal(1.6, 3.2, stain(scuff), [0.1 * SX, 0.006, -0.7 * SZ], -Math.PI / 2, 0), decal(1.3, 1.9, stain(scuff), [-1.7 * SX, 0.006, -0.2 * SZ], -Math.PI / 2, 0.4), decal(1.2, 1.6, stain(scuff, 0xb09a60), [1.9 * SX, 0.006, 0.4 * SZ], -Math.PI / 2, 1.3));
     const blotch = bagTex(bag, 128, 128, (x) => {
       for (let k = 0; k < 4; k++) {
         const cx = 40 + hash(k + 1) * 48, cy = 40 + hash(k + 8) * 48, r = 26 + hash(k + 3) * 22;
@@ -166,9 +167,9 @@ export class Decor {
     });
     const dm = stain(blotch);
     add(
-      decal(1.8, 1.5, dm, [-2.1, HEIGHT - 0.004, 1.8], Math.PI / 2, 0),
-      decal(1.2, 1.2, dm, [2.2, HEIGHT - 0.004, -0.2], Math.PI / 2, 1),
-      decal(1.1, 1.1, dm, [0.9, HEIGHT - 0.004, -2.0], Math.PI / 2, 2),
+      decal(1.8, 1.5, dm, [-2.1 * SX, HEIGHT - 0.004, 1.8 * SZ], Math.PI / 2, 0),
+      decal(1.2, 1.2, dm, [2.2 * SX, HEIGHT - 0.004, -0.2 * SZ], Math.PI / 2, 1),
+      decal(1.1, 1.1, dm, [0.9 * SX, HEIGHT - 0.004, -2.0 * SZ], Math.PI / 2, 2),
     );
     const streak = bagTex(bag, 64, 128, (x) => {
       for (let i = 0; i < 9; i++) {
@@ -182,8 +183,8 @@ export class Decor {
     });
     const sm = stain(streak);
     add(
-      decal(0.7, 1.7, sm, [-2.4, 1.75, H.z - 0.012], 0, Math.PI), decal(0.8, 1.9, sm, [1.9, 1.7, H.z - 0.012], 0, Math.PI),
-      decal(0.7, 1.7, sm, [-H.x + 0.012, 1.75, 1.7], 0, Math.PI / 2), decal(0.8, 1.6, sm, [-2.7, 1.8, -H.z + 0.012], 0, 0),
+      decal(0.7, 1.7, sm, [-2.4 * SX, 1.75, H.z - 0.012], 0, Math.PI), decal(0.8, 1.9, sm, [1.9 * SX, 1.7, H.z - 0.012], 0, Math.PI),
+      decal(0.7, 1.7, sm, [-H.x + 0.012, 1.75, 1.7 * SZ], 0, Math.PI / 2), decal(0.8, 1.6, sm, [-2.7 * SX, 1.8, -H.z + 0.012], 0, 0),
     );
     // la mugre de abajo, en las cuatro paredes
     const grime = bagTex(bag, 256, 64, (x) => {
@@ -212,7 +213,7 @@ export class Decor {
       x.fillStyle = g;
       x.fillRect(0, 0, 128, 128);
     });
-    add(decal(1.5, 1.2, stain(puddleTex), [-2.2, 0.008, 1.95], -Math.PI / 2, 0.5));
+    add(decal(1.5, 1.2, stain(puddleTex), [-H.x + 0.8, 0.008, H.z - 0.55], -Math.PI / 2, 0.5));
 
     // ── pósters y avisos ───────────────────────────────────────────────────────
     const paper = (map: THREE.Texture) => basic(map, { color: 0xc9c3a8 });
@@ -254,7 +255,7 @@ export class Decor {
       x.font = `bold 16px ${MONO}`;
       x.fillText('FOLLOW THE ARROWS', W / 2, 322);
       x.fillText('LEVEL 0 · NO ENTRY', W / 2, 346);
-    }, [-H.x + 0.012, 1.45, 1.55], Math.PI / 2, 0.02);
+    }, [-H.x + 0.012, 1.45, 1.55 * SZ], Math.PI / 2, 0.02);
     // no calzar la puerta
     poster(0.34, 0.46, (x, W, HH) => {
       x.fillStyle = '#d8d2b8';
@@ -299,7 +300,7 @@ export class Decor {
         x.fillText(r[2], W - 80, y);
         if (i === 3) (x.beginPath(), x.moveTo(90, y - 6), x.lineTo(W - 90, y - 6), x.stroke());
       });
-    }, [-H.x + 0.012, 1.55, -1.65], Math.PI / 2, -0.012);
+    }, [-H.x + 0.012, 1.55, -1.65 * SZ], Math.PI / 2, -0.012);
     // una placa de «prohibido» en la pared de la puerta (la del extintor va debajo)
     const note = bagTex(bag, 128, 96, (x) => {
       x.fillStyle = '#e8d34a';
@@ -310,7 +311,7 @@ export class Decor {
       x.fillText('FIRE', 64, 36);
       x.fillText('EXTINGUISHER', 64, 62);
     });
-    add(decal(0.2, 0.15, paper(note), [-H.x + 0.012, 1.3, -2.15], 0, Math.PI / 2));
+    add(decal(0.2, 0.15, paper(note), [-H.x + 0.012, 1.3, -H.z + 0.35], 0, Math.PI / 2));
 
     // la pizarra: marco, bandeja y garabatos
     const board = bagTex(bag, BW, BH, (x) => paintBoard(x, 1, 'level0'));
@@ -405,18 +406,20 @@ export class Decor {
     const tin = std(0x55564f, 0.5, 0.5);
     const binG = new THREE.CylinderGeometry(0.18, 0.15, 0.42, 14, 1, true);
     const bin = new THREE.Mesh(binG, tin);
-    bin.position.set(2.72, 0.21, 0.1);
+    const bx = H.x - 0.28;
+    bin.position.set(bx, 0.21, 0.1);
     (tin as THREE.MeshStandardMaterial).side = THREE.DoubleSide;
-    add(bin, new THREE.Mesh(new THREE.CylinderGeometry(0.165, 0.165, 0.01, 14), trayM).translateX(2.72).translateY(0.35).translateZ(0.1));
-    this.boxes.push({ x0: 2.54, x1: 2.9, z0: -0.08, z1: 0.28 });
+    add(bin, new THREE.Mesh(new THREE.CylinderGeometry(0.165, 0.165, 0.01, 14), trayM).translateX(bx).translateY(0.35).translateZ(0.1));
+    this.boxes.push({ x0: bx - 0.18, x1: bx + 0.18, z0: -0.08, z1: 0.28 });
     this.shadowUnder(this.boxes[1]);
     const bucket = new THREE.Mesh(new THREE.CylinderGeometry(0.15, 0.12, 0.3, 14, 1, true), std(0x3d5560, 0.5, 0.4));
     (bucket.material as THREE.MeshStandardMaterial).side = THREE.DoubleSide;
-    bucket.position.set(-2.4, 0.15, 2.0);
+    const ux = -H.x + 0.6, uz = H.z - 0.5;
+    bucket.position.set(ux, 0.15, uz);
     const water = new THREE.Mesh(new THREE.CircleGeometry(0.13, 14).rotateX(-Math.PI / 2), basic(softTex(bag, 1, 1), { color: 0x2a2412 }));
-    water.position.set(-2.4, 0.19, 2.0);
+    water.position.set(ux, 0.19, uz);
     add(bucket, water);
-    this.shadowAt(-2.4, 2.0, 0.55, 0.55);
+    this.shadowAt(ux, uz, 0.55, 0.55);
     const wood = bagTex(bag, 128, 32, (x) => {
       x.fillStyle = '#6d5532';
       x.fillRect(0, 0, 128, 32);
@@ -428,25 +431,26 @@ export class Decor {
     const plank = std(0xffffff, 0.9);
     (plank as THREE.MeshStandardMaterial).map = wood;
     // un montón en el suelo (contra la pared norte) y dos apoyados en ella
-    const planks: [number, number, number, number, number, number, number][] = [[-2.15, 0.02, -2.0, 1.1, 0.04, 0.15, 0.1], [-2.1, 0.06, -1.97, 1.0, 0.04, 0.14, -0.06], [-2.18, 0.1, -2.03, 1.05, 0.04, 0.15, 0.03]];
+    const planks: [number, number, number, number, number, number, number][] = [[-3.6, 0.02, -H.z + 0.5, 1.1, 0.04, 0.15, 0.1], [-3.55, 0.06, -H.z + 0.53, 1.0, 0.04, 0.14, -0.06], [-3.63, 0.1, -H.z + 0.47, 1.05, 0.04, 0.15, 0.03]];
     for (const [x, y, z, w, h, d, r] of planks) {
       const p = box(w, h, d, plank, x, y, z);
       p.rotation.y = r;
     }
-    for (const [x, r] of [[-2.7, 0.22], [-2.55, 0.17]] as const) {
-      const p = box(0.14, 1.4, 0.035, plank, x, 0.7, -H.z + 0.12);
+    for (const [x, r] of [[-4.0, 0.22], [-3.85, 0.17]] as const) {
+      const p = box(0.14, 1.4, 0.035, plank, x, 0.7 * Math.cos(r) + 0.02, -H.z + 0.04 + 0.7 * Math.sin(r)); // (la base en el suelo y la cabeza apoyada en la pared)
       p.rotation.x = -r;
     }
-    this.boxes.push({ x0: -2.8, x1: -1.55, z0: -H.z, z1: -1.88 });
+    this.boxes.push({ x0: -4.3, x1: -3.0, z0: -H.z, z1: -H.z + 0.7 });
     this.shadowUnder(this.boxes[2]);
 
     // ── el extintor ──────────────────────────────────────────────────────────
     const red = std(0xa41d16, 0.45, 0.2);
     const ext = new THREE.Mesh(new THREE.CylinderGeometry(0.07, 0.07, 0.42, 12), red);
-    ext.position.set(-H.x + 0.1, 0.78, -2.15);
+    const ez = -H.z + 0.35;
+    ext.position.set(-H.x + 0.1, 0.78, ez);
     const top = new THREE.Mesh(new THREE.CylinderGeometry(0.03, 0.04, 0.1, 8), tin);
-    top.position.set(-H.x + 0.1, 1.04, -2.15);
-    const strap = box(0.04, 0.03, 0.17, tin, -H.x + 0.04, 0.95, -2.15);
+    top.position.set(-H.x + 0.1, 1.04, ez);
+    const strap = box(0.04, 0.03, 0.17, tin, -H.x + 0.04, 0.95, ez);
     add(ext, top, strap);
 
     // ── la lámpara de pie ───────────────────────────────────────────────────
@@ -474,16 +478,16 @@ export class Decor {
     const V = (x: number, y: number, z: number) => new THREE.Vector3(x, y, z);
     const cables = [
       // a lo largo del techo, con su comba, y bajando por la pared
-      [V(-H.x, 2.46, -1.9), V(-1.5, 2.36, -1.8), V(0, 2.3, -1.85), V(1.6, 2.38, -1.9), V(H.x, 2.47, -1.95)],
-      [V(-H.x, 2.5, -1.7), V(-1.4, 2.4, -1.55), V(0.2, 2.34, -1.6), V(1.8, 2.42, -1.7), V(H.x, 2.52, -1.78)],
+      [V(-H.x, HEIGHT - 0.04, -2.66), V(-2.2, HEIGHT - 0.1, -2.6), V(0, HEIGHT - 0.12, -2.64), V(2.2, HEIGHT - 0.1, -2.6), V(H.x, HEIGHT - 0.04, -2.7)],
+      [V(-H.x, HEIGHT - 0.03, -2.38), V(-2.0, HEIGHT - 0.08, -2.3), V(0.2, HEIGHT - 0.1, -2.34), V(2.4, HEIGHT - 0.08, -2.4), V(H.x, HEIGHT - 0.03, -2.46)],
       // del techo al botón
       [V(1.62, HEIGHT, -H.z + 0.04), V(1.66, 2.1, -H.z + 0.05), V(1.58, 1.4, -H.z + 0.06), V(1.55, 1.15, -H.z + 0.18)],
       // del ordenador al enchufe
-      [V(-2.62, 0.78, -0.3), V(-2.5, 0.3, -0.15), V(-2.2, 0.02, 0.5), V(-2.75, 0.02, 0.95), V(-H.x + 0.02, 0.28, 1.0)],
+      [V(-H.x + 0.45, 0.75, -0.3), V(-H.x + 0.55, 0.3, -0.1), V(-H.x + 0.95, 0.02, 0.3), V(-H.x + 0.45, 0.02, 0.55), V(-H.x + 0.02, 0.28, 0.7)],
       // por la pared oeste
       [V(-H.x + 0.03, 2.3, -H.z), V(-H.x + 0.04, 2.28, 0), V(-H.x + 0.03, 2.35, 1.4), V(-H.x + 0.03, 2.3, H.z)],
       // de la máquina a la pared
-      [V(H.x - 0.05, 1.0, -0.65), V(2.7, 0.35, -0.5), V(H.x - 0.02, 0.2, -0.1)],
+      [V(H.x - 0.05, 1.0, -0.65), V(H.x - 0.04, 0.5, -0.45), V(H.x - 0.03, 0.2, -0.1)],
     ];
     const tubes = cables.map((pts, i) => new THREE.TubeGeometry(new THREE.CatmullRomCurve3(pts), 24, i < 2 ? 0.014 : 0.01, 5, false).toNonIndexed());
     add(new THREE.Mesh(mergeGeometries(tubes)!, rubber));

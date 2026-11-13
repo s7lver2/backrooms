@@ -766,7 +766,7 @@ function buildPools(seed: number): PoolMap {
 
   // 7b. tubos cerrados desde la galería de cada sala alta (uno al final y, si es larga, otro cerca de la torre) hasta un serpentín en CUALQUIER otra sala:
   // van por encima del edificio a 90° y bajan en el último tramo. Hasta 6 por mapa.
-  const mouths = [...towers.map((t) => ({ t, z: t.z, back: true })), ...towers.filter((t) => t.gl >= 10).map((t) => ({ t, z: (t.cy + t.sv * 5 + 0.5) * POOL_CELL, back: false }))];
+  const mouths = [...towers.map((t) => ({ t, z: t.z, back: true })), ...towers.filter((t) => t.gl >= 8).map((t) => ({ t, z: (t.cy + t.sv * 5 + 0.5) * POOL_CELL, back: false }))];
   const took = new Map<PoolRoom, number>();
   for (let ti = 0; ti < mouths.length && m.tubes.length < 6; ti++) {
     const { t, z: tz0, back } = mouths[ti], own = rooms.indexOf(t.room);
@@ -848,9 +848,17 @@ function buildPools(seed: number): PoolMap {
       return columns.every((c) => (c.x >= B.x && c.x < B.x + 4 && c.y >= B.y && c.y < B.y + 4) || ((ceil[at(c.x, c.y)] <= PY.tower || pl.every(far(c))) && fin.every(far(c))));
     };
     const DIRS: [number, number][] = [[1, 0], [-1, 0], [0, 1], [0, -1]];
-    const good = blocks.flatMap((b) => DIRS.map((a) => ({ b, l: landing(b, a) }))).filter((x): x is { b: (typeof blocks)[number]; l: NonNullable<ReturnType<typeof landing>> } => !!x.l).filter((x) => routeOk(x.b, x.l)).filter((x) => { const tb = make(x.b, x.l, x.b.fit); return colsClear(tb, x.b) && apart(tb); });
-    if (!good.length) continue;
-    const pick = good[int(0, good.length - 1)], B = pick.b;
+    // el primero que valga desde un punto al azar (probarlos todos tardaba)
+    const cands = blocks.flatMap((b) => DIRS.map((a) => ({ b, a })));
+    let pick: { b: (typeof blocks)[number]; l: NonNullable<ReturnType<typeof landing>> } | undefined;
+    for (let q = 0, o = int(0, cands.length - 1); q < cands.length && !pick; q++) {
+      const { b, a } = cands[(o + q) % cands.length], l = landing(b, a);
+      if (!l || !routeOk(b, l)) continue;
+      const tb = make(b, l, b.fit);
+      if (colsClear(tb, b) && apart(tb)) pick = { b, l };
+    }
+    if (!pick) continue;
+    const B = pick.b;
     for (let b = 0; b < 4; b++) for (let a = 0; a < 4; a++) if (kind[at(B.x + a, B.y + b)] === PK.column) kind[at(B.x + a, B.y + b)] = PK.floor; // el serpentín se lleva las columnas que estorben
     m.tubes.push(make(B, pick.l, int(Math.max(2, B.fit - 2), B.fit)));
     took.set(r, (took.get(r) ?? 0) + 1);

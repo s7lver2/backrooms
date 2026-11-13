@@ -40,6 +40,8 @@ const SECTIONS = {
     { id: 'mute', label: 'MUTE', desc: 'All sound off', long: 'Silences the whole game. The volumes below stay where you left them.', flag: 'mute' },
     { id: 'volume', label: 'MASTER VOLUME', desc: 'Everything you hear', long: 'The overall level of the game, menu included.', num: pct('volume') },
     { id: 'sfx', label: 'EFFECTS', desc: 'Footsteps, shots, entities', long: 'Sounds that happen at a moment: footsteps, the camera, the rifle, whatever is hunting you. Lowering it makes the Backrooms quieter, not safer.', num: pct('sfx') },
+    { id: 'voiceMode', label: 'VOICE CHAT', desc: 'Talk to your room', long: 'Hear and talk to the other players in your room. PUSH TO TALK: hold V. OPEN MIC: always transmitting (the browser asks for the microphone). Voices go straight between players.', num: { k: 'voiceMode', min: 0, max: 2, step: 1, unit: '', scale: 1, labels: ['OFF', 'PUSH TO TALK [V]', 'OPEN MIC'] } },
+    { id: 'voiceVol', label: 'VOICE VOLUME', desc: 'How loud your mates are', long: 'The level of the other players voices.', num: pct('voiceVol') },
     { id: 'ambient', label: 'AMBIENT', desc: 'Lights, vents, tape hiss', long: 'The constant bed: the fluorescent hum, the ventilation and the hiss of the tape.', num: pct('ambient') },
   ],
   CONTROLS: [

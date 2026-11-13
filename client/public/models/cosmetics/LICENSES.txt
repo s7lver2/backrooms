@@ -72,3 +72,57 @@ Model License:
 
 If you use this 3D model in your project be sure to copy paste this credit wherever you share it:
 This work is based on "Battery" (https://sketchfab.com/3d-models/battery-3b3e75dad915432e971b167a33988605) by Plutonium.software (https://sketchfab.com/plutonium.software) licensed under CC-BY-NC-4.0 (http://creativecommons.org/licenses/by-nc/4.0/)
+==== bucket_hat_2025.3.2_peru_arequipa_city
+Model Information:
+* title:	Bucket Hat 2025.3.2 Peru (Arequipa city)
+* source:	https://sketchfab.com/3d-models/bucket-hat-202532-peru-arequipa-city-6fda6f8dc1414cecad5eb94185886891
+* author:	itsirisii (https://sketchfab.com/itsirisii)
+
+Model License:
+* license type:	CC-BY-4.0 (http://creativecommons.org/licenses/by/4.0/)
+* requirements:	Author must be credited. Commercial use is allowed.
+
+If you use this 3D model in your project be sure to copy paste this credit wherever you share it:
+This work is based on "Bucket Hat 2025.3.2 Peru (Arequipa city)" (https://sketchfab.com/3d-models/bucket-hat-202532-peru-arequipa-city-6fda6f8dc1414cecad5eb94185886891) by itsirisii (https://sketchfab.com/itsirisii) licensed under CC-BY-4.0 (http://creativecommons.org/licenses/by/4.0/)==== teto_pear
+Model Information:
+* title:	Teto Pear
+* source:	https://sketchfab.com/3d-models/teto-pear-f4857a4ddad34e3a91753675afad4872
+* author:	Luquez18 (https://sketchfab.com/Luquez18)
+
+Model License:
+* license type:	SKETCHFAB Standard (https://sketchfab.com/licenses)
+* requirements:	Under basic restrictions, use worldwide, on all types of media, commercially or not, and in all types of derivative works
+==== kasane_teto_fatass_plush
+Model Information:
+* title:	Kasane Teto fatass plush
+* source:	https://sketchfab.com/3d-models/kasane-teto-fatass-plush-bd8157eb42a04161b2628e58dfd2a852
+* author:	chilisroom (https://sketchfab.com/chilisroom)
+
+Model License:
+* license type:	CC-BY-4.0 (http://creativecommons.org/licenses/by/4.0/)
+* requirements:	Author must be credited. Commercial use is allowed.
+
+If you use this 3D model in your project be sure to copy paste this credit wherever you share it:
+This work is based on "Kasane Teto fatass plush" (https://sketchfab.com/3d-models/kasane-teto-fatass-plush-bd8157eb42a04161b2628e58dfd2a852) by chilisroom (https://sketchfab.com/chilisroom) licensed under CC-BY-4.0 (http://creativecommons.org/licenses/by/4.0/)==== scythe_of_death
+Model Information:
+* title:	Scythe of Death
+* source:	https://sketchfab.com/3d-models/scythe-of-death-22ecdf5cef59464a83b9562079c355dc
+* author:	golddog (https://sketchfab.com/golddog)
+
+Model License:
+* license type:	CC-BY-4.0 (http://creativecommons.org/licenses/by/4.0/)
+* requirements:	Author must be credited. Commercial use is allowed.
+
+If you use this 3D model in your project be sure to copy paste this credit wherever you share it:
+This work is based on "Scythe of Death" (https://sketchfab.com/3d-models/scythe-of-death-22ecdf5cef59464a83b9562079c355dc) by golddog (https://sketchfab.com/golddog) licensed under CC-BY-4.0 (http://creativecommons.org/licenses/by/4.0/)==== fubuki_shirakami_sukonbu
+Model Information:
+* title:	Fubuki Shirakami Sukonbu
+* source:	https://sketchfab.com/3d-models/fubuki-shirakami-sukonbu-f4eda326e94f4614b3e7f5aec57816a2
+* author:	Ikxi (https://sketchfab.com/Ikxi)
+
+Model License:
+* license type:	CC-BY-NC-4.0 (http://creativecommons.org/licenses/by-nc/4.0/)
+* requirements:	Author must be credited. No commercial use.
+
+If you use this 3D model in your project be sure to copy paste this credit wherever you share it:
+This work is based on "Fubuki Shirakami Sukonbu" (https://sketchfab.com/3d-models/fubuki-shirakami-sukonbu-f4eda326e94f4614b3e7f5aec57816a2) by Ikxi (https://sketchfab.com/Ikxi) licensed under CC-BY-NC-4.0 (http://creativecommons.org/licenses/by-nc/4.0/)

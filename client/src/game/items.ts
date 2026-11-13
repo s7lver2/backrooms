@@ -5,10 +5,13 @@ import { center, type World } from './world';
 import type { Assets } from './game';
 import type { Player } from './player';
 import { fit } from './player';
-import { canHold, radarSpot, waterSpots, type Drop, type ItemId } from '@backrooms/shared';
+import { boostOf, canHold, hasRoom, lootSpots, radarSpot, spotRarity, waterSpots, type Drop, type ItemId } from '@backrooms/shared';
+import { glow, lootModel, pulse } from './rarityFx';
+import { perks } from './perks';
 import type { Controls } from './input';
 import type { GameAudio } from './audio';
 import { loadPoolKit, type PoolKit } from './poolmap';
+import { itemModel } from './itemModels';
 
 /*
  * Lo que se recoge y lo que se hace con ello: las 8 cintas, la cámara (fotos) y el rifle (disparos), lo que sueltan los compañeros
@@ -46,12 +49,17 @@ function aimPoint(tg: Target, eye: THREE.Vector3, fwd: THREE.Vector3) {
 interface Pickup {
   id: string;
   obj: THREE.Object3D;
-  kind: 'tape' | 'camera' | 'gun' | 'flashlight' | 'water' | 'totem' | 'radar' | 'ammo' | 'caution' | 'tank' | 'watergun';
+  kind: 'tape' | 'camera' | 'gun' | 'flashlight' | 'water' | 'totem' | 'radar' | 'ammo' | 'caution' | 'tank' | 'watergun' | 'loot' | 'uno' | 'monster' | 'locker';
   taken: boolean;
+  /** La altura a la que flota y el brillo de su rareza. */
+  y: number;
+  fx?: THREE.Object3D;
   /** Soltado por un jugador (id `d…`): al recogerlo vuelve a su inventario tal cual, sin lo que da el del mapa. */
   drop?: boolean;
   /** Pedido al servidor, sin respuesta aún. */
   pending?: boolean;
+  /** Un objeto soltado cae con físicas (gravedad, rebotes, choca con las paredes) y se queda quieto en el suelo. */
+  phys?: { v: THREE.Vector3; spin: THREE.Vector3; rest: boolean; floor: number };
 }
 
 export class Items {
@@ -64,6 +72,8 @@ export class Items {
   /** La misión está cumplida: el ascensor se abre al acercarse. */
   ready = false;
   onWin?: () => void;
+  /** El jugador pulsa G ante una taquilla: la abre el minijuego (game.ts / Backrooms.tsx). */
+  onLocker?: (id: string) => void;
   onKill?: (t: Target, from: THREE.Vector3) => void;
   /** Los compañeros vivos (el centro del cuerpo) y qué pasa si el tiro da a uno: fuego amigo. */
   peers: () => { id: string; at: THREE.Vector3 }[] = () => [];
@@ -93,11 +103,11 @@ export class Items {
   readonly full: string[] = [];
 
   /** Pone un objeto en el suelo (los del mapa y los soltados). */
-  private add: (id: string, kind: Pickup['kind'], c: Cell, src: THREE.Object3D, size: number, rot?: number, at?: { x: number; z: number }, drop?: boolean) => void;
+  private add: (id: string, kind: Pickup['kind'], c: Cell, src: THREE.Object3D, size: number, rot?: number, at?: { x: number; z: number }, drop?: boolean, rar?: number) => void;
 
   constructor(private world: World, private assets: Assets, private player: Player, private camera: THREE.Camera, private audio?: GameAudio, withTapes = true) {
     const m = world.maze;
-    const put = (id: string, kind: Pickup['kind'], c: Cell, src: THREE.Object3D, size: number, rot = 0, at?: { x: number; z: number }, drop?: boolean) => {
+    const put = (id: string, kind: Pickup['kind'], c: Cell, src: THREE.Object3D, size: number, rot = 0, at?: { x: number; z: number }, drop?: boolean, rar = spotRarity(id, c)) => {
       const g = fit(skClone(src), size); // (SkeletonUtils: el tótem lleva piel)
       // que se vea con la linterna: un brillo propio leve, del color de cada material (con su textura), no un gris plano
       g.traverse((o) => {
@@ -114,10 +124,21 @@ export class Items {
       holder.add(g);
       const p = center(c);
       // no en el centro exacto de la celda: un poco tirado
-      holder.position.set(at ? at.x : p.x + (Math.sin(c.x * 7.1 + c.y) * CELL) / 5, size / 4, at ? at.z : p.z + (Math.cos(c.y * 5.3 + c.x) * CELL) / 5);
+      // flota a media pierna (todo levita y gira) con el brillo de su rareza
+      const y = kind === 'locker' ? size / 2 : 0.32 + size / 4; // (la taquilla está de pie en el suelo)
+      holder.position.set(at ? at.x : p.x + (Math.sin(c.x * 7.1 + c.y) * CELL) / 5, y, at ? at.z : p.z + (Math.cos(c.y * 5.3 + c.x) * CELL) / 5);
       holder.rotation.set(0, rot, 0);
+      const fx = kind === 'tape' || kind === 'locker' ? undefined : glow(rar); // (las cintas son de la misión: sin rareza)
+      if (fx) holder.add(fx);
       this.root.add(holder);
-      this.pickups.push({ id, obj: holder, kind, taken: false, drop });
+      let phys: Pickup['phys'];
+      if (drop) {
+        // lo soltado sale a la altura de la mano con un empujón hacia delante (el mismo para todos: sale del id), cae, rebota y se queda en el suelo
+        const h = Math.sin(id.split('').reduce((a, ch) => a * 31 + ch.charCodeAt(0), 7)) * 43758.5453, u = h - Math.floor(h), a = u * Math.PI * 2;
+        holder.position.y = 1.1;
+        phys = { v: new THREE.Vector3(Math.cos(a) * 0.9, 1.6, Math.sin(a) * 0.9), spin: new THREE.Vector3((u - 0.5) * 9, (u - 0.3) * 6, (0.5 - u) * 9), rest: false, floor: 0.03 + size * 0.35 };
+      }
+      this.pickups.push({ id, obj: holder, kind, taken: false, drop, y, fx, phys });
     };
     this.add = put;
     if (withTapes) m.tapes.forEach((c, i) => put('t' + i, 'tape', c, assets.gltf.vhs.scene, 0.19, i * 1.3));
@@ -129,7 +150,44 @@ export class Items {
     put('c', 'camera', m.camera, assets.gltf.camcorder.scene, 0.22, 0.6);
     if (m.pistol) put('g', 'gun', m.pistol, assets.gltf.gun.scene, 0.72, 1.1);
     m.extraGuns.forEach((c, i) => put('g' + (i + 1), 'gun', c, assets.gltf.gun.scene, 0.72, 1.1 + i));
+    lootSpots(m).forEach((c, i) => {
+      if (i % 8 === 7) {
+        // una taquilla (se abre con un minijuego y guarda botín y objetos)
+        const lk = itemModel('locker') ?? new THREE.Mesh(new THREE.BoxGeometry(0.5, 1.8, 0.5), new THREE.MeshStandardMaterial({ color: 0x59636b, roughness: 0.6, metalness: 0.6 }));
+        // siempre pegada a una pared: la primera de las cuatro de la celda con muro, de frente a la sala
+        const cc = center(c), D = [[1, 0], [-1, 0], [0, 1], [0, -1]] as const, w = D.find(([dx, dz]) => this.world.solid(cc.x + dx * (CELL / 2 + 0.2), cc.z + dz * (CELL / 2 + 0.2))) ?? D[0];
+        put('l' + i, 'locker', c, lk, 1.8, Math.atan2(-w[0], -w[1]), { x: cc.x + w[0] * (CELL / 2 - 0.4), z: cc.z + w[1] * (CELL / 2 - 0.4) });
+      } else put('v' + i, 'loot', c, lootModel(spotRarity('v' + i, c)), 0.24, i); // el botín: solo para vender
+    });
     world.root.add(this.root);
+  }
+
+  /** Un paso de físicas de un objeto soltado: gravedad, rebote en el suelo, choque con las paredes y rozamiento hasta quedarse quieto. */
+  private fall(p: Pickup, dt: number) {
+    const f = p.phys!;
+    if (f.rest) return;
+    const o = p.obj, s = Math.min(dt, 0.05);
+    f.v.y -= 9.8 * s;
+    const nx = o.position.x + f.v.x * s, nz = o.position.z + f.v.z * s;
+    if (this.world.solid(nx, o.position.z)) f.v.x *= -0.4;
+    else o.position.x = nx;
+    if (this.world.solid(o.position.x, nz)) f.v.z *= -0.4;
+    else o.position.z = nz;
+    o.position.y += f.v.y * s;
+    o.rotation.x += f.spin.x * s;
+    o.rotation.y += f.spin.y * s;
+    o.rotation.z += f.spin.z * s;
+    if (o.position.y <= f.floor) {
+      o.position.y = f.floor;
+      f.v.y *= -0.38; // rebota
+      f.v.x *= 0.7;
+      f.v.z *= 0.7;
+      f.spin.multiplyScalar(0.55);
+      if (Math.abs(f.v.y) < 0.5 && Math.hypot(f.v.x, f.v.z) < 0.25) {
+        f.rest = true; // quieto: tumbado en el suelo
+        o.rotation.x = o.rotation.z = 0;
+      }
+    }
   }
 
   /** Lo recogible más cerca y de frente, a menos de REACH. */
@@ -138,7 +196,9 @@ export class Items {
     let best: Pickup | undefined, bd = Infinity;
     for (const p of this.pickups) {
       if (p.taken || p.pending) continue;
-      if (p.kind !== 'tape' && !canHold(this.player.inventory, p.kind)) continue; // lo que no cabe ni se ofrece (el servidor lo rechazaría)
+      // lo que no cabe ni se ofrece (el servidor lo rechazaría): el tope de cada cosa y el sitio de la mochila
+      const inv = { ...this.player.inventory, loot: perks.loot };
+      if (p.kind === 'loot' ? !hasRoom(inv, perks.stats, 'loot') : p.kind !== 'tape' && p.kind !== 'locker' && !canHold(inv, p.kind, perks.stats)) continue;
       const to = p.obj.position.clone().sub(eye), d = to.length();
       if (d > REACH + 1.62 * 0.5 || to.normalize().dot(fwd) < 0.5) continue;
       if (d < bd) (bd = d), (best = p);
@@ -148,18 +208,26 @@ export class Items {
 
   update(t: number, dt: number, c: Controls) {
     const pl = this.player;
-    for (const p of this.pickups) if (!p.taken && p.kind === 'tape') p.obj.rotation.y += dt * 0.4;
+    for (const p of this.pickups) {
+      if (p.taken) continue;
+      if (p.kind === 'locker') continue; // (de pie, quieta)
+      if (p.phys) this.fall(p, dt);
+      else (p.obj.rotation.y += dt * 0.8), (p.obj.position.y = p.y + Math.sin(t * 1.6 + p.obj.position.x * 3) * 0.04);
+      pulse(p.fx, t);
+    }
     this.flash = Math.max(0, this.flash - dt * 4);
 
     const near = this.nearest();
-    this.hint = near ? ({ tape: 'tape', camera: 'camcorder', gun: 'rifle', flashlight: 'flashlight', water: 'almond water', totem: 'totem of life', radar: 'radar', ammo: 'ammo', caution: 'caution tape', tank: 'diving tank', watergun: 'water gun' } as const)[near.kind] : null;
-    if (c.grab) {
+    this.hint = near ? ({ tape: 'tape', camera: 'camcorder', gun: 'rifle', flashlight: 'flashlight', water: 'almond water', totem: 'totem of life', radar: 'radar', ammo: 'ammo', caution: 'caution tape', tank: 'diving tank', watergun: 'water gun', loot: 'artifact', uno: 'uno reverse', monster: 'monster', locker: 'locker' } as const)[near.kind] : null;
+    if (c.grab && near?.kind === 'locker') this.onLocker?.(near.id);
+    else if (c.grab) {
       const p = near;
       // la mano baja a por él; es tuyo cuando llega
       const take = (p: Pickup) => {
         const got = () => {
           p.obj.visible = false;
-          this.audio?.pickup();
+          this.audio?.pickup(p.fx?.userData.glow?.k ?? 0);
+          if (p.kind === 'loot') return; // el botín lo lleva el servidor (llega con `bag`)
           if (p.drop) pl.receive(p.kind as ItemId); // lo soltado vuelve tal cual (y va a la barra o a la mano)
           else if (p.kind === 'tape') this.claim || this.tapes++; // en una sala, las cintas son de todos: las cuenta el servidor
           else if (p.kind === 'flashlight') pl.spares++;
@@ -217,7 +285,7 @@ export class Items {
     this.onShot?.();
     // el tiro: la entidad viva más cerca dentro de un cono estrecho, a la vista, a menos de 30 m
     const eye = this.camera.getWorldPosition(new THREE.Vector3()), fwd = this.camera.getWorldDirection(new THREE.Vector3());
-    let best: Target | undefined, bd = 30;
+    let best: Target | undefined, bd = 30 * boostOf(perks, 'gun'); // (la rareza del rifle: más alcance)
     for (const tg of this.targets) {
       if (!tg.alive) continue;
       const mid = aimPoint(tg, eye, fwd), to = mid.clone().sub(eye), d = to.length();
@@ -236,6 +304,7 @@ export class Items {
 
   /** La entidad viva (sin foto aún) mejor encuadrada, a menos de `range` m; el cono se estrecha con el zoom. */
   private framed(range: number) {
+    range *= boostOf(perks, 'camera'); // (la rareza de la cámara: más alcance)
     const eye = this.camera.getWorldPosition(new THREE.Vector3()), fwd = this.camera.getWorldDirection(new THREE.Vector3());
     const cone = THREE.MathUtils.degToRad(12) / Math.sqrt(this.player.zoom);
     for (const tg of this.targets) {
@@ -276,7 +345,8 @@ export class Items {
     const g = this.assets.gltf;
     if (!this.kit && list.some((d) => d.kind === 'tank' || d.kind === 'watergun')) void loadPoolKit().then((k) => (this.kit = k)); // (sus modelos están en el kit de las Poolrooms; se reintenta en el siguiente mundo)
     const kit = this.kit;
-    const model: Partial<Record<ItemId, [THREE.Object3D, number]>> = {
+    const model: Partial<Record<ItemId | 'loot', [THREE.Object3D, number]>> = {
+      loot: [lootModel(), 0.24],
       ...(kit?.tank && { tank: [kit.tank, 0.6] as [THREE.Object3D, number] }),
       ...(kit?.watergun && { watergun: [kit.watergun, 0.4] as [THREE.Object3D, number] }),
       flashlight: [g.flashlight.scene, 0.24],
@@ -291,7 +361,7 @@ export class Items {
     for (const d of list) {
       if (this.pickups.some((p) => p.id === d.id) || !model[d.kind]) continue;
       const [src, size] = model[d.kind]!;
-      this.add(d.id, d.kind as Pickup['kind'], this.world.cellAt(d.x, d.z), src, size, (d.x * 3.1 + d.z) % 6.28, { x: d.x, z: d.z }, true);
+      this.add(d.id, d.kind as Pickup['kind'], this.world.cellAt(d.x, d.z), d.kind === 'loot' ? lootModel(d.q?.r) : src, size, (d.x * 3.1 + d.z) % 6.28, { x: d.x, z: d.z }, true, d.q?.r ?? 0);
     }
   }
 

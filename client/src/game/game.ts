@@ -1,5 +1,8 @@
 import { DEV_LOCAL } from '../devGate';
 import * as THREE from 'three';
+import { glow, lootModel, pulse } from './rarityFx';
+import { loadItemModels } from './itemModels';
+import { perks } from './perks';
 import { GLTFLoader, type GLTF } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { MeshoptDecoder } from 'three/examples/jsm/libs/meshopt_decoder.module.js';
 import { compileGently } from './compile';
@@ -7,7 +10,7 @@ import { CELL, generateMaze } from './maze';
 import { World, center, HEIGHT } from './world';
 import { FLASH } from './lightmap';
 import { Input, type Controls } from './input';
-import { Player, EYE, fit } from './player';
+import { Player, EYE, fit, CAM_AIM_SLOW } from './player';
 import { HOT } from './quickslots';
 import { EffectComposer } from 'three/examples/jsm/postprocessing/EffectComposer.js';
 import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js';
@@ -37,6 +40,7 @@ import { ANISO, FPS_CAPS, settings } from '../settings';
 import { watchCanvas } from '../errlog';
 import { gearIcons } from './invIcons';
 import { prepAvatar } from './InvAvatar';
+import { WAIT_HALF, type Sold } from '@backrooms/shared';
 import { AMMO_PACK, canHold, ITEM_IDS, START_INV, type AdminFx, makeMission, missionLine, tvCount, type ActiveMission, type Inventory, type ItemId, type MissionKind, type Maze, type LevelCaps, levelCaps, NOISE_RUN, NOISE_SHOT, type Noise } from '@backrooms/shared';
 import { Breath, DEFAULT_LOOK, HIT_DAMAGE, HP_MAX, REVIVE_IMMUNE, totemSpot, type Look, hideStates, tickHides, startOffset, type HideState, type PlayerState, type RoomView, type WorldSnapshot } from '@backrooms/shared';
 
@@ -83,6 +87,10 @@ export interface Inv {
   spares: number; // linternas de repuesto en la mochila
   water: number; // latas de Almond Water
   totem: number; // Tótems de la vida
+  /** Carta Uno Reverse y latas de Monster; `rainbow`: bebiendo una o con su efecto (la barra de aguante es un arcoíris). */
+  uno?: boolean;
+  monster?: number;
+  rainbow?: boolean;
   radar: boolean;
   /** Tiene cinta de acordonar. */
   caution: boolean;
@@ -219,6 +227,7 @@ export async function loadAssets(progress: (f: number) => void): Promise<Assets>
   const gltf = {} as Assets['gltf'], tex = {} as Assets['tex'];
   const tl = new THREE.TextureLoader();
   await Promise.all([
+    loadItemModels(),
     ...MODELS.map((m) => loader.loadAsync(DIR + m + '.glb', on(DIR + m + '.glb')).then((g) => void (gltf[m] = g))),
     ...TEXTURES.map((t) =>
       tl.loadAsync(DIR + 'tex/' + t + '.webp').then((x) => {
@@ -311,6 +320,17 @@ export class BackroomsGame {
   /** Tras subir el primero: segundos que quedaban al llegar el aviso, cuándo llegó y quiénes han subido. */
   private ascent: { left: number; at: number; boarded: string[] } | null = null;
   onWin?: () => void;
+  /** Una taquilla pide abrirse (el minijuego lo pone la interfaz); y devolver el control al cerrarla. */
+  onLocker?: (id: string) => void;
+  /** Un emote de la sala de espera (la rueda de Backrooms.tsx y las teclas 1–4). */
+  emote(n: number) {
+    this.waiting?.doEmote(n);
+  }
+  setLockerUi(on: boolean) {
+    this.input.suspend = on;
+    if (on) this.input.clear(), this.input.unlock();
+    else this.input.lock();
+  }
   private black = 0;
   private winning = false;
   entities: Entity[] = [];
@@ -720,6 +740,7 @@ export class BackroomsGame {
     const p = (this.player = new Player(w, this.assets!, this.camera, this.flash, this.opts.reduced));
     if (mp?.life) p.life = mp.life;
     p.onDrink = () => (this.audio?.drink(), this.mp?.sock.emit('drink'));
+    this.hookGear(p);
     if (mp) p.load(mp.inv ?? START_INV); // en una sala se empieza con el inventario del servidor (tienda y lo conservado), no desnudo
     // mirando hacia el primer lado abierto (con yaw = 0 se mira a -z)
     const side = [[1, 0], [-1, 0], [0, 1], [0, -1]].find(([dx, dy]) => m.open[(s.y + dy) * m.w + s.x + dx]) ?? [0, -1];
@@ -736,6 +757,7 @@ export class BackroomsGame {
     this.mission = mp ? (mp.mission ?? null) : this.soloMission(m);
     const it = (this.items = new Items(w, this.assets!, p, this.camera, this.audio, this.mission?.kind === 'tapes'));
     it.onWin = () => this.win();
+    it.onLocker = (id) => this.onLocker?.(id);
     it.ready = !!this.mission?.done;
     if (this.mission?.kind === 'tvs') {
       this.tvs = new Tvs(w, this.assets!, this.mission.goal);
@@ -872,7 +894,7 @@ export class BackroomsGame {
   get hud(): Hud {
     const p = this.player;
     const battery = Math.max(0.15, 1 - this.t / 900);
-    const inv: Inv = { left: p?.left ?? 'flashlight', belt: p?.belt ?? 'none', stamina: p?.stamina ?? 1, sanity: p?.sanity ?? 1, escaped: this.winning, hand: p?.hand ?? 'none', camera: !!p?.has.camera, gun: !!p?.has.gun, ammo: p?.ammo ?? 0, spare: p?.spare ?? 0, tapes: this.items?.tapes ?? 0, photos: this.items?.photos ?? 0, thumbs: this.items?.thumbs ?? this.pics.thumbs, full: this.items?.full ?? this.pics.full, flashOn: !!p?.flashOn, battery, charge: p?.charge ?? 1, spares: p?.spares ?? 0, water: p?.water ?? 0, hot: p?.hot ?? [], hotSel: p?.hotSel ?? 0, gadget: p?.gadget ?? 'none', totem: p?.totem ?? 0, radar: !!p?.radar, caution: !!p?.caution, tape: (this.gadgets?.left ?? ROLL) / ROLL };
+    const inv: Inv = { left: p?.left ?? 'none', belt: p?.belt ?? 'none', stamina: p?.stamina ?? 1, sanity: p?.sanity ?? 1, escaped: this.winning, hand: p?.hand ?? 'none', camera: !!p?.has.camera, gun: !!p?.has.gun, ammo: p?.ammo ?? 0, spare: p?.spare ?? 0, tapes: this.items?.tapes ?? 0, photos: this.items?.photos ?? 0, thumbs: this.items?.thumbs ?? this.pics.thumbs, full: this.items?.full ?? this.pics.full, flashOn: !!p?.flashOn, battery, charge: p?.charge ?? 1, spares: p?.spares ?? 0, uno: !!p?.uno, monster: p?.monster ?? 0, rainbow: !!p?.rainbow, water: p?.water ?? 0, hot: p?.hot ?? [], hotSel: p?.hotSel ?? 0, gadget: p?.gadget ?? 'none', totem: p?.totem ?? 0, radar: !!p?.radar, caution: !!p?.caution, tape: (this.gadgets?.left ?? ROLL) / ROLL };
     // la pistola de agua y el tanque se conservan en el nivel 0 (aunque no sirvan allí): siguen en la mochila y en la ranura de equipo
     const gear = p?.inventory;
     if (gear) Object.assign(inv, { tank: gear.tank, tankOn: p!.tankOn, watergun: gear.watergun, squirt: p!.squirt });
@@ -1040,6 +1062,7 @@ export class BackroomsGame {
   private hurt(e: Entity) {
     const p = this.player!;
     p.hp = p.concealed ? 0 : Math.max(0, p.hp - HIT_DAMAGE);
+    this.audio?.cue('hurt');
     if (p.hp <= 0) this.die(e);
   }
 
@@ -1165,7 +1188,13 @@ export class BackroomsGame {
     const p = this.player, lobby = this.lobbyP, mp = lobby ? this.waitMp : this.mp;
     if (!p || !mp || (!lobby && (this.dying >= 0 || this.winning || this.spectating || p.hideState !== 'out')) || !p.owns(id)) return;
     // (en la sala de espera el servidor devuelve el inventario con `inv` y `waitRoom` lo aplica)
-    mp.sock.emit('drop', id, (ok) => ok && !lobby && (p.lose(id), this.poolInv()));
+    mp.sock.emit('drop', id, 0, (ok) => ok && !lobby && (p.lose(id), this.poolInv()));
+  }
+  /** Suelta la pieza `i` del botín (en la sala de espera, sobre la báscula, se vende). El servidor manda luego lo que queda (`bag` o `inv`). */
+  dropLoot(i: number) {
+    const p = this.player, lobby = this.lobbyP, mp = lobby ? this.waitMp : this.mp;
+    if (!p || !mp || (!lobby && (this.dying >= 0 || this.winning || this.spectating || p.hideState !== 'out'))) return;
+    mp.sock.emit('drop', 'loot', i);
   }
   /** Poolrooms: lo que llevo ha cambiado (soltar, coger): el inventario de la sala, el tanque y la pistola de agua al día. */
   private poolInv() {
@@ -1210,12 +1239,14 @@ export class BackroomsGame {
 
   /** Abre el inventario: el puntero queda suelto para hacer clic; la partida sigue. */
   openBag() {
+    this.audio?.cue('bag');
     this.bagOpen = true;
     this.input.clear(); // el joystick y RUN del táctil se desmontan sin soltar
     this.input.suspend = true;
     this.input.unlock();
   }
   closeBag() {
+    this.audio?.cue('bagClose');
     this.bagOpen = false;
     this.input.suspend = false;
     this.input.lock();
@@ -1333,8 +1364,11 @@ export class BackroomsGame {
         wr.doEmote(n);
       };
       addEventListener('keydown', emoteKey);
-      const onLDrops = (list: { id: string; kind: string; x: number; z: number }[]) => this.syncLobbyDrops(list);
+      const onLDrops = (list: { id: string; kind: string; x: number; z: number; q?: { r: number } }[]) => this.syncLobbyDrops(list);
       mp.sock.on('ldrops', onLDrops);
+      const onSold = (s: Sold) => (this.waiting?.sold(s), this.audio?.cue('sell'));
+      mp.sock.on('sold', onSold);
+      this.offWait.push(() => mp.sock.off('sold', onSold));
       this.offWait.push(() => (mp.sock.off('players', onPlayers), mp.sock.off('ldrops', onLDrops), clearInterval(beat), removeEventListener('keydown', emoteKey)));
       const rp = this.composer.passes[0] as RenderPass;
       rp.scene = wr.scene;
@@ -1443,6 +1477,29 @@ export class BackroomsGame {
     wr.held = me.hand === 'camera' || me.hand === 'gun' ? me.hand : 'none';
     this.flash.intensity = me.lightOn ? FLASH * 0.6 : 0;
     this.lobbyPick(c, wr);
+    // lo soltado levita y gira, con el brillo de su rareza
+    // lo soltado cae con físicas (gravedad, rebotes, rozamiento) y se queda quieto en el suelo; el brillo de su rareza sigue latiendo
+    for (const o of this.lobbyDrops.values()) {
+      const f = o.userData.phys as { v: THREE.Vector3; spin: THREE.Vector3; rest: boolean } | undefined, s = Math.min(dt, 0.05);
+      if (f && !f.rest) {
+        f.v.y -= 9.8 * s;
+        o.position.x = THREE.MathUtils.clamp(o.position.x + f.v.x * s, -WAIT_HALF.x + 0.2, WAIT_HALF.x - 0.2);
+        o.position.z = THREE.MathUtils.clamp(o.position.z + f.v.z * s, -WAIT_HALF.z + 0.2, WAIT_HALF.z - 0.2);
+        o.position.y += f.v.y * s;
+        o.rotation.x += f.spin.x * s;
+        o.rotation.y += f.spin.y * s;
+        o.rotation.z += f.spin.z * s;
+        if (o.position.y <= 0.08) {
+          o.position.y = 0.08;
+          f.v.y *= -0.38;
+          f.v.x *= 0.7;
+          f.v.z *= 0.7;
+          f.spin.multiplyScalar(0.55);
+          if (Math.abs(f.v.y) < 0.5 && Math.hypot(f.v.x, f.v.z) < 0.25) (f.rest = true), (o.rotation.x = o.rotation.z = 0);
+        }
+      }
+      pulse(o.children.find((k) => k.userData.glow), this.t);
+    }
   }
 
   /** G: recoger lo soltado más cercano (a menos de 2,5 m); el servidor lo da si cabe. */
@@ -1458,7 +1515,7 @@ export class BackroomsGame {
   }
 
   /** Lo soltado en el suelo de la sala de espera: los nuevos se ponen con su modelo, los que ya no están se quitan. */
-  private syncLobbyDrops(list: { id: string; kind: string; x: number; z: number }[]) {
+  private syncLobbyDrops(list: { id: string; kind: string; x: number; z: number; q?: { r: number } }[]) {
     const wr = this.waiting, a = this.assets;
     if (!wr || !a) return;
     const here = new Set(list.map((d) => d.id));
@@ -1468,9 +1525,12 @@ export class BackroomsGame {
     for (const d of list) {
       if (this.lobbyDrops.has(d.id)) continue;
       const m = model[d.kind];
-      const o = m?.[0] ? fit(m[0].clone(true), m[1]) : new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.08, 0.08), new THREE.MeshStandardMaterial({ color: 0xb08d3a, roughness: 0.5 }));
-      o.position.set(d.x, 0.1, d.z);
+      const o = d.kind === 'loot' ? lootModel(d.q?.r) : m?.[0] ? fit(m[0].clone(true), m[1]) : new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.08, 0.08), new THREE.MeshStandardMaterial({ color: 0xb08d3a, roughness: 0.5 }));
+      o.add(glow(d.q?.r ?? 0));
+      o.position.set(d.x, 1.1, d.z);
       o.rotation.y = (d.x * 3.1 + d.z) % 6.28;
+      const h = Math.sin(d.id.split('').reduce((a2, ch) => a2 * 31 + ch.charCodeAt(0), 7)) * 43758.5453, u = h - Math.floor(h), an = u * Math.PI * 2;
+      o.userData.phys = { v: new THREE.Vector3(Math.cos(an) * 0.9, 1.6, Math.sin(an) * 0.9), spin: new THREE.Vector3((u - 0.5) * 9, (u - 0.3) * 6, (0.5 - u) * 9), rest: false };
       wr.scene.add(o);
       this.lobbyDrops.set(d.id, o);
     }
@@ -1555,7 +1615,10 @@ export class BackroomsGame {
     worldTl.reset(100); // snapshots del mundo cada 100 ms
     const onPlayers = (all: Record<string, PlayerState & { name: string; dead: boolean }>) => {
       for (const id in all) this.hps[id] = all[id].hp ?? HP_MAX;
-      if (this.player && all[mp.id]?.hp !== undefined) this.player.hp = all[mp.id].hp!;
+      if (this.player && all[mp.id]?.hp !== undefined) {
+        if (all[mp.id].hp! < this.player.hp) this.audio?.cue('hurt');
+        this.player.hp = all[mp.id].hp!;
+      }
       this.syncRemotes(all, mp.id, this.pool instanceof PoolLevel ? this.pool.scene : this.scene);
     };
     const onWorld = (w: WorldSnapshot) => this.applyWorld(w);
@@ -1997,20 +2060,26 @@ fps ${(1 / Math.max(dt, 1e-3)).toFixed(0)}`;
     }
   }
   /** Las manos y la linterna del Player encima de la cámara del nivel: se le da mi posición y mirada, se le deja pintar y se devuelve la cámara tal como la dejó PoolLevel. */
+  private handY?: number;
   private poolHands(pl: PoolTest | PoolLevel, dt: number, c: Controls) {
     const me = this.player;
     if (!me || !(pl instanceof PoolLevel)) return;
     const cam = pl.camera, pos = cam.position.clone(), rot = cam.rotation.clone(), st = pl.state;
     // el mismo Player de siempre: PoolLevel pone la física (posición, salto, nado) y se la pasa; el Player lleva el cuerpo (pasos a la velocidad real, salto, agachado) y las manos
     me.ext = { speed: st.swim ? 0 : st.speed, air: st.air, vy: st.vy };
-    me.pos.set(st.x, cam.position.y - EYE + me.duckLift, st.z); // (la vista agachada ya la baja PoolLevel: se le suma lo que el Player baja la suya)
+    pl.slowMul = (me.aiming ? CAM_AIM_SLOW : 1) * me.buffSpeed; // enfocar con la camcorder frena (igual que en el laberinto)
+    // (la altura se suaviza: PoolLevel sube peldaños y flota con sacudidas que, pegadas a las manos, las hacían temblar)
+    const ty = cam.position.y - EYE + me.duckLift;
+    this.handY = this.handY === undefined || Math.abs(this.handY - ty) > 0.5 ? ty : this.handY + (ty - this.handY) * Math.min(1, dt * 9);
+    me.pos.set(st.x, this.handY, st.z); // (la vista agachada ya la baja PoolLevel: se le suma lo que el Player baja la suya)
     me.yaw = st.yaw;
     me.pitch = st.pitch;
     me.dead = pl.dead; // muerto: el Player tumba el cuerpo y esconde las manos
     // el salto lo hace PoolLevel (el Player lo ve en st.air); la barra rápida y la rueda las lleva poolMatch
     // la cámara de fotos sí se apunta (clic derecho, zoom) y dispara, salvo nadando o muerto
     const cam_ok = !pl.dead && !st.swim && !this.winning;
-    me.update(dt, { ...c, jump: false, crouch: !!c.crouch && !st.swim && !pl.dead, aim: c.aim && cam_ok, zoom: cam_ok ? c.zoom : 0, slot: -1, wheel: 0, use: false, swap: false });
+    // (sin `look`: la mirada ya es la de PoolLevel; si el Player la sumara otra vez, las manos irían un fotograma por delante de la cámara)
+    me.update(dt, { ...c, look: _none, jump: false, crouch: !!c.crouch && !st.swim && !pl.dead, aim: c.aim && cam_ok, zoom: cam_ok ? c.zoom : 0, slot: -1, wheel: 0, use: false, swap: false });
     if (!cam_ok && me.aiming) (me.aiming = false), (me.zoom = 1);
     if (st.swim && !pl.dead) me.rig.root.visible = false; // nadando el cuerpo colgaba bajo la vista (se veía una copia del personaje andando en el fondo)
     if (c.fire && cam_ok && me.hand === 'camera' && me.aiming && this.t - this.picAt > 0.8) {
@@ -2021,6 +2090,14 @@ fps ${(1 / Math.max(dt, 1e-3)).toFixed(0)}`;
     cam.position.copy(pos);
     cam.rotation.copy(rot);
     cam.updateMatrixWorld();
+  }
+  /** Lo nuevo del jugador que avisa al servidor: la Monster (se gasta) y la carta Uno Reverse (cambia de sitio con otro al azar). */
+  private hookGear(p: Player) {
+    p.onMonster = () => (this.audio?.drink(), this.mp?.sock.emit('monster'));
+    p.onUno = (done) => {
+      if (!this.mp) return done(false);
+      this.mp.sock.emit('uno', (ok) => (ok && this.audio?.cue('equip'), done(ok)));
+    };
   }
   /** Fotos de las Poolrooms (no hay Items allí): miniaturas y grandes, y el pedido de captura al pintar. */
   private pics = { thumbs: [] as string[], full: [] as string[] };
@@ -2071,6 +2148,7 @@ fps ${(1 / Math.max(dt, 1e-3)).toFixed(0)}`;
     me.poolMode = true;
     me.load(mp.inv ?? START_INV);
     me.onDrink = () => (this.audio?.drink(), mp.sock.emit('drink')); // X con una lata: el servidor da la vida; aquí aguante y cordura
+    this.hookGear(me);
     // mi cuerpo, manos y objetos van en la capa 1: la cámara los ve, pero la virtual del Reflector del agua (solo capa 0) no los repinta bajo el agua
     p.camera.layers.enable(1);
     me.rig.root.traverse((o) => o.layers.set(1));
@@ -2104,7 +2182,7 @@ fps ${(1 / Math.max(dt, 1e-3)).toFixed(0)}`;
     // lo recogido (latas w, linternas f, tanque k, pistola p) pasa a mi inventario local; los jabones no cuentan
     p.onTake = (id) => {
       const kind = id[0] === 'd' ? (this.dropKind.get(id) as ItemId | undefined) : ({ w: 'water', f: 'flashlight', c: 'camera', k: 'tank', p: 'watergun' } as const)[id[0] as 'w'];
-      if (!kind) return;
+      if (!kind || (kind as string) === 'loot') return; // (el botín lo lleva el servidor: llega con `bag`)
       me.receive(kind);
       mp.inv = me.inventory;
       p.tank = me.tankWorn;
@@ -2134,7 +2212,7 @@ fps ${(1 / Math.max(dt, 1e-3)).toFixed(0)}`;
    */
   poolHot(i: number, toggle = true) {
     const p = this.pool, me = this.player;
-    if (!(p instanceof PoolLevel) || !me) return;
+    if (!(p instanceof PoolLevel) || !me || i >= perks.stats.hot) return; // (solo las ranuras que dan las mejoras)
     me.hotSel = i;
     if (me.hot[i] === 'watergun' && this.mp?.inv?.watergun) {
       p.gunOn = toggle ? !p.gunOn : true;
@@ -2160,7 +2238,8 @@ fps ${(1 / Math.max(dt, 1e-3)).toFixed(0)}`;
     if (!p.dead && !this.winning) {
       if (c.slot >= 0) this.poolHot(c.slot);
       else if (c.use) this.poolHot(me?.hotSel ?? 0);
-      if (c.wheel && me) this.poolHot((me.hotSel + Math.sign(c.wheel) + me.hot.length) % me.hot.length, false);
+      const slots = perks.stats.hot;
+      if (c.wheel && me && slots) this.poolHot((Math.min(me.hotSel, slots - 1) + Math.sign(c.wheel) + slots) % slots, false);
       if (c.drop) this.dropSelected();
     }
     if (this.gadgets) c = this.gadgets.update(dt, c); // cinta de acordonar y radar: se llevan los clics que gastan
@@ -2268,7 +2347,7 @@ fps ${(1 / Math.max(dt, 1e-3)).toFixed(0)}`;
     if (!p || p.dead) return;
     if (fx.k === 'tp') pl ? pl.teleport(fx.x, fx.z, fx.yaw, fx.y) : p.spawn(new THREE.Vector3(fx.x, 0, fx.z), fx.yaw);
     else if (fx.k === 'give') (p.receive(fx.item), this.poolInv());
-    else ((p.hp = HP_MAX), (p.stamina = 1), (p.sanity = 1), pl && (pl.o2 = 1));
+    else ((p.hp = perks.stats.hp), (p.stamina = 1), (p.sanity = 1), pl && (pl.o2 = 1));
   }
 
   /** Trucos propios: velocidad x2, atravesar paredes, sin luz (y, solo, inmortal). Devuelve el estado nuevo. */
@@ -2370,19 +2449,19 @@ x ${f(s.x)}  y ${f(s.y)}  z ${f(s.z)}  yaw ${f(s.yaw)}  pitch ${f(s.pitch)}`;
   }
 
   /** Solo: curar, matar, completar la misión, teletransportarse, objetos y entidades. */
-  adminSolo(op: 'heal' | 'kill' | 'mission' | 'tvs' | 'start' | 'elevator' | 'spawn' | 'clear' | 'freeze' | 'thaw' | { item: ItemId }) {
+  adminSolo(op: 'heal' | 'kill' | 'mission' | 'tvs' | 'start' | 'elevator' | 'clear' | 'freeze' | 'thaw' | { item: ItemId } | { spawn: Kind }) {
     if (!this.adminOk) return;
     const p = this.player, w = this.world;
     if (!p || !w) return;
-    if (op === 'heal') (p.hp = HP_MAX), (p.stamina = 1), (p.sanity = 1);
+    if (op === 'heal') (p.hp = perks.stats.hp), (p.stamina = 1), (p.sanity = 1);
     else if (op === 'kill') this.die();
     else if (op === 'mission') {
       const m = this.mission;
       if (m && !m.done) (m.done = true), (m.progress = m.goal), this.missionDone();
     } else if (op === 'tvs') this.tvs?.sync([...Array(this.mission?.goal ?? 0).keys()], this.audio);
     else if (op === 'start' || op === 'elevator') p.spawn(center(op === 'start' ? w.maze.start : w.maze.elevator), p.yaw);
-    else if (op === 'spawn') {
-      const m = w.maze, e = new Entity(Math.random() < 0.5 ? 'bacteria' : 'partygoer', w, this.assets!, m.spawns[(Math.random() * m.spawns.length) | 0] ?? m.spawns[0]);
+    else if (typeof op === 'object' && 'spawn' in op) {
+      const m = w.maze, e = new Entity(op.spawn, w, this.assets!, m.spawns[(Math.random() * m.spawns.length) | 0] ?? m.spawns[0]);
       this.entities.push(e);
       this.items!.targets = this.entities;
     } else if (op === 'clear') (this.entities.forEach((e) => e.dispose()), (this.entities = []), (this.items!.targets = this.entities));

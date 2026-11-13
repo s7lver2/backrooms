@@ -1,4 +1,7 @@
 import * as THREE from 'three';
+import { glow, lootModel, pulse } from './rarityFx';
+import { LEVELS, boostOf, lootSpots, spotRarity } from '@backrooms/shared';
+import { perks } from './perks';
 import { ElevatorCab } from './elevator';
 import { Reflector } from 'three/examples/jsm/objects/Reflector.js';
 import { RectAreaLightUniformsLib } from 'three/examples/jsm/lights/RectAreaLightUniformsLib.js';
@@ -78,7 +81,7 @@ let raInit = false;
 /** Segundos con G mantenida para llenar la pistola de agua en un bebedero. */
 const FILL_T = 1.5;
 const R = 0.38; // radio del jugador (con 0,3, mirando hacia abajo pegado a una pared, los pies y los hombros la atravesaban)
-const EYE_SWIM = 0.5, HEAD = 0.65, O2_SECONDS = 30, TANK_AIR = 2.5, TANK_SLOW = 0.85, JET_TIME = 6, JET_N = 192, O2_REFILL = 2.5, FAINT = 2.4;
+const EYE_SWIM = 0.5, HEAD = 0.65, O2_SECONDS = 30, TANK_AIR = 2.5, TANK_SLOW = 0.9, JET_TIME = 6, JET_N = 288, O2_REFILL = 2.5, FAINT = 2.4;
 
 const SUB = 1.5; // tamaño máximo (m) de la malla en la que se parte cada cara para hornear la luz
 /** Malla que se va llenando de cuadriláteros (con el sentido de la cara decidido por la normal que se pide). */
@@ -1094,6 +1097,8 @@ export class PoolLevel {
   squirtLeft = 1;
   /** Chorro saliendo y recarga en marcha este fotograma (el juego pone el sonido). */
   jetting = false;
+  /** Multiplicador de velocidad que pone quien lleva las manos (game.poolHands): p. ej. enfocar con la camcorder. */
+  slowMul = 1;
   refilling = false;
   /** Cuánto lleva la recarga en curso (0–1; 0 si no se recarga): la barra del HUD. */
   get fill() {
@@ -1117,9 +1122,9 @@ export class PoolLevel {
     else this.stunT = Math.max(this.stunT, ms / 1000);
   }
 
-  private drop?: (d: { id: string; kind: string; x: number; z: number }) => void;
+  private drop?: (d: { id: string; kind: string; x: number; z: number; q?: { r: number } }) => void;
   /** Los objetos soltados por los jugadores (`snapshot.drops`, ids `d…`): los nuevos aparecen y los que ya no están desaparecen. */
-  syncDrops(list: { id: string; kind: string; x: number; z: number }[]) {
+  syncDrops(list: { id: string; kind: string; x: number; z: number; q?: { r: number } }[]) {
     const here = new Set(list.map((d) => d.id));
     for (const s of this.soaps) if (s.id[0] === 'd' && !s.taken && !here.has(s.id)) (s.taken = true), (s.obj.visible = false);
     for (const d of list) if (!this.soaps.some((s) => s.id === d.id)) this.drop?.(d);
@@ -1147,9 +1152,10 @@ export class PoolLevel {
     // recogibles: las celdas del mapa plano del servidor (jabones t…, latas w…, linternas f…, tanque k0, pistola p0); si su celda es honda quedan sumergidos
     // con un brillo propio leve (como en el nivel 0) para que se vean en las salas oscuras
     const pm = poolMaze(this.seed);
-    const put = (id: string, src: THREE.Object3D | undefined, c: Cell, size: number, up: boolean, kind: string, at?: [number, number]) => {
+    const put = (id: string, src: THREE.Object3D | undefined, c: Cell, size: number, up: boolean, kind: string, at?: [number, number], rar = spotRarity(id, c)) => {
       if (!src) return;
-      const o = fit(src, size, up), x = at?.[0] ?? (c.x + 0.5) * C, z = at?.[1] ?? (c.y + 0.5) * C, y = poolCellY(m, c.x, c.y, pm.lay?.[c.y * m.w + c.x] ? 1 : 0) + size / 2 + 0.04; // (la planta del objeto: maze.lay)
+      const o = fit(src, size, up), x = at?.[0] ?? (c.x + 0.5) * C, z = at?.[1] ?? (c.y + 0.5) * C, y = poolCellY(m, c.x, c.y, pm.lay?.[c.y * m.w + c.x] ? 1 : 0) + size / 2 + 0.3; // (la planta del objeto: maze.lay; flota a media pierna)
+      if (kind !== 'soap') o.add(glow(rar)); // el brillo de su rareza (los jabones son de la misión: sin rareza)
       o.traverse((n) => {
         const mesh = n as THREE.Mesh, mat = mesh.material as THREE.MeshStandardMaterial | undefined;
         if (!mat?.isMeshStandardMaterial) return;
@@ -1168,9 +1174,12 @@ export class PoolLevel {
     if (pm.camera) put('c', kit.camera, pm.camera, 0.22, false, 'camcorder'); // la cámara de fotos (servidor: id 'c')
     if (pm.tank) put('k0', kit.tank, pm.tank, 0.6, true, 'diving tank');
     if (pm.watergun) put('p0', kit.watergun, pm.watergun, 0.4, false, 'water gun');
+    lootSpots(pm).forEach((c, i) => put('v' + i, lootModel(spotRarity('v' + i, c, LEVELS.poolrooms?.luck)), c, 0.24, true, 'artifact')); // el botín: solo para vender
     this.drop = (d) => {
       const [src, size, up, kind] = ({ water: [kit.water, 0.17, true, 'almond water'], flashlight: [kit.flashlight, 0.24, false, 'flashlight'], camera: [kit.camera, 0.22, false, 'camcorder'], tank: [kit.tank, 0.6, true, 'diving tank'], watergun: [kit.watergun, 0.4, false, 'water gun'] } as Record<string, [THREE.Object3D | undefined, number, boolean, string]>)[d.kind] ?? [];
-      if (src) put(d.id, src, { x: Math.floor(d.x / C), y: Math.floor(d.z / C) }, size, up, kind, [d.x, d.z]);
+      const cell = { x: Math.floor(d.x / C), y: Math.floor(d.z / C) };
+      if (d.kind === 'loot') put(d.id, lootModel(d.q?.r), cell, 0.24, true, 'artifact', [d.x, d.z], d.q?.r ?? 0);
+      else if (src) put(d.id, src, cell, size, up, kind, [d.x, d.z], d.q?.r ?? 0);
     };
     // bebederos: los puntos de recarga del mapa (`refills`, cuando shared los trae)
     for (const [c, l] of [...m.refills.map((c) => [c, 0] as const), ...m.refillsUp.map((c) => [c, 1] as const)]) {
@@ -1213,7 +1222,7 @@ export class PoolLevel {
   /** Cada fotograma: jabones (giran y flotan, se cogen con G), pistola, chorro, recarga y mojado/parada. Devuelve los controles con la velocidad que toca. */
   private extras(dt: number, c: Controls): Controls {
     // jabones
-    for (const s of this.soaps) if (!s.taken) (s.obj.rotation.y += dt * 0.8), (s.obj.position.y = s.y + Math.sin(this.t * 1.6 + s.y * 7) * 0.03);
+    for (const s of this.soaps) if (!s.taken) (s.obj.rotation.y += dt * 0.8), (s.obj.position.y = s.y + Math.sin(this.t * 1.6 + s.y * 7) * 0.04), pulse(s.obj.children.find((c) => c.userData.glow), this.t);
     const d2 = (o: THREE.Object3D) => Math.hypot(o.position.x - this.px, o.position.z - this.pz);
     const s0 = this.soaps.filter((s) => !s.taken && !s.pending && d2(s.obj) < 1.6 && Math.abs(s.y - (this.py + this.eye)) < 2.2).sort((a, b) => d2(a.obj) - d2(b.obj))[0];
     this.hint = s0 ? s0.kind : null;
@@ -1232,12 +1241,12 @@ export class PoolLevel {
     const jp = this.jp, pos = this.jet?.geometry.getAttribute('position') as THREE.BufferAttribute | undefined, al = this.jet?.geometry.getAttribute('aLife') as THREE.BufferAttribute | undefined, sz = this.jet?.geometry.getAttribute('aSize') as THREE.BufferAttribute | undefined;
     if (this.jet) (this.jet.material as THREE.ShaderMaterial).uniforms.uScale.value = innerHeight / 2;
     if (this.jetting) {
-      this.squirtLeft = Math.max(0, this.squirtLeft - dt / JET_TIME);
-      jp.acc += dt * 90;
+      this.squirtLeft = Math.max(0, this.squirtLeft - dt / (JET_TIME * boostOf(perks, 'watergun'))); // (la rareza de la pistola: un depósito que dura más)
+      jp.acc += dt * 135;
       const cp = Math.cos(this.pitch), fwd = new THREE.Vector3(-Math.sin(this.yaw) * cp, Math.sin(this.pitch), -Math.cos(this.yaw) * cp), right = new THREE.Vector3(Math.cos(this.yaw), 0, -Math.sin(this.yaw));
       while (jp.acc >= 1 && pos) {
         jp.acc--;
-        const k = jp.i++ % JET_N, r = () => (Math.random() - 0.5) * 0.5, s = 9 + Math.random() * 3, t = Math.random() * 0.016; // (nacen repartidas a lo largo del fotograma)
+        const k = jp.i++ % JET_N, r = () => (Math.random() - 0.5) * 0.5, s = 12 + Math.random() * 3, t = Math.random() * 0.016; // (nacen repartidas a lo largo del fotograma)
         pos.setXYZ(k, this.px + fwd.x * (0.6 + s * t) + right.x * 0.18, this.py + this.eye - 0.2 + fwd.y * (0.6 + s * t), this.pz + fwd.z * (0.6 + s * t) + right.z * 0.18);
         // el chorro converge en el punto que apunta la mira (a 9 m): sale de la boca (abajo y a la derecha) y va hacia ahí
         const dx = this.px + fwd.x * 9 - pos.getX(k), dy = this.py + this.eye + fwd.y * 9 - pos.getY(k), dz = this.pz + fwd.z * 9 - pos.getZ(k), dl = Math.hypot(dx, dy, dz) || 1;
@@ -1246,7 +1255,7 @@ export class PoolLevel {
         jp.v[k * 3 + 2] = (dz / dl) * s + r();
         jp.max[k] = jp.life[k] = 0.5 + Math.random() * 0.3;
         jp.sp[k] = 0;
-        sz?.setX(k, 0.7 + Math.random() * 0.8);
+        sz?.setX(k, 0.9 + Math.random() * 1.0);
       }
       this.sqT -= dt;
       if (this.sqT <= 0) (this.sqT = 1 / 15), this.onSquirt?.(this.px, this.pz, this.yaw);
@@ -1293,7 +1302,7 @@ export class PoolLevel {
     this.wetT = Math.max(0, this.wetT - dt);
     this.stunT = Math.max(0, this.stunT - dt);
     if (this.fxEl) this.fxEl.style.opacity = this.wetT > 0 || this.stunT > 0 ? '1' : '0';
-    const k = (this.stunT > 0 ? 0 : this.wetT > 0 ? 0.5 : 1) * (this.tank ? TANK_SLOW : 1);
+    const k = (this.stunT > 0 ? 0 : this.wetT > 0 ? 0.5 : 1) * (this.tank ? TANK_SLOW : 1) * this.slowMul;
     return k === 1 ? c : { ...c, move: c.move.clone().multiplyScalar(k), jump: this.stunT > 0 ? false : c.jump };
   }
 
@@ -1595,7 +1604,7 @@ export class PoolLevel {
       if (this.faint < FAINT - 1.2 && this.faint + dt >= FAINT - 1.2) (this.px = this.lastAir.x), (this.pz = this.lastAir.z), (this.py = this.lastAir.y), (this.swim = false), (this.vy = 0), this.splash(this.px, this.pz, 1.4);
       if (this.faint <= 0) this.o2 = 0.35;
     } else if (head) {
-      this.o2 = Math.max(0, this.o2 - dt / (O2_SECONDS * (this.tank ? TANK_AIR : 1)));
+      this.o2 = Math.max(0, this.o2 - dt / (O2_SECONDS * (this.tank ? TANK_AIR * boostOf(perks, 'tank') : 1))); // (la rareza de la bombona da más aire)
       if (this.o2 <= 0) this.faint = FAINT;
     } else {
       this.o2 = Math.min(1, this.o2 + dt / O2_REFILL);

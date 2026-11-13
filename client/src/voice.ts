@@ -1,0 +1,268 @@
+import { useSyncExternalStore } from 'react';
+import { settings } from './settings';
+import type { Sock } from './net';
+
+/*
+ * Chat de voz de la sala: WebRTC entre jugadores (malla: cada uno con cada uno; vale para 4). El servidor solo reenvía la señalización
+ * (`rtc`), el audio no pasa por él. Cada pareja abre UNA conexión con un transceptor de audio desde el principio: el micrófono se
+ * engancha después con replaceTrack, sin renegociar. Inicia la oferta el de id menor (así no se cruzan).
+ * Modos (ajuste voiceMode): 0 apagado, 1 pulsar para hablar (V), 2 micrófono abierto. Con el modo 1 el micrófono se pide al primer V.
+ * Servidores: STUN de Google; para redes que no dejan pasar P2P, VITE_ICE_SERVERS (JSON de RTCIceServer[], p. ej. un TURN).
+ */
+
+const PTT = 'KeyV';
+const ICE: RTCIceServer[] = (() => {
+  try {
+    const v = JSON.parse(import.meta.env.VITE_ICE_SERVERS || 'null');
+    if (Array.isArray(v)) return v;
+  } catch {}
+  return [{ urls: 'stun:stun.l.google.com:19302' }];
+})();
+
+interface Peer {
+  pc: RTCPeerConnection;
+  audio: HTMLAudioElement;
+  pending: RTCIceCandidateInit[];
+  level?: () => number;
+  src?: MediaStreamAudioSourceNode;
+}
+
+/** El sonido de la voz según dónde se esté: filtro de paso bajo, cantidad de eco (wet) y lo que dura. */
+const ENV: Record<string, { lp: number; wet: number; decay: number }> = {
+  wait: { lp: 16000, wet: 0.04, decay: 0.4 },
+  maze: { lp: 5500, wet: 0.3, decay: 1.1 }, // pasillos de moqueta y ladrillo: apagada y con cola
+  pool: { lp: 9000, wet: 0.5, decay: 2.4 }, // azulejo: brillante y con mucho eco
+};
+type Sig = { sdp?: RTCSessionDescriptionInit; ice?: RTCIceCandidateInit };
+
+class Voice {
+  private sock?: Sock;
+  private me = '';
+  private peers = new Map<string, Peer>();
+  private mic?: MediaStream;
+  private micAsk?: Promise<void>;
+  private ctx?: AudioContext;
+  private micLevel?: () => number;
+  private held = false;
+  private tickId?: ReturnType<typeof setInterval>;
+  private ver = 0;
+  private bus?: { inp: GainNode; lp: BiquadFilterNode; conv: ConvolverNode; wet: GainNode };
+  private envKind = 'wait';
+  private subs = new Set<() => void>();
+  /** Quién suena ahora (ids de socket; el mío incluido). */
+  speaking = new Set<string>();
+  /** Estado del micrófono: sin pedir, en marcha o denegado/ausente. */
+  state: 'idle' | 'on' | 'denied' = 'idle';
+  /** Estoy emitiendo (tecla pulsada o micro abierto). */
+  talking = false;
+
+  private bump() {
+    this.ver++;
+    this.subs.forEach((f) => f());
+  }
+  subscribe = (f: () => void) => (this.subs.add(f), () => void this.subs.delete(f));
+  snapshot = () => this.ver;
+
+  /** Engancharse al socket de la sala. */
+  attach(sock: Sock) {
+    this.detach();
+    this.sock = sock;
+    sock.on('rtc', this.onSignal);
+    addEventListener('keydown', this.key);
+    addEventListener('keyup', this.key);
+    addEventListener('blur', this.release);
+    this.tickId = setInterval(this.tick, 100);
+  }
+
+  detach() {
+    this.sock?.off('rtc', this.onSignal);
+    this.sock = undefined;
+    removeEventListener('keydown', this.key);
+    removeEventListener('keyup', this.key);
+    removeEventListener('blur', this.release);
+    clearInterval(this.tickId);
+    [...this.peers.keys()].forEach((id) => this.drop(id));
+    this.mic?.getTracks().forEach((t) => t.stop());
+    this.mic = this.micAsk = this.micLevel = undefined;
+    this.bus = undefined;
+    this.ctx?.close().catch(() => {});
+    this.ctx = undefined;
+    this.held = this.talking = false;
+    this.state = 'idle';
+    this.speaking = new Set();
+    this.bump();
+  }
+
+  /** El entorno que suena en la voz de los demás: 'wait' (sala de espera), 'maze' o 'pool'. */
+  env(kind: string) {
+    this.envKind = ENV[kind] ? kind : 'maze';
+    if (this.bus) this.tune();
+  }
+  private tune() {
+    const b = this.bus!, e = ENV[this.envKind], c = this.ctx!, n = Math.floor(c.sampleRate * e.decay), buf = c.createBuffer(2, n, c.sampleRate);
+    for (let ch = 0; ch < 2; ch++) {
+      const d = buf.getChannelData(ch);
+      for (let i = 0; i < n; i++) d[i] = (Math.random() * 2 - 1) * (1 - i / n) ** 2.5;
+    }
+    b.conv.buffer = buf;
+    b.lp.frequency.value = e.lp;
+    b.wet.gain.value = e.wet;
+  }
+  /** La cadena común de la voz recibida: volumen → filtro → (seco + eco) → altavoces. */
+  private chain() {
+    const c = (this.ctx ??= new AudioContext());
+    if (!this.bus) {
+      const inp = c.createGain(), lp = c.createBiquadFilter(), conv = c.createConvolver(), wet = c.createGain(), dry = c.createGain();
+      lp.type = 'lowpass';
+      inp.connect(lp);
+      lp.connect(dry).connect(c.destination);
+      lp.connect(conv).connect(wet).connect(c.destination);
+      this.bus = { inp, lp, conv, wet };
+      this.tune();
+    }
+    if (c.state === 'suspended') void c.resume();
+    return this.bus;
+  }
+
+  /** Los jugadores de la sala ahora: se abren las conexiones que faltan y se cierran las de quien se fue. */
+  sync(me: string, ids: string[]) {
+    if (!this.sock) return;
+    this.me = me;
+    const want = new Set(ids.filter((i) => i !== me));
+    for (const id of want) if (!this.peers.has(id)) this.open(id);
+    for (const id of [...this.peers.keys()]) if (!want.has(id)) this.drop(id);
+  }
+
+  private open(id: string) {
+    const pc = new RTCPeerConnection({ iceServers: ICE }), audio = new Audio();
+    audio.autoplay = true;
+    const p: Peer = { pc, audio, pending: [] };
+    this.peers.set(id, p);
+    const tr = pc.addTransceiver('audio', { direction: 'sendrecv' });
+    if (this.mic) void tr.sender.replaceTrack(this.mic.getAudioTracks()[0] ?? null);
+    pc.onicecandidate = (e) => e.candidate && this.send(id, { ice: e.candidate.toJSON() });
+    pc.ontrack = (e) => {
+      const ms = e.streams[0] ?? new MediaStream([e.track]);
+      audio.srcObject = ms;
+      audio.muted = true; // (se oye por la cadena de Web Audio; el elemento solo mantiene vivo el flujo)
+      void audio.play().catch(() => {});
+      p.src?.disconnect();
+      {
+        const b = this.chain();
+        p.src = this.ctx!.createMediaStreamSource(ms);
+        p.src.connect(b.inp);
+      }
+      p.level = this.meter(ms);
+    };
+    pc.onconnectionstatechange = () => pc.connectionState === 'failed' && this.peers.get(id) === p && (this.drop(id), this.sock && this.open(id));
+    if (this.me < id) {
+      void (async () => {
+        try {
+          await pc.setLocalDescription(await pc.createOffer());
+          this.send(id, { sdp: pc.localDescription!.toJSON() });
+        } catch {}
+      })();
+    }
+    return p;
+  }
+
+  private drop(id: string) {
+    const p = this.peers.get(id);
+    if (!p) return;
+    this.peers.delete(id);
+    p.pc.close();
+    p.audio.srcObject = null;
+    p.src?.disconnect();
+    this.speaking.delete(id);
+  }
+
+  private send(to: string, data: Sig) {
+    this.sock?.emit('rtc', to, data);
+  }
+
+  private onSignal = async (from: string, data: unknown) => {
+    const d = data as Sig;
+    const p = this.peers.get(from) ?? this.open(from);
+    try {
+      if (d.sdp) {
+        await p.pc.setRemoteDescription(d.sdp);
+        if (d.sdp.type === 'offer') {
+          await p.pc.setLocalDescription(await p.pc.createAnswer());
+          this.send(from, { sdp: p.pc.localDescription!.toJSON() });
+        }
+        for (const c of p.pending.splice(0)) await p.pc.addIceCandidate(c).catch(() => {});
+      } else if (d.ice) {
+        if (p.pc.remoteDescription) await p.pc.addIceCandidate(d.ice).catch(() => {});
+        else p.pending.push(d.ice);
+      }
+    } catch {}
+  };
+
+  /** Un medidor del nivel (0–1) de un flujo, para saber quién habla. */
+  private meter(stream: MediaStream) {
+    const c = (this.ctx ??= new AudioContext());
+    if (c.state === 'suspended') void c.resume();
+    const an = c.createAnalyser();
+    an.fftSize = 512;
+    c.createMediaStreamSource(stream).connect(an);
+    const buf = new Uint8Array(an.fftSize);
+    return () => {
+      an.getByteTimeDomainData(buf);
+      let m = 0;
+      for (const v of buf) m = Math.max(m, Math.abs(v - 128));
+      return m / 128;
+    };
+  }
+
+  private async ensureMic() {
+    if (this.mic || this.state === 'denied') return;
+    this.micAsk ??= (async () => {
+      try {
+        const s = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true }, video: false });
+        this.mic = s;
+        const t = s.getAudioTracks()[0];
+        t.enabled = false;
+        for (const p of this.peers.values()) void p.pc.getSenders().find((x) => !x.track || x.track.kind === 'audio')?.replaceTrack(t);
+        this.micLevel = this.meter(s);
+        this.state = 'on';
+      } catch {
+        this.state = 'denied';
+      }
+      this.bump();
+    })();
+    await this.micAsk;
+  }
+
+  private key = (e: KeyboardEvent) => {
+    if (e.code !== PTT || e.repeat) return;
+    const t = e.target as HTMLElement | null;
+    if (t && /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName)) return;
+    this.held = e.type === 'keydown';
+  };
+  private release = () => (this.held = false);
+
+  private tick = () => {
+    const mode = settings.voiceMode, want = mode === 2 || (mode === 1 && this.held);
+    if (want && !this.mic) void this.ensureMic();
+    const on = want && !!this.mic;
+    const track = this.mic?.getAudioTracks()[0];
+    if (track && track.enabled !== on) track.enabled = on;
+    const vol = settings.voiceVol;
+    if (this.bus) this.bus.inp.gain.value = Math.max(0, Math.min(1, vol));
+    const next = new Set<string>();
+    for (const [id, p] of this.peers) if ((p.level?.() ?? 0) > 0.04) next.add(id);
+    if (on && (this.micLevel?.() ?? 0) > 0.04) next.add(this.me);
+    const changed = on !== this.talking || next.size !== this.speaking.size || [...next].some((i) => !this.speaking.has(i));
+    this.talking = on;
+    this.speaking = next;
+    if (changed) this.bump();
+  };
+}
+
+export const voice = new Voice();
+
+/** Para pintar el estado de la voz: se refresca al cambiar quién habla o el micrófono. */
+export function useVoice() {
+  useSyncExternalStore(voice.subscribe, voice.snapshot);
+  return voice;
+}

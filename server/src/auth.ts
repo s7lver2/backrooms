@@ -2,7 +2,7 @@ import type { IncomingMessage, ServerResponse } from 'node:http';
 import { createHash, randomBytes, randomInt } from 'node:crypto';
 import { hash, verify } from '@node-rs/argon2';
 import {
-  ACHIEVEMENT_KEYS, ADMIN_USER, AVATAR_MAX, AVATAR_PX, AVATAR_TYPES, BODY_MAX, CLIENT_PORT, COSMETICS, PASS_MAX, PASS_MIN, USER_RE, cosmetic, lookAllowed,
+  ACHIEVEMENT_KEYS, ADMIN_USER, SERVER_PORT, AVATAR_MAX, AVATAR_PX, AVATAR_TYPES, BODY_MAX, CLIENT_PORT, COSMETICS, PASS_MAX, PASS_MIN, USER_RE, cosmetic, lookAllowed,
   type Look, type Me, type Slot,
 } from '@backrooms/shared';
 import * as db from './db';
@@ -115,6 +115,7 @@ const loginIp = new Limiter(10, MIN15), loginUser = new Limiter(5, MIN15);
 const recoverIp = new Limiter(5, MIN15), recoverUser = new Limiter(5, MIN15);
 const registerIp = new Limiter(5, 3600_000);
 const avatarUp = new Limiter(6, MIN15); // subidas de foto por cuenta
+const discordIp = new Limiter(20, MIN15);
 setInterval(() => [loginIp, loginUser, recoverIp, recoverUser, registerIp, avatarUp].forEach((l) => l.sweep()), 5 * 60_000).unref();
 setInterval(db.purgeSessions, 3600_000).unref();
 
@@ -271,6 +272,96 @@ function removeAvatar(req: IncomingMessage): Out {
   return { body: { me: meOf(s.user.id, s.user.username) } };
 }
 
+// ── Discord (OAuth2, solo `identify`) ───────────────────────────────────
+
+/*
+ * Entorno: DISCORD_CLIENT_ID, DISCORD_CLIENT_SECRET y DISCORD_REDIRECT (la URL pública de este servidor + /api/discord/callback; la misma
+ * que se registra en el portal de Discord > OAuth2 > Redirects). Sin ellas el botón no aparece. El flujo: /api/discord/start guarda un
+ * «state» en una cookie y manda a Discord; /api/discord/callback lo comprueba, canjea el código, lee el id de Discord y entra en la cuenta
+ * enlazada (si no hay, la crea; si ya hay sesión, enlaza Discord a esa cuenta) y vuelve al cliente.
+ */
+const DC = { id: process.env.DISCORD_CLIENT_ID ?? '', secret: process.env.DISCORD_CLIENT_SECRET ?? '', redirect: process.env.DISCORD_REDIRECT || `http://localhost:${Number(process.env.PORT) || SERVER_PORT}/api/discord/callback` };
+const discordOn = !!(DC.id && DC.secret);
+/** La cuenta de Discord del admin: entrar con ella da siempre la cuenta ADMIN_USER (la crea, la enlaza o le devuelve el nombre). */
+const ADMIN_DISCORD = process.env.ADMIN_DISCORD_ID || '1023628644213587998';
+const DS = 'br_ds';
+const stateCookie = (v: string, maxAge: number) => `${DS}=${v}; Path=/api/discord; HttpOnly; SameSite=${cross ? 'None' : 'Lax'}; Max-Age=${maxAge}${secure ? '; Secure' : ''}`;
+const clientHome = () => allowedOrigins[0] ?? `http://localhost:${CLIENT_PORT}`;
+
+function discordStart(req: IncomingMessage, res: ServerResponse) {
+  const q = new URL(req.url ?? '', 'http://x').searchParams, o = q.get('o') ?? '';
+  const back = o && originOk(o, req.headers.host) ? o : clientHome();
+  if (!discordOn) return void (res.writeHead(302, { location: `${back}/?discord=off` }), res.end());
+  const state = randomBytes(16).toString('base64url');
+  const url = new URL('https://discord.com/api/oauth2/authorize');
+  url.search = new URLSearchParams({ client_id: DC.id, redirect_uri: DC.redirect, response_type: 'code', scope: 'identify', state, prompt: 'none' }).toString();
+  res.writeHead(302, { location: url.toString(), 'set-cookie': stateCookie(`${state}.${Buffer.from(back).toString('base64url')}`, 600), 'cache-control': 'no-store' });
+  res.end();
+}
+
+/** Un nombre de Discord a un usuario válido (3-16 letras, números o _), libre y que no se parezca al del admin. */
+function freeName(raw: string) {
+  const base = (raw.replace(/[^A-Za-z0-9_]/g, '').slice(0, 12) || 'player').padEnd(3, '0');
+  for (let i = 0; i < 12; i++) {
+    const n = i === 0 ? base : base + randomInt(10, 9999);
+    if (n.toLowerCase() !== ADMIN_USER && !db.userByName(n)) return n;
+  }
+  return `user${randomInt(100000, 999999)}`;
+}
+
+async function discordCallback(req: IncomingMessage, res: ServerResponse) {
+  const ip = ipOf(req), q = new URL(req.url ?? '', 'http://x').searchParams;
+  const [state, enc] = (cookies(req.headers.cookie)[DS] ?? '').split('.');
+  const back = enc ? Buffer.from(enc, 'base64url').toString() : clientHome();
+  const fin = (why: string, extra: string[] = []) => {
+    res.writeHead(302, { location: `${back}/?discord=${why}`, 'set-cookie': [stateCookie('', 0), ...extra], 'cache-control': 'no-store' });
+    res.end();
+  };
+  if (!discordOn || discordIp.wait(ip)) return fin('fail');
+  discordIp.fail(ip);
+  const code = q.get('code');
+  if (!state || state !== q.get('state') || !code || !(allowedOrigins.includes(back) || originOk(back, req.headers.host))) return fin('fail');
+  try {
+    const t = await fetch('https://discord.com/api/oauth2/token', {
+      method: 'POST',
+      headers: { 'content-type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({ client_id: DC.id, client_secret: DC.secret, grant_type: 'authorization_code', code, redirect_uri: DC.redirect }),
+    }).then((r) => (r.ok ? (r.json() as Promise<{ access_token?: string }>) : null));
+    if (!t?.access_token) return fin('fail');
+    const u = await fetch('https://discord.com/api/users/@me', { headers: { authorization: `Bearer ${t.access_token}` } }).then((r) => (r.ok ? (r.json() as Promise<{ id?: string; global_name?: string | null; username?: string }>) : null));
+    if (!u?.id || !/^\d{5,25}$/.test(u.id)) return fin('fail');
+    const prev = userFromCookie(req.headers.cookie), owner = db.userByDiscord(u.id);
+    if (u.id === ADMIN_DISCORD) {
+      let id = owner?.id;
+      if (!id) {
+        const old = db.userByName(ADMIN_USER);
+        if (old) id = old.id; // la cuenta s7lver que ya existía (con contraseña) pasa a ser también la de esta Discord
+        else {
+          const [ph, rh] = await Promise.all([hashIt(randomBytes(24).toString('base64url')), hashIt(normRecovery(newRecovery()))]);
+          id = db.createUser(ADMIN_USER, ph, rh) ?? undefined;
+        }
+        if (!id || !db.linkDiscord(u.id, id)) return fin('fail');
+      } else if (owner!.username !== ADMIN_USER) db.renameUser(id, ADMIN_USER);
+      return fin('ok', [cookieStr(newSession(id), SESSION_TTL / 1000)]);
+    }
+    if (prev) {
+      // ya con sesión: enlazar esta Discord a la cuenta (si no es de otra ni esta cuenta tiene ya una)
+      if (owner && owner.id !== prev.user.id) return fin('taken');
+      if (!owner && !db.linkDiscord(u.id, prev.user.id)) return fin('taken');
+      return fin('linked');
+    }
+    let id = owner?.id;
+    if (!id) {
+      const [ph, rh] = await Promise.all([hashIt(randomBytes(24).toString('base64url')), hashIt(normRecovery(newRecovery()))]);
+      for (let i = 0; i < 5 && !id; i++) id = db.createUser(freeName(u.global_name || u.username || ''), ph, rh) ?? undefined;
+      if (!id || !db.linkDiscord(u.id, id)) return fin('fail');
+    }
+    return fin('ok', [cookieStr(newSession(id), SESSION_TTL / 1000)]);
+  } catch {
+    return fin('fail');
+  }
+}
+
 const str = (v: unknown, max: number) => (typeof v === 'string' && v.length <= max ? v : '');
 
 type Out = { status?: number; body: unknown; cookie?: string };
@@ -282,7 +373,7 @@ async function register(req: IncomingMessage, b: Record<string, unknown>): Promi
   if (!USER_RE.test(username)) throw new HttpErr(400, 'Username must be 3-16 letters, numbers or _');
   if (password.length < PASS_MIN || password.length > PASS_MAX) throw new HttpErr(400, `Password must be ${PASS_MIN}-${PASS_MAX} characters`);
   // nadie registra variantes (S7LVER, s7Lver...) del nombre de admin: solo el nombre exacto, y los nombres son únicos sin mayúsculas (username_lower)
-  if (username.toLowerCase() === ADMIN_USER && username !== ADMIN_USER) throw new HttpErr(409, 'Username taken');
+  if (username.toLowerCase() === ADMIN_USER) throw new HttpErr(409, 'Username taken'); // el nombre del admin solo lo lleva la cuenta de su Discord (ver ADMIN_DISCORD)
   registerIp.fail(ip); // cada intento cuenta (5 cuentas por hora y por IP)
   if (db.userByName(username)) throw new HttpErr(409, 'Username taken');
   const code = newRecovery();
@@ -329,6 +420,24 @@ async function recover(req: IncomingMessage, b: Record<string, unknown>): Promis
   return { body: { recoveryCode: fresh } };
 }
 
+const renameIp = new Limiter(10, MIN15);
+/** Cambiar el nombre de usuario (no al del admin, y la cuenta del admin no se renombra). */
+function rename(req: IncomingMessage, b: Record<string, unknown>): Out {
+  const s = userFromCookie(req.headers.cookie);
+  if (!s) throw new HttpErr(401, 'Not signed in');
+  const key = String(s.user.id), w = renameIp.wait(key);
+  if (w) throw new HttpErr(429, TOO_MANY, { 'retry-after': String(Math.ceil(w / 1000)) });
+  renameIp.fail(key);
+  const name = str(b.username, 64);
+  if (!USER_RE.test(name)) throw new HttpErr(400, 'Username must be 3-16 letters, numbers or _');
+  if (isAdminName(s.user.username)) throw new HttpErr(403, 'This account keeps its name');
+  if (name.toLowerCase() === ADMIN_USER) throw new HttpErr(409, 'Username taken');
+  const other = db.userByName(name);
+  if (other && other.id !== s.user.id) throw new HttpErr(409, 'Username taken');
+  if (!db.renameUser(s.user.id, name)) throw new HttpErr(409, 'Username taken');
+  return { body: { me: meOf(s.user.id, name) } };
+}
+
 function loadout(req: IncomingMessage, b: Record<string, unknown>): Out {
   const s = userFromCookie(req.headers.cookie);
   if (!s) throw new HttpErr(401, 'Not signed in');
@@ -370,6 +479,9 @@ export function handleApi(req: IncomingMessage, res: ServerResponse): boolean {
         return void (res.writeHead(204, { ...cors, 'access-control-allow-methods': 'GET, POST', 'access-control-allow-headers': 'content-type', 'access-control-max-age': '600' }), res.end());
       }
       if (origin && !ok) throw new HttpErr(403, 'Origin not allowed');
+      if (req.method === 'GET' && path === '/api/providers') return send(res, 200, { discord: discordOn }, cors);
+      if (req.method === 'GET' && path === '/api/discord/start') return discordStart(req, res);
+      if (req.method === 'GET' && path === '/api/discord/callback') return void (await discordCallback(req, res));
       if (req.method === 'GET' && path === '/api/me') {
         const s = userFromCookie(req.headers.cookie);
         const extra: Record<string, string> = s?.slid ? { 'set-cookie': cookieStr(s.sid, SESSION_TTL / 1000) } : {};
@@ -394,7 +506,7 @@ export function handleApi(req: IncomingMessage, res: ServerResponse): boolean {
         return send(res, 200, out.body, cors);
       }
       const routes: Record<string, (req: IncomingMessage, b: Record<string, unknown>) => Promise<Out> | Out> = {
-        '/api/register': register, '/api/login': login, '/api/recover': recover, '/api/loadout': loadout, '/api/import': importLegacy, '/api/avatar-remove': removeAvatar,
+        '/api/register': register, '/api/login': login, '/api/recover': recover, '/api/loadout': loadout, '/api/rename': rename, '/api/import': importLegacy, '/api/avatar-remove': removeAvatar,
       };
       const isPost = req.method === 'POST';
       if (path === '/api/logout' ? !isPost : !(path in routes && isPost)) throw new HttpErr(path in routes || path === '/api/logout' ? 405 : 404, 'Not found');

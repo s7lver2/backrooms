@@ -9,7 +9,11 @@ import * as THREE from 'three';
  */
 
 const R = 0.105; // radio del disco en metros de cámara
-const RANGE = 25; // metros de mundo hasta el borde
+/** Alcance del radar sin balancear (m de mundo hasta el borde del disco). */
+export const RADAR_BASE = 25;
+/** Balance: con el radar solo en la mano, un 80 % menos; al escanear, un 150 % más que el de antes. */
+export const RADAR_IDLE = RADAR_BASE * 0.2;
+export const RADAR_SCAN = RADAR_BASE * 2.5;
 const H = 0.06; // alto de las balizas a ±6 m de desnivel (la mitad por arriba, la mitad por abajo)
 const TILT = 1.1; // radianes: el disco se levanta hacia quien mira (0 = tumbado, π/2 = de cara)
 const INK = 0xd6ffe9, COL = 0x6fe8a8;
@@ -149,11 +153,12 @@ export class Holo {
   }
 
   /** `at`: el aparato (espacio de cámara); `yaw`: hacia dónde se mira; `me`: donde estoy; `peers`: los compañeros vivos. */
-  update(dt: number, on: boolean, at: THREE.Vector3, yaw: number, me: THREE.Vector3, peers: Iterable<{ pos: THREE.Vector3; dead: boolean }>) {
+  update(dt: number, on: boolean, at: THREE.Vector3, yaw: number, me: THREE.Vector3, peers: Iterable<{ pos: THREE.Vector3; dead: boolean }>, range = RADAR_IDLE, status = 'RADAR') {
     this.root.visible = on;
     if (!on) return;
     this.t += dt;
     this.root.position.copy(at).add(_off);
+    this.title.set(status);
     // el parpadeo de siempre y, de vez en cuando, un fallo de señal: el volumen se encoge y tiembla un instante
     this.nextGlitch -= dt;
     if (this.nextGlitch < 0) (this.glitch = 0.12 + Math.random() * 0.1), (this.nextGlitch = 1.5 + Math.random() * 3.5);
@@ -172,8 +177,10 @@ export class Holo {
     let n = 0;
     for (const r of peers) {
       if (r.dead || n >= this.beacons.length) continue;
-      const b = this.beacons[n++], dx = r.pos.x - me.x, dz = r.pos.z - me.z, d = Math.hypot(dx, dz), out = d > RANGE;
-      const right = (dx * -f1 + dz * f0) / (d || 1), fwd = (dx * f0 + dz * f1) / (d || 1), k = (Math.min(d, RANGE) / RANGE) * R * 0.94;
+      const dx = r.pos.x - me.x, dz = r.pos.z - me.z, d = Math.hypot(dx, dz);
+      if (d > range) continue; // fuera de alcance no se ve
+      const b = this.beacons[n++];
+      const right = (dx * -f1 + dz * f0) / (d || 1), fwd = (dx * f0 + dz * f1) / (d || 1), k = (d / range) * R * 0.94;
       const dh = THREE.MathUtils.clamp((r.pos.y - me.y) / 6, -1, 1) * H * 0.5; // alto relativo
       b.g.visible = true;
       b.g.position.set(right * k, 0, -fwd * k);
@@ -182,7 +189,7 @@ export class Holo {
       b.stem.rotation.x = dh < 0 ? Math.PI : 0;
       b.head.position.y = dh + (dh < 0 ? 0 : 0.012);
       b.head.rotation.y = this.t * 2;
-      b.head.visible = !out || Math.sin(this.t * 14) > 0; // fuera de alcance: parpadea en el borde
+      b.head.visible = true;
       b.tag.s.position.set(0.03, Math.max(0.01, dh) + 0.018, 0);
       b.tag.set(`${Math.round(d)}M`);
     }

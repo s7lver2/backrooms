@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { DEFAULT_LOOK, type Look, type PlayerState } from '@backrooms/shared';
+import { DEFAULT_LOOK, EMOTE_DEFS, type Look, type PlayerState } from '@backrooms/shared';
 import type { Assets } from './game';
 import { Rig } from './rig';
 import { build } from './anim/core';
@@ -17,7 +17,7 @@ import { worn, wornModel, placeWorn } from './worn';
 
 /** La muerte y los emotes de la sala de espera (1–4) son clips del paquete de animaciones (anim/): saludar, señalar, puño en alto y sentarse (agachado). */
 const DEATH = 'Standing React Death Backward';
-const EMOTES = ['', 'Cheering', 'Pointing', 'Fist Pump', 'Crouching'];
+const EMOTES = ['', ...EMOTE_DEFS.map((e) => e.clip)];
 const _v = new THREE.Vector3(), _q = new THREE.Quaternion(), _e = new THREE.Euler();
 const angle = (a: number, b: number) => a + THREE.MathUtils.euclideanModulo(b - a + Math.PI, Math.PI * 2) - Math.PI;
 
@@ -255,7 +255,7 @@ export class Remote {
     this.yaw += THREE.MathUtils.clamp((angle(this.yaw, this.goalYaw) - this.yaw) * kh, -cap, cap);
     this.pitch += THREE.MathUtils.clamp((this.goalPitch - this.pitch) * kh, -cap, cap);
     // el clip, a la velocidad a la que se mueve de verdad
-    const sp = dt > 0 ? this.pos.distanceTo(prev) / dt : 0;
+    const sp = dt > 0 ? Math.hypot(this.pos.x - prev.x, this.pos.z - prev.z) / dt : 0; // (solo en horizontal: el vaivén del agua y los peldaños no son correr)
     this.speed += (sp - this.speed) * Math.min(1, dt * 8);
     const A = this.rig.animator;
     if (A) {

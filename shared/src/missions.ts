@@ -3,6 +3,7 @@
  * Todo puro: lo comparten el servidor (que decide) y el cliente (que pinta). El estado vive en la memoria del servidor mientras la sala exista.
  */
 import { CELL, DIRS, type Cell, type Maze } from './maze';
+import type { Stats } from './upgrades';
 
 // ── dinero ───────────────────────────────────────────────────────────────
 
@@ -23,11 +24,15 @@ export interface LevelDef {
   /** Lo que sale en la pizarra de la sala de espera: el nombre del sitio y una línea de ambiente. */
   title: string;
   blurb: string;
+  /** Suerte del botín: >1 empuja las rarezas hacia arriba (por defecto 1). */
+  luck?: number;
+  /** El nodo del árbol de mejoras (UpId) que desbloquea este nivel; sin él, está abierto desde el principio. */
+  unlock?: string;
 }
 /** Los niveles que salen en el sorteo de una ronda. Para añadir uno basta otra entrada (el cliente y el servidor de momento solo generan el laberinto de siempre). */
 export const LEVELS: Record<string, LevelDef> = {
   level0: { id: 'level0', name: 'LEVEL 0', title: 'THE LOBBY', blurb: 'DAMP CARPET. FLUORESCENT HUM. NO WAY OUT BUT FORWARD.' },
-  poolrooms: { id: 'poolrooms', name: 'LEVEL 37', title: 'THE POOLROOMS', blurb: 'WARM WATER. WHITE TILE. SOMETHING BREATHES UNDER THE SURFACE.' },
+  poolrooms: { id: 'poolrooms', name: 'LEVEL 37', title: 'THE POOLROOMS', blurb: 'WARM WATER. WHITE TILE. SOMETHING BREATHES UNDER THE SURFACE.', luck: 1.8, unlock: 'pool' },
 };
 /** Niveles aún en desarrollo: solo salen si un admin los elige (no entran en el sorteo de rondas). Quitar el nombre de aquí cuando estén listos. */
 export const DEV_LEVELS = [] as readonly string[];
@@ -38,17 +43,19 @@ export const poolMissions = (seed: number, round: number): Mission[] => {
 };
 /** Niveles especiales: no entran en el sorteo (los lleva el cliente aparte). */
 export const SPECIAL_LEVELS = ['runforyourlife'] as const;
-/** Un nivel del sorteo, según la semilla. */
-export const pickLevel = (seed: number, pools = false) => {
-  const ids = Object.keys(LEVELS).filter((id) => !(SPECIAL_LEVELS as readonly string[]).includes(id) && !(DEV_LEVELS as readonly string[]).includes(id) && (pools || id !== 'poolrooms'));
+/** Un nivel del sorteo, según la semilla, entre los desbloqueados (`open`: ids de nivel; sin él, los que no piden desbloqueo). */
+export const pickLevel = (seed: number, open?: ReadonlySet<string>) => {
+  const ids = Object.keys(LEVELS).filter((id) => !(SPECIAL_LEVELS as readonly string[]).includes(id) && !(DEV_LEVELS as readonly string[]).includes(id) && (!LEVELS[id].unlock || !!open?.has(id)));
   return ids[(seed >>> 0) % ids.length] ?? 'level0';
 };
 
 // ── objetos: inventario y tienda ──────────────────────────────────────────
 
 /** Lo que se compra, se suelta y se recoge. `flashlight` es una linterna de repuesto (batería nueva); `ammo`, un cargador (AMMO_PACK balas). */
-export type ItemId = 'flashlight' | 'camera' | 'gun' | 'ammo' | 'water' | 'caution' | 'radar' | 'totem' | 'tank' | 'watergun';
-export const ITEM_IDS: ItemId[] = ['flashlight', 'camera', 'gun', 'ammo', 'water', 'caution', 'radar', 'totem', 'tank', 'watergun'];
+export type ItemId = 'flashlight' | 'camera' | 'gun' | 'ammo' | 'water' | 'caution' | 'radar' | 'totem' | 'tank' | 'watergun' | 'uno' | 'monster';
+export const ITEM_IDS: ItemId[] = ['flashlight', 'camera', 'gun', 'ammo', 'water', 'caution', 'radar', 'totem', 'tank', 'watergun', 'uno', 'monster'];
+/** Monster: segundos que se tarda en beberla, lo que dura el efecto, y lo que acelera. Uno Reverse: ver ITEMS.uno. */
+export const MONSTER = { drink: 3, time: 5, speed: 1.4 } as const;
 export const AMMO_PACK = 3;
 
 /** Lo que un jugador lleva (y conserva entre rondas). La linterna principal no cuenta: nunca se pierde. */
@@ -69,19 +76,72 @@ export interface Inventory {
   watergun: boolean;
   /** Cinta de acordonar (se tiene o no; se usa sin gastarse). */
   caution: boolean;
+  /** Carta Uno Reverse (una sola, un solo uso) y latas de Monster. */
+  uno: boolean;
+  monster: number;
+  /** La calidad de cada cosa que se lleva (rareza y desgaste; una por tipo: una pila comparte la suya). La lleva el servidor. */
+  q?: Partial<Record<ItemId, Qual>>;
+  /** El botín de valor recogido en los niveles: cada pieza ocupa una casilla y solo sirve para venderse en la báscula. */
+  loot?: Qual[];
 }
-export const EMPTY_INV: Inventory = { spares: 0, water: 0, totem: 0, ammo: 0, radar: false, camera: false, gun: false, tank: false, watergun: false, caution: false };
+/** Rareza (índice de RARITIES) y desgaste (0 nuevo – 1 destrozado) de un objeto. */
+export interface Qual {
+  r: number;
+  w: number;
+}
+export const EMPTY_INV: Inventory = { spares: 0, water: 0, totem: 0, ammo: 0, radar: false, camera: false, gun: false, tank: false, watergun: false, caution: false, uno: false, monster: 0 };
 /** Con lo que entra quien llega a una sala: una linterna de repuesto. */
 export const START_INV: Inventory = { ...EMPTY_INV, spares: 1 };
 /** Lo máximo que se puede llevar de cada cosa. */
-export const INV_MAX: Inventory = { spares: 6, water: 5, totem: 2, ammo: 15, radar: true, camera: true, gun: true, tank: true, watergun: true, caution: true };
+export const INV_MAX: Inventory = { spares: 6, water: 5, totem: 2, ammo: 15, radar: true, camera: true, gun: true, tank: true, watergun: true, caution: true, uno: true, monster: 3 };
 
 /** Un inventario saneado: lo que no es número o booleano, a cero; nada por encima de `cap` (por defecto, el máximo de INV_MAX). */
 export function cleanInv(x: unknown, cap: Inventory = INV_MAX): Inventory {
   const o = (x && typeof x === 'object' ? x : {}) as Record<string, unknown>;
-  const n = (k: 'spares' | 'water' | 'totem' | 'ammo') => (Number.isFinite(o[k]) ? Math.max(0, Math.min(Math.floor(o[k] as number), cap[k], INV_MAX[k])) : 0);
-  const b = (k: 'radar' | 'camera' | 'gun' | 'tank' | 'watergun' | 'caution') => o[k] === true && cap[k] && INV_MAX[k];
-  return { spares: n('spares'), water: n('water'), totem: n('totem'), ammo: n('ammo'), radar: b('radar'), camera: b('camera'), gun: b('gun'), tank: b('tank'), watergun: b('watergun'), caution: b('caution') };
+  const n = (k: 'spares' | 'water' | 'totem' | 'ammo' | 'monster') => (Number.isFinite(o[k]) ? Math.max(0, Math.min(Math.floor(o[k] as number), cap[k], INV_MAX[k])) : 0);
+  const b = (k: 'radar' | 'camera' | 'gun' | 'tank' | 'watergun' | 'caution' | 'uno') => o[k] === true && cap[k] && INV_MAX[k];
+  const out: Inventory = { spares: n('spares'), water: n('water'), totem: n('totem'), ammo: n('ammo'), radar: b('radar'), camera: b('camera'), gun: b('gun'), tank: b('tank'), watergun: b('watergun'), caution: b('caution'), uno: b('uno'), monster: n('monster') };
+  // la calidad y el botín no los declara el cliente: son los de `cap` (lo que el servidor sabe que lleva)
+  if (cap.q) out.q = Object.fromEntries(ITEM_IDS.filter((id) => cap.q![id] && Number(out[ITEMS[id].slot]) > 0).map((id) => [id, cap.q![id]]));
+  if (cap.loot) out.loot = cap.loot;
+  return out;
+}
+
+// ── rarezas, desgaste y venta ─────────────────────────────────────────────
+
+/**
+ * Las rarezas: todo objeto (del mapa, de la tienda o botín) sale con una al azar. `p` es su probabilidad, `price` multiplica lo que vale en la
+ * báscula, `loot` lo que vale una pieza de botín y `boost` mejora la característica del objeto (ItemDef.boost). El color es el del brillo en el suelo.
+ */
+export const RARITIES = [
+  { name: 'COMMON', color: 0xc8c4b4, p: 0.55, price: 1, loot: 1, boost: 1 },
+  { name: 'UNCOMMON', color: 0x5fd35f, p: 0.25, price: 1.3, loot: 1.7, boost: 1.1 },
+  { name: 'RARE', color: 0x4aa3ff, p: 0.12, price: 1.8, loot: 2.8, boost: 1.2 },
+  { name: 'EPIC', color: 0xb565f0, p: 0.06, price: 2.6, loot: 4.5, boost: 1.35 },
+  { name: 'LEGENDARY', color: 0xffb020, p: 0.02, price: 4, loot: 8, boost: 1.5 },
+] as const;
+export const rarity = (r: number | undefined) => RARITIES[Math.max(0, Math.min(RARITIES.length - 1, Math.floor(Number(r) || 0)))];
+/** La rareza que toca con un azar `u` en [0, 1). */
+export function rollRarity(u: number) {
+  let i = 0;
+  for (let acc: number = RARITIES[0].p; u >= acc && i < RARITIES.length - 1; acc += RARITIES[++i].p);
+  return i;
+}
+/** La rareza de un objeto del mapa: sale de su id y su celda (la misma en el servidor y el cliente). */
+export const spotRarity = (id: string, c: Cell, luck = 1) => rollRarity(((Math.imul((c.x * 73856093) ^ (c.y * 19349663) ^ (id.charCodeAt(0) * 83492791) ^ (id.length * 0x27d4eb2d), 0x9e3779b1) >>> 0) / 4294967296) ** (1 / luck));
+/** Lo que mejora la característica de `id` por su rareza (1 = nada). */
+export const boostOf = (inv: Pick<Inventory, 'q'> | undefined | null, id: ItemId) => rarity(inv?.q?.[id]?.r).boost;
+/** Lo que paga la báscula por un objeto de la tienda (la mitad de su precio, por su rareza y su estado) y por una pieza de botín. */
+export const SELL = 0.5, LOOT_BASE = 50, WEAR_LOSS = 0.7;
+const round5 = (n: number) => Math.max(5, Math.round(n / 5) * 5);
+export const sellPrice = (id: ItemId, q?: Qual) => round5(ITEMS[id].price * SELL * rarity(q?.r).price * (1 - WEAR_LOSS * (q?.w ?? 0)));
+export const lootPrice = (q: Qual) => round5(LOOT_BASE * rarity(q.r).loot * (1 - WEAR_LOSS * q.w));
+/** Segundos de llevar algo encima en un nivel para desgastarlo del todo (objetos y botín), y lo que desgasta cada uso (un tiro, una foto). */
+export const WEAR_TIME = 2400, LOOT_WEAR_TIME = 1500, WEAR_USE = 0.03;
+/** Con `dt` segundos más de desgaste en todo lo que se lleva (y `use`, un uso de ese objeto). */
+export function wearInv(inv: Inventory, dt: number, use?: ItemId): Inventory {
+  const q = Object.fromEntries(Object.entries(inv.q ?? {}).map(([id, x]) => [id, { r: x.r, w: Math.min(1, x.w + dt / WEAR_TIME + (id === use ? WEAR_USE : 0)) }]));
+  return { ...inv, q, loot: inv.loot?.map((x) => ({ r: x.r, w: Math.min(1, x.w + dt / LOOT_WEAR_TIME) })) };
 }
 
 /**
@@ -97,30 +157,56 @@ export interface ItemDef {
   slot: keyof Inventory;
   /** Unidades por compra o recogida (por defecto 1). */
   pack?: number;
+  /** Va en la barra de acceso rápido (si no, solo en la mochila). */
+  hot?: boolean;
+  /** Lo que mejora con la rareza (se lee en el inventario): quien lo usa multiplica esa característica por boostOf. */
+  boost?: string;
+  /** El nivel al que pertenece: mientras no esté desbloqueado no se vende en la tienda ni sale del suelo ni de las taquillas. Sin él, es del nivel 0. */
+  level?: string;
 }
+/** ¿Se puede ofrecer `id` con estos niveles abiertos? */
+export const itemOpen = (id: ItemId, open: ReadonlySet<string>) => !ITEMS[id].level || open.has(ITEMS[id].level!);
 export const ITEMS: Record<ItemId, ItemDef> = {
-  flashlight: { name: 'SPARE FLASHLIGHT', price: 70, info: 'A fresh battery: F when the light dies.', slot: 'spares' },
-  camera: { name: 'CAMCORDER', price: 400, info: 'Film entities. Needed for photo missions.', slot: 'camera' },
-  gun: { name: 'RIFLE', price: 750, info: 'Comes with one magazine.', slot: 'gun' },
+  flashlight: { name: 'SPARE FLASHLIGHT', price: 70, info: 'A fresh battery: F when the light dies.', slot: 'spares', boost: 'BATTERY LIFE' },
+  camera: { name: 'CAMCORDER', price: 400, info: 'Film entities. Needed for photo missions.', slot: 'camera', hot: true, boost: 'LENS RANGE' },
+  gun: { name: 'RIFLE', price: 750, info: 'Comes with one magazine.', slot: 'gun', hot: true, boost: 'BULLET RANGE' },
   ammo: { name: 'AMMO', price: 120, info: `${AMMO_PACK} rounds for the rifle.`, slot: 'ammo', pack: AMMO_PACK },
-  water: { name: 'ALMOND WATER', price: 150, info: 'Restores health, stamina and sanity.', slot: 'water' },
-  caution: { name: 'CAUTION TAPE', price: 70, info: 'Mark the way for your team.', slot: 'caution' },
-  radar: { name: 'RADAR', price: 500, info: 'Shows where your teammates are.', slot: 'radar' },
-  tank: { name: 'DIVING TANK', price: 400, info: 'Doubles your air underwater, slows you 15%.', slot: 'tank' },
-  watergun: { name: 'WATER GUN', price: 250, info: 'Soaks and stalls whoever it hits.', slot: 'watergun' },
-  totem: { name: 'TOTEM OF LIFE', price: 650, info: 'Brings back a fallen teammate.', slot: 'totem' },
+  water: { name: 'ALMOND WATER', price: 150, info: 'Restores 40% health, stamina and sanity.', slot: 'water', hot: true, boost: 'HEALING' },
+  caution: { name: 'CAUTION TAPE', price: 70, info: 'Mark the way for your team.', slot: 'caution', hot: true },
+  radar: { name: 'RADAR', price: 500, info: 'Shows where your teammates are.', slot: 'radar', hot: true, boost: 'SCAN RANGE' },
+  tank: { name: 'DIVING TANK', price: 400, info: 'Doubles your air underwater, slows you 10%.', slot: 'tank', boost: 'AIR', level: 'poolrooms' },
+  watergun: { name: 'WATER GUN', price: 250, info: 'Soaks and stalls whoever it hits.', slot: 'watergun', hot: true, boost: 'WATER TANK', level: 'poolrooms' },
+  uno: { name: 'UNO REVERSE', price: 450, info: 'Swap places with a random teammate. One use, one card at a time.', slot: 'uno', hot: true, level: 'poolrooms' },
+  monster: { name: 'MONSTER', price: 180, info: '3 s to drink. Then 5 s of +40% speed and endless stamina.', slot: 'monster', hot: true, boost: 'BOOST TIME' },
+  totem: { name: 'TOTEM OF LIFE', price: 650, info: 'Brings back a fallen teammate.', slot: 'totem', hot: true },
 };
 const qty = (inv: Inventory, id: ItemId) => Number(inv[ITEMS[id].slot]), pack = (id: ItemId) => ITEMS[id].pack ?? 1;
 const withQty = (inv: Inventory, id: ItemId, n: number): Inventory => ({ ...inv, [ITEMS[id].slot]: typeof inv[ITEMS[id].slot] === 'boolean' ? n > 0 : n });
 
-/** ¿Cabe uno más de `id`? */
-export const canHold = (inv: Inventory, id: ItemId) => qty(inv, id) + pack(id) <= Number(INV_MAX[ITEMS[id].slot]);
-/** Con uno más de `id` (comprado o recogido del suelo). */
-export const addItem = (inv: Inventory, id: ItemId) => withQty(inv, id, qty(inv, id) + pack(id));
+/**
+ * ¿Hay sitio para una cosa más (un tipo nuevo `plus`, o una pieza de botín)? Cada tipo que se lleva ocupa una casilla de la mochila (las pilas, una
+ * sola) y cada pieza de botín, otra; lo que va en la barra rápida (ItemDef.hot) ocupa primero sus ranuras y solo lo que no quepa ahí, mochila.
+ */
+export function hasRoom(inv: Inventory, st: Stats, plus: ItemId | 'loot') {
+  // (la primera linterna se equipa sola en la mano: no ocupa casilla de mochila)
+  const kinds = ITEM_IDS.filter((k) => (k === 'flashlight' ? qty(inv, k) + (plus === k ? 1 : 0) > 1 : qty(inv, k) > 0 || k === plus)), hot = kinds.filter((k) => ITEMS[k].hot).length;
+  return kinds.length - hot + (inv.loot?.length ?? 0) + (plus === 'loot' ? 1 : 0) + Math.max(0, hot - st.hot) <= st.cells;
+}
+/** ¿Cabe uno más de `id`? Con `st` (lo que dan las mejoras del jugador) cuenta también el sitio de la mochila. */
+export const canHold = (inv: Inventory, id: ItemId, st?: Stats) => qty(inv, id) + pack(id) <= Number(INV_MAX[ITEMS[id].slot]) && (!st || qty(inv, id) > 0 || hasRoom(inv, st, id));
+/** Con uno más de `id` (comprado o recogido del suelo), de rareza `r`: una pila conserva la rareza que ya tenía y reparte el desgaste. */
+export function addItem(inv: Inventory, id: ItemId, r = 0, w = 0): Inventory {
+  const n = qty(inv, id), old = n > 0 ? inv.q?.[id] : undefined;
+  return { ...withQty(inv, id, n + pack(id)), q: { ...inv.q, [id]: old ? { r: old.r, w: (old.w * n + w * pack(id)) / (n + pack(id)) } : { r, w } } };
+}
 /** ¿Se puede soltar una unidad de `id`? */
 export const hasItem = (inv: Inventory, id: ItemId) => qty(inv, id) >= pack(id);
 /** Sin una unidad de `id` (soltada). El rifle se va sin sus balas: esas siguen en el inventario. */
-export const removeItem = (inv: Inventory, id: ItemId) => withQty(inv, id, qty(inv, id) - pack(id));
+export function removeItem(inv: Inventory, id: ItemId): Inventory {
+  const o = withQty(inv, id, qty(inv, id) - pack(id));
+  if (qty(o, id) <= 0 && o.q?.[id]) (o.q = { ...o.q }), delete o.q[id];
+  return o;
+}
 
 export interface ShopItem {
   id: ItemId;
@@ -132,8 +218,8 @@ export interface ShopItem {
 export const SHOP: ShopItem[] = (Object.keys(ITEMS) as ItemId[]).map((id) => ({ id, name: ITEMS[id].name, price: ITEMS[id].price, info: ITEMS[id].info }));
 export const shopItem = (id: unknown) => SHOP.find((s) => s.id === id);
 /** Lo que se lleva al comprar `id`: la compra y, con el rifle, un cargador de regalo. */
-export function purchase(inv: Inventory, id: ItemId): Inventory {
-  const o = addItem(inv, id);
+export function purchase(inv: Inventory, id: ItemId, r = 0): Inventory {
+  const o = addItem(inv, id, r);
   if (id === 'gun') o.ammo = Math.min(INV_MAX.ammo, o.ammo + AMMO_PACK);
   return o;
 }
@@ -143,11 +229,13 @@ export function purchase(inv: Inventory, id: ItemId): Inventory {
 /** Un objeto soltado en el suelo (id `d…`). Se recoge con el mismo `pickup` que lo demás. */
 export interface Drop {
   id: string;
-  kind: ItemId;
+  kind: ItemId | 'loot';
   x: number;
   z: number;
   /** Quién lo soltó (id de socket). */
   by: string;
+  /** Su rareza y su desgaste. */
+  q?: Qual;
 }
 /** Soltados a la vez por jugador, segundos que dura uno en el suelo y ms mínimos entre dos soltados. */
 export const DROP_MAX = 6;
@@ -205,6 +293,8 @@ function rng(seed: number) {
 const between = (r: () => number, a: number, b: number) => a + Math.floor(r() * (b - a + 1));
 const round10 = (n: number) => Math.round(n / 10) * 10;
 
+/** Lo que pagan las misiones respecto a la tabla de abajo: un tercio (el resto del dinero sale de vender en la báscula). */
+export const MISSION_PAY = 1 / 3;
 /** La misión de ese tipo con parámetros al azar (de `r`); `tvs` es cuántas televisiones hay en el mapa (3 como mínimo para ofrecer esa misión). La recompensa sube con lo difícil. */
 export function makeMission(kind: MissionKind, r: () => number, id: string, tvs: number): Mission {
   let goal: number, reward: number;
@@ -213,7 +303,7 @@ export function makeMission(kind: MissionKind, r: () => number, id: string, tvs:
   else if (kind === 'soaps') (goal = between(r, 3, 5)), (reward = 60 + 60 * goal);
   else if (kind === 'survive') (goal = between(r, 4, 8) * 60), (reward = 40 + 55 * (goal / 60));
   else (goal = Math.min(between(r, 3, 5), tvs)), (reward = 70 + 80 * goal);
-  return { id, kind, text: missionText(kind, goal), goal, reward: round10(reward) };
+  return { id, kind, text: missionText(kind, goal), goal, reward: round10(reward * MISSION_PAY) };
 }
 
 /**

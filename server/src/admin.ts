@@ -1,4 +1,4 @@
-import { ACHIEVEMENT_KEYS, ITEM_IDS, type AdminAction, type Kind } from '@backrooms/shared';
+import { ACHIEVEMENT_KEYS, ENTITIES, ITEM_IDS, RARITIES, UPGRADES, UP_IDS, type AdminAction, type Kind, type UpId } from '@backrooms/shared';
 
 /*
  * Validación de la consola de admin. Lo que llega por el socket es basura hasta que pasa por aquí: solo salen acciones de la lista,
@@ -29,7 +29,14 @@ export function parseAdmin(x: unknown): AdminAction | null {
     case 'money':
       return (o.mode === 'add' || o.mode === 'set') && Number.isInteger(o.n) && Math.abs(o.n as number) <= MONEY_MAX ? { a: 'money', mode: o.mode, n: o.n as number } : null;
     case 'give':
-      return typeof o.item === 'string' && (ITEM_IDS as string[]).includes(o.item) ? { a: 'give', t, item: o.item as (typeof ITEM_IDS)[number] } : null;
+      return typeof o.item === 'string' && (o.item === 'loot' || (ITEM_IDS as string[]).includes(o.item)) && (o.r === undefined || (Number.isInteger(o.r) && (o.r as number) >= 0 && (o.r as number) < RARITIES.length))
+        ? { a: 'give', t, item: o.item as (typeof ITEM_IDS)[number] | 'loot', r: o.r as number | undefined }
+        : null;
+    case 'ups': {
+      const all = o.id === '*', up = all || (UP_IDS as unknown[]).includes(o.id);
+      const top = all ? 99 : up ? UPGRADES[o.id as UpId].cost.length : 0;
+      return up && Number.isInteger(o.lv) && (o.lv as number) >= 0 && (o.lv as number) <= top ? { a: 'ups', t, id: o.id as UpId | '*', lv: o.lv as number } : null;
+    }
     case 'award': {
       const key = id(o.key);
       return key && (key === '*' || ACHIEVEMENT_KEYS.has(key)) ? { a: 'award', t, key } : null; // '*': todos
@@ -38,7 +45,7 @@ export function parseAdmin(x: unknown): AdminAction | null {
       return typeof o.ok === 'boolean' ? { a: 'end', ok: o.ok } : null;
     case 'ent': {
       if (o.op !== 'spawn' && o.op !== 'clear' && o.op !== 'freeze' && o.op !== 'thaw') return null;
-      const kind = o.kind === 'bacteria' || o.kind === 'partygoer' ? (o.kind as Kind) : undefined;
+      const kind = typeof o.kind === 'string' && Object.hasOwn(ENTITIES, o.kind) ? (o.kind as Kind) : undefined; // cualquier entidad de la tabla
       return { a: 'ent', op: o.op, kind, near: id(o.near) };
     }
   }

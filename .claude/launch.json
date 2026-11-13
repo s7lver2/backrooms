@@ -4,8 +4,23 @@
     {
       "name": "client-dev-5190",
       "runtimeExecutable": "npx",
-      "runtimeArgs": ["vite", "client", "--port", "5190", "--strictPort"],
+      "runtimeArgs": [
+        "vite",
+        "client",
+        "--port",
+        "5190",
+        "--strictPort"
+      ],
       "port": 5190
+    },
+    {
+      "name": "client-test-5191",
+      "runtimeExecutable": "cmd",
+      "runtimeArgs": [
+        "/c",
+        "set SERVER_PORT=5199&& npx vite client --port 5191 --strictPort"
+      ],
+      "port": 5191
     }
   ]
 }

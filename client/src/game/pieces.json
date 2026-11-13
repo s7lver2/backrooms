@@ -64,5 +64,60 @@
     "rx": 0,
     "ry": 0,
     "rz": 0
+  },
+  "bucket_hat": {
+    "slot": "head",
+    "size": 0.44,
+    "scale": 1,
+    "up": 0.16,
+    "fwd": 0,
+    "side": 0,
+    "rx": 0,
+    "ry": 0,
+    "rz": 0
+  },
+  "teto_pear": {
+    "slot": "head",
+    "size": 0.3,
+    "scale": 1,
+    "up": 0.26,
+    "fwd": 0,
+    "side": 0,
+    "rx": 0,
+    "ry": 0,
+    "rz": 0
+  },
+  "sukonbu": {
+    "slot": "head",
+    "size": 0.34,
+    "scale": 1,
+    "up": 0.25,
+    "fwd": 0,
+    "side": 0,
+    "rx": 0,
+    "ry": 0,
+    "rz": 0
+  },
+  "teto_plush": {
+    "slot": "back",
+    "size": 0.42,
+    "scale": 1,
+    "up": -0.02,
+    "fwd": -0.26,
+    "side": 0,
+    "rx": 0,
+    "ry": 0,
+    "rz": 0
+  },
+  "scythe": {
+    "slot": "back",
+    "size": 1.25,
+    "scale": 1,
+    "up": -0.05,
+    "fwd": -0.2,
+    "side": 0,
+    "rx": 0,
+    "ry": 0,
+    "rz": 35
   }
 }

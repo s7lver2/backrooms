@@ -136,6 +136,10 @@ export function useAccount() {
       if (!r.ok) throw new ApiError(String(j.error ?? `Error ${r.status}`), r.status);
       enter(j.me);
     },
+    /** Cambia el nombre de usuario. */
+    async rename(username: string) {
+      enter((await call<{ me: Me }>('rename', { username })).me);
+    },
     async removeAvatar() {
       enter((await call<{ me: Me }>('avatar-remove', {})).me);
     },

@@ -671,10 +671,10 @@ export interface ItemSpot {
   floor?: 0 | 1;
 }
 /**
- * Dónde hay latas de Almond Water: 5 celdas abiertas, lejos del inicio, del ascensor, de lo demás y unas de otras.
+ * Dónde hay latas de Almond Water: 8 celdas abiertas (antes 5: +50 %), lejos del inicio, del ascensor, de lo demás y unas de otras.
  * Solo depende del mapa (no consume su azar): cliente y servidor sacan las mismas.
  */
-export function waterSpots(m: Maze, n = 5): Cell[] {
+export function waterSpots(m: Maze, n = 8): Cell[] {
   if (m.waters) return m.waters; // Poolrooms: ya vienen puestas
   const used = new Set<number>(), key = (c: Cell) => c.y * m.w + c.x;
   [m.start, m.elevator, m.camera, ...(m.pistol ? [m.pistol] : []), ...m.extraGuns, ...m.tapes, ...m.flashlights, ...m.voids, ...m.props.map((p) => p.cell)].forEach((c) => used.add(key(c)));
@@ -726,6 +726,26 @@ export function radarSpot(m: Maze): Cell | null {
   return free.find((c) => far(c, m.start, 16) && far(c, m.elevator, 6) && others.every((o) => far(c, o, 4))) ?? free.find((c) => far(c, m.start, 8)) ?? null;
 }
 
+/**
+ * El botín de valor (ids v…): piezas repartidas por el mapa que solo sirven para venderse en la báscula. Celdas abiertas lejos del inicio,
+ * del ascensor y unas de otras. Solo depende del mapa: cliente y servidor sacan las mismas.
+ */
+export function lootSpots(m: Maze, n = 9): Cell[] {
+  const used = new Set<number>(), key = (c: Cell) => c.y * m.w + c.x, rd = radarSpot(m);
+  [m.start, m.elevator, m.camera, ...(m.pistol ? [m.pistol] : []), ...m.extraGuns, ...m.tapes, ...m.flashlights, ...waterSpots(m), ...(rd ? [rd] : []), ...(m.tank ? [m.tank] : []), ...(m.watergun ? [m.watergun] : []), ...m.voids, ...m.props.map((p) => p.cell)].forEach((c) => c && used.add(key(c)));
+  const free: Cell[] = [];
+  for (let y = 0; y < m.h; y++) for (let x = 0; x < m.w; x++) if (m.open[y * m.w + x] && !used.has(y * m.w + x)) free.push({ x, y });
+  const h = (c: Cell) => Math.imul((c.x * 2654435761) ^ (c.y * 40503) ^ (m.h * 19349663), 0x85ebca6b) >>> 0;
+  free.sort((a, b) => h(a) - h(b));
+  const far = (a: Cell, b: Cell, k: number) => Math.abs(a.x - b.x) + Math.abs(a.y - b.y) >= k;
+  const out: Cell[] = [];
+  for (const c of free) {
+    if (out.length >= n) break;
+    if (far(c, m.start, 8) && far(c, m.elevator, 4) && out.every((o) => far(c, o, 9))) out.push(c);
+  }
+  return out;
+}
+
 export function itemSpots(m: Maze): ItemSpot[] {
   const out: ItemSpot[] = [], add = (id: string, kind: ItemKind, cell: Cell) => out.push(m.lay ? { id, kind, cell, floor: m.lay[cell.y * m.w + cell.x] ? 1 : 0 } : { id, kind, cell });
   m.tapes.forEach((cell, i) => add('t' + i, 'tape', cell));
@@ -739,5 +759,6 @@ export function itemSpots(m: Maze): ItemSpot[] {
   add('c', 'camera', m.camera);
   if (m.pistol) add('g', 'gun', m.pistol);
   m.extraGuns.forEach((cell, i) => add('g' + (i + 1), 'gun', cell));
+  lootSpots(m).forEach((cell, i) => (i % 8 === 7 ? add('l' + i, 'locker', cell) : add('v' + i, 'loot', cell))); // una de cada ocho es una taquilla
   return out;
-}
+}

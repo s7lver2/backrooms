@@ -4,14 +4,17 @@ import type { World } from './world';
 import { FLASH } from './lightmap';
 import type { Assets } from './game';
 import { settings } from '../settings';
-import { AMMO_PACK, HP_MAX, addItem, hasItem, removeItem, type Inventory, type ItemId } from '@backrooms/shared';
+import { AMMO_PACK, HP_MAX, MONSTER, WATER_HEAL, addItem, hasItem, removeItem, type Inventory, type ItemId } from '@backrooms/shared';
 import { Rig } from './rig';
 import { build } from './anim/core';
 import { HOT, HOT_SLOTS } from './quickslots';
+import { perks } from './perks';
+import { boostOf } from '@backrooms/shared';
 import { solveArm, solveTwoBone, poseFingers } from './ik';
 import { grips, type Hand, type View } from './grips';
 import { clone as skClone } from 'three/examples/jsm/utils/SkeletonUtils.js';
 import { loadPoolKit, poolPart, tankFx } from './poolmap';
+import { itemModel } from './itemModels';
 
 /*
  * El jugador: el hazmat en primera persona. La cámara va a la altura de los ojos y el cuerpo debajo,
@@ -32,9 +35,13 @@ const MOUNT = { pos: [0, -0.05, -0.12] as [number, number, number], rot: [0, 0, 
 const _hl = new THREE.Vector3(), _hd = new THREE.Vector3(), _hq = new THREE.Quaternion();
 // la linterna se atenúa con la distancia a lo que ilumina: por debajo de FLASH_D0 la intensidad baja con d^decay (la luz recibida se queda
 // como a FLASH_D0 y no ciega contra el suelo o una pared cercana); más lejos, alcance completo
+const FLICKER_MAX = 0.2; // probabilidad máxima de que la linterna parpadee al encenderla (con la pila casi a cero)
 const FLASH_D0 = 4, FLASH_DECAY = 1.2, _fo = new THREE.Vector3(), _ft = new THREE.Vector3(), _v0 = new THREE.Vector3();
+const JET_P = 120; // partículas del chorro de la pistola de agua (antes 48: ahora más denso, rápido y grueso)
 const REACH_T = 0.85; // lo que dura recoger algo, en segundos
-const DRINK_T = 0.5; // lo que se mantiene la lata para beberla (s)
+const DRINK_T = 0.05; // lo que se mantiene la lata para beberla (s): antes 0,5; ahora casi instantáneo (>0 para no dividir por cero en la barra)
+/** Balance: enfocar con la camcorder (mirar por el visor) frena un 8 %. */
+export const CAM_AIM_SLOW = 0.92;
 const WALK = 1.6, RUN = 3.6, JUMP = Math.sqrt(2 * 9.8 * 0.9), G = 9.8, R = 0.3;
 
 /** Un modelo escalado para que su lado mayor mida `size`, centrado en el origen y girado `ry`. */
@@ -62,8 +69,8 @@ export class Player {
   /** Lo que se lleva en la mano sin ser camcorder ni rifle (cinta de acordonar, radar); con uno de ellos la mano derecha queda libre. */
   gadget: 'none' | 'caution' | 'radar' | 'totem' = 'none';
   /** Un objeto suelto en la mano derecha, sin función de juego (lo usa Anim Studio para colocar su agarre). */
-  prop: 'none' | 'water' | 'soap' | 'tape' | 'ammo' = 'none';
-  left: 'none' | 'flashlight' = 'flashlight';
+  prop: 'none' | 'water' | 'monster' | 'soap' | 'tape' | 'ammo' = 'none';
+  left: 'none' | 'flashlight' = 'none'; // la linterna es una del inventario (inv.spares): la mano la lleva si se equipa (y la primera que se tiene se equipa sola)
   belt: 'none' | 'camera' | 'gun' = 'none';
   readonly has = { camera: false, gun: false };
   /** Lleva el radar (un solo ejemplar por mapa: se lo queda quien lo coja). */
@@ -74,7 +81,7 @@ export class Player {
   stamina = 1;
   sanity = 1;
   /** Vida (0–100), sin regeneración: solo la devuelve una lata de Almond Water. En una sala la manda el servidor. */
-  hp = HP_MAX;
+  hp = perks.stats.hp;
   winded = false;
   ammo = 0; // en el cargador
   spare = 0; // de reserva
@@ -82,7 +89,9 @@ export class Player {
   /** Lo que le queda a la linterna (0–1) y las de repuesto en la mochila. */
   charge = 1;
   /** Segundos de luz que da una linterna (la dificultad de la sala lo cambia). */
-  life = 90;
+  life = 54; // s de linterna (por defecto; la sala manda el de su dificultad)
+  /** Segundos que le quedan al parpadeo de encendido (la luz titubea en vez de encenderse del todo). */
+  private flickerT = 0;
   spares = 0;
   /** Latas de Almond Water y la barra de acceso rápido (ver quickslots.ts): el objeto de cada ranura y la elegida. */
   water = 0;
@@ -109,10 +118,10 @@ export class Player {
   /** La bombona de buceo puesta en la espalda (si se tiene): se puede guardar en la mochila. */
   tankOn = true;
   get tankWorn() {
-    return this.poolGear.tank && this.tankOn;
+    return this.poolGear.tank && this.tankOn && perks.stats.back;
   }
   onSquirt?: (x: number, z: number, yaw: number) => void;
-  private readonly jet = { pts: undefined as THREE.Points | undefined, v: new Float32Array(48 * 3), life: new Float32Array(48), i: 0 };
+  private readonly jet = { pts: undefined as THREE.Points | undefined, v: new Float32Array(JET_P * 3), life: new Float32Array(JET_P), i: 0 };
   /** Se bebió una lata (sonido). */
   onDrink?: () => void;
   private lens?: THREE.MeshStandardMaterial;
@@ -130,7 +139,7 @@ export class Player {
   onFall?: () => void;
   readonly rig: Rig;
   /** Lo que va en las manos, pegado a la cámara: la linterna a la izquierda y la cámara o la pistola a la derecha. */
-  readonly items = { flashlight: new THREE.Group(), camera: new THREE.Group(), gun: new THREE.Group(), caution: new THREE.Group(), radar: new THREE.Group(), totem: new THREE.Group(), watergun: new THREE.Group(), water: new THREE.Group(), soap: new THREE.Group(), tape: new THREE.Group(), ammo: new THREE.Group() };
+  readonly items = { flashlight: new THREE.Group(), camera: new THREE.Group(), gun: new THREE.Group(), caution: new THREE.Group(), radar: new THREE.Group(), totem: new THREE.Group(), watergun: new THREE.Group(), water: new THREE.Group(), monster: new THREE.Group(), soap: new THREE.Group(), tape: new THREE.Group(), ammo: new THREE.Group() };
   speed = 0;
   /** Agachado (C o Ctrl): ojos más bajos, mitad de velocidad, sin correr; las entidades te ven de menos lejos. `duckK` es la transición (0–1). */
   duck = false;
@@ -147,6 +156,25 @@ export class Player {
   private duckD = 0.6;
   /** Segundos que lleva pulsado el botón de beber (la lata se bebe al mantener 0,5 s). */
   private drinkT = 0;
+  /** Monster: latas, segundos bebiendo la actual, segundos que le quedan al efecto, y la carta Uno Reverse. */
+  monster = 0;
+  private monsterT = 0;
+  buffT = 0;
+  uno = false;
+  onMonster?: () => void;
+  onUno?: (done: (ok: boolean) => void) => void;
+  /** La barra de aguante es un arcoíris: bebiendo una Monster y mientras dura. */
+  get rainbow() {
+    return this.monsterT > 0 || this.buffT > 0;
+  }
+  /** Lo que acelera el efecto de la Monster (1 sin él). */
+  get buffSpeed() {
+    return this.buffT > 0 ? MONSTER.speed : 1;
+  }
+  /** Lo que lleva bebido de la Monster (0–1). */
+  get drinkingMonster() {
+    return this.monsterT > 0 ? Math.min(1, this.monsterT / MONSTER.drink) : 0;
+  }
   private drankAt = -1e9;
   /** En la sala de espera no se bebe (el servidor solo da vida en una ronda). */
   drinkOff = false;
@@ -206,7 +234,7 @@ export class Player {
     this.items.ammo.add(new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.06, 0.06), new THREE.MeshStandardMaterial({ color: 0xb08d3a, roughness: 0.5, metalness: 0.5 })));
     this.placeItems(0);
     for (const it of Object.values(this.items)) camera.add(it);
-    for (const k of ['camera', 'gun', 'caution', 'radar', 'totem', 'watergun', 'water', 'soap', 'tape', 'ammo'] as const) this.items[k].visible = false;
+    for (const k of ['camera', 'gun', 'caution', 'radar', 'totem', 'watergun', 'water', 'monster', 'soap', 'tape', 'ammo'] as const) this.items[k].visible = false;
     // la pose de referencia: el primer fotograma de Neutral Idle. Con algo en las manos el torso y los dos brazos (hombros, brazos, manos y dedos)
     // vuelven a ella cada fotograma, después del mezclador: los hombros no se mueven con el paso, y el IK parte siempre del mismo sitio y no
     // hereda el giro del antebrazo del clip (que daba un salto en cada vuelta del ciclo de andar o correr)
@@ -289,20 +317,34 @@ export class Player {
       this.yaw = this.hideYaw + THREE.MathUtils.clamp(wrap(this.yaw - this.hideYaw), -70 * D, 70 * D);
       this.pitch = THREE.MathUtils.clamp(this.pitch, -0.7, 0.7);
     }
+    if (this.flickerT > 0) this.flickerT = Math.max(0, this.flickerT - dt);
     if (c.flash) this.toggleLight();
     if (this.lightOn) {
-      this.charge = Math.max(0, this.charge - dt / this.life);
+      this.charge = Math.max(0, this.charge - dt / (this.life * boostOf(perks, 'flashlight'))); // (la rareza de las linternas de repuesto que se llevan alarga la batería)
       if (this.charge === 0) this.flashOn = false;
     }
     if (c.swap) this.swap();
-    if (c.slot >= 0) (this.hotSel = c.slot), this.useHot(c.slot);
-    if (c.wheel) this.pickHot((this.hotSel + Math.sign(c.wheel) + HOT_SLOTS) % HOT_SLOTS);
-    if (c.use) this.useHot(this.hotSel);
+    const slots = perks.stats.hot; // las ranuras de la barra que dan las mejoras (0: sin barra)
+    if (c.slot >= 0 && c.slot < slots) (this.hotSel = c.slot), this.useHot(c.slot);
+    if (c.wheel && slots) this.pickHot((Math.min(this.hotSel, slots - 1) + Math.sign(c.wheel) + slots) % slots);
+    if (c.use && slots) this.useHot(this.hotSel);
     // la lata en la mano: mantener su tecla (o X, o el clic) medio segundo para beberla; soltar y volver a mantener para otra
     const wi = this.hot.indexOf('water');
     const held = !this.drinkOff && this.prop === 'water' && this.water > 0 && ((wi >= 0 && c.slotHeld === wi) || !!c.useHeld || !!c.fireHeld);
     this.drinkT = held ? this.drinkT + dt : 0;
     if (this.drinkT >= DRINK_T) (this.drinkT = -1e9), this.drink();
+    // la Monster: mantener 3 s; después 5 s de velocidad y aguante sin límite
+    const mi = this.hot.indexOf('monster');
+    const sip = !this.drinkOff && this.prop === 'monster' && this.monster > 0 && this.buffT <= 0 && ((mi >= 0 && c.slotHeld === mi) || !!c.useHeld || !!c.fireHeld);
+    this.monsterT = sip ? this.monsterT + dt : 0;
+    if (this.monsterT >= MONSTER.drink) {
+      this.monsterT = 0;
+      this.monster--;
+      this.buffT = MONSTER.time * boostOf(perks, 'monster');
+      if (this.monster <= 0) this.prop = 'none';
+      this.onMonster?.();
+    }
+    if (this.buffT > 0) this.buffT = Math.max(0, this.buffT - dt);
     this.wetT = Math.max(0, this.wetT - dt);
     this.stunT = Math.max(0, this.stunT - dt);
     this.spray(dt, c);
@@ -313,10 +355,11 @@ export class Player {
     this.duckK += ((this.duck ? 1 : 0) - this.duckK) * Math.min(1, dt * 10);
     const moving = c.move.length() > 0.05, run = c.run && moving && !this.winded && !this.duck;
     // ~9 s corriendo; se recupera en ~6 s andando y ~4 s parado; agotado, no se corre hasta el 30 %
-    this.stamina = THREE.MathUtils.clamp(this.stamina + dt * (run ? -1 / 9 : moving ? 1 / 6 : 1 / 4), 0, 1);
+    if (this.buffT > 0) (this.stamina = 1), (this.winded = false);
+    else this.stamina = THREE.MathUtils.clamp(this.stamina + dt * (run ? -1 / (9 * perks.stats.stamina) : moving ? 1 / 6 : 1 / 4), 0, 1);
     if (this.stamina <= 0) this.winded = true;
     else if (this.stamina > 0.3) this.winded = false;
-    let speed = moving ? (run ? RUN : WALK) * Math.min(1, c.move.length()) * this.speedMul * (this.duck ? 0.5 : 1) * (this.stunT > 0 ? 0 : this.wetT > 0 ? 0.5 : 1) : 0;
+    let speed = moving ? (run ? RUN : WALK) * Math.min(1, c.move.length()) * this.speedMul * this.buffSpeed * perks.stats.speed * (this.duck ? 0.5 : 1) * (this.stunT > 0 ? 0 : this.wetT > 0 ? 0.5 : 1) * (this.aiming ? CAM_AIM_SLOW : 1) : 0;
     const f = new THREE.Vector3(-Math.sin(this.yaw), 0, -Math.cos(this.yaw)), r = new THREE.Vector3(-f.z, 0, f.x);
     const v = f.multiplyScalar(c.move.y).add(r.multiplyScalar(c.move.x));
     if (v.lengthSq() > 0) v.normalize().multiplyScalar(speed * dt);
@@ -451,13 +494,13 @@ export class Player {
       if (!rk && g.right) grip('Right', it, g.right);
       if (two && !rk && g.left) grip('Left', it, g.left);
     }
-    for (const k of ['caution', 'radar', 'totem', 'water', 'soap', 'tape', 'ammo'] as const) this.items[k].visible = false;
+    for (const k of ['caution', 'radar', 'totem', 'water', 'monster', 'soap', 'tape', 'ammo'] as const) this.items[k].visible = false;
     if (this.prop === 'soap' && !this.items.soap.children.length) {
       const m = poolPart('soap');
       if (m) this.items.soap.add(fit(m.clone(true), 0.2));
       else void loadPoolKit();
     }
-    const pg = this.prop !== 'none' && this.hand === 'none' && this.gadget === 'none' && hk < 0.3 && !this.aiming ? grips[this.prop] : undefined;
+    const pg = this.prop !== 'none' && this.hand === 'none' && this.gadget === 'none' && hk < 0.3 && !this.aiming ? grips[this.prop === 'monster' ? 'water' : this.prop] : undefined;
     if (pg) {
       // un objeto suelto en la mano (lata, jabón, cinta VHS, balas)
       const it = this.items[this.prop as 'water'];
@@ -592,7 +635,7 @@ export class Player {
   revive(at: THREE.Vector3, yaw: number) {
     this.dead = this.frozen = this.lookFree = this.fell = this.falling = false;
     this.deadT = 0;
-    this.hp = HP_MAX;
+    this.hp = perks.stats.hp;
     this.stamina = 1;
     this.winded = false;
     this.rig.root.rotation.set(0, 0, 0);
@@ -656,30 +699,30 @@ export class Player {
     const J = this.jet;
     if (!J.pts) {
       const g = new THREE.BufferGeometry();
-      g.setAttribute('position', new THREE.BufferAttribute(new Float32Array(48 * 3).fill(-999), 3));
-      J.pts = new THREE.Points(g, new THREE.PointsMaterial({ size: 0.12, color: 0xbfe8ff, transparent: true, opacity: 0.8, depthWrite: false }));
+      g.setAttribute('position', new THREE.BufferAttribute(new Float32Array(JET_P * 3).fill(-999), 3));
+      J.pts = new THREE.Points(g, new THREE.PointsMaterial({ size: 0.18, color: 0xbfe8ff, transparent: true, opacity: 0.9, depthWrite: false }));
       J.pts.frustumCulled = false;
       this.world.root.add(J.pts);
     }
     const pos = J.pts.geometry.getAttribute('position') as THREE.BufferAttribute;
     if (this.jetting) {
       this.squirt = Math.max(0, this.squirt - dt / 6);
-      this.jetAcc += dt * 48;
+      this.jetAcc += dt * 120;
       const cp = Math.cos(this.pitch), fx = -Math.sin(this.yaw) * cp, fy = Math.sin(this.pitch), fz = -Math.cos(this.yaw) * cp;
       while (this.jetAcc >= 1) {
         this.jetAcc--;
-        const k = J.i++ % 48, r = () => (Math.random() - 0.5) * 0.7;
+        const k = J.i++ % JET_P, r = () => (Math.random() - 0.5) * 0.7;
         pos.setXYZ(k, this.pos.x + fx * 0.6 + Math.cos(this.yaw) * 0.18, this.pos.y + EYE - 0.2 + fy * 0.6, this.pos.z + fz * 0.6 - Math.sin(this.yaw) * 0.18);
         // converge en el punto que apunta la mira (a 9 m), con algo de arriba para compensar la caída
         const dx = this.pos.x + fx * 9 - pos.getX(k), dy = this.pos.y + EYE + fy * 9 - pos.getY(k), dz = this.pos.z + fz * 9 - pos.getZ(k), dl = Math.hypot(dx, dy, dz) || 1;
-        J.v[k * 3] = (dx / dl) * 11 + r();
-        J.v[k * 3 + 1] = (dy / dl) * 11 + r() * 0.6 + 2.2;
-        J.v[k * 3 + 2] = (dz / dl) * 11 + r();
-        J.life[k] = 0.55;
+        J.v[k * 3] = (dx / dl) * 15 + r();
+        J.v[k * 3 + 1] = (dy / dl) * 15 + r() * 0.6 + 2.6;
+        J.v[k * 3 + 2] = (dz / dl) * 15 + r();
+        J.life[k] = 0.7;
       }
       if ((this.jetT -= dt) <= 0) (this.jetT = 1 / 15), this.onSquirt?.(this.pos.x, this.pos.z, this.yaw);
     } else this.jetAcc = 0;
-    for (let k = 0; k < 48; k++) {
+    for (let k = 0; k < JET_P; k++) {
       if (J.life[k] <= 0) continue;
       if ((J.life[k] -= dt) <= 0) {
         pos.setY(k, -999);
@@ -719,21 +762,28 @@ export class Player {
   toggleLight() {
     if (this.left !== 'flashlight') return;
     if (this.charge <= 0) {
-      if (this.spares <= 0) return;
+      if (this.spares < 2) return; // (una de repuesto además de la que lleva)
       this.spares--;
       this.charge = 1;
       this.flashOn = true;
-    } else this.flashOn = !this.flashOn;
+      this.flickerT = 0;
+    } else {
+      this.flashOn = !this.flashOn;
+      // balance: cuanto menos pila, más probable que al encender parpadee en vez de dar luz del todo (de 0 % con pila llena hasta un 20 %)
+      this.flickerT = this.flashOn && Math.random() < FLICKER_MAX * (1 - this.charge) ? 0.5 + Math.random() * 0.5 : 0;
+    }
   }
 
   /** La linterna da luz: encendida y en la mano izquierda. */
   get lightOn() {
-    return this.flashOn && this.left === 'flashlight';
+    // durante el parpadeo la luz va y viene de forma irregular (y mientras está «apagada» tampoco delata ni ilumina)
+    const stutter = this.flickerT > 0 && Math.sin(this.flickerT * 47) * Math.sin(this.flickerT * 13 + 1) > 0.15;
+    return this.flashOn && this.left === 'flashlight' && !stutter;
   }
 
   /** Usar lo de la ranura `i` (si se tiene). */
   useHot(i: number) {
-    const d = this.hot[i] ? HOT[this.hot[i]!] : undefined;
+    const d = i < perks.stats.hot && this.hot[i] ? HOT[this.hot[i]!] : undefined;
     if (d?.have(this.own)) d.use(this);
     else this.empty();
   }
@@ -763,19 +813,19 @@ export class Player {
     if (this.hot.includes(id)) return;
     // una ranura vacía o con algo que ya no se lleva (soltado, gastado): si la barra se llena de huecos muertos, lo nuevo no se vería
     const own = this.own;
-    const free = this.hot.findIndex((h) => !h || !HOT[h]?.have(own));
+    const free = this.hot.findIndex((h, i) => i < perks.stats.hot && (!h || !HOT[h]?.have(own)));
     if (free >= 0) this.hot[free] = id;
   }
 
-  /** Beber una lata de Almond Water: vida y aguante llenos y media cordura. */
+  /** Beber una lata de Almond Water: devuelve un 40 % (vida, aguante y cordura). */
   drink() {
     if (this.water <= 0) return;
     this.drankAt = performance.now();
     this.water--;
-    this.stamina = 1;
-    this.hp = HP_MAX;
-    this.winded = false;
-    this.sanity = Math.min(1, this.sanity + 0.5);
+    this.stamina = Math.min(1, this.stamina + WATER_HEAL);
+    this.hp = Math.min(perks.stats.hp, this.hp + HP_MAX * WATER_HEAL * boostOf(perks, 'water')); // (la rareza de la lata cura más)
+    if (this.stamina > 0.3) this.winded = false;
+    this.sanity = Math.min(1, this.sanity + WATER_HEAL);
     if (this.water <= 0) this.prop = 'none';
     this.onDrink?.();
   }
@@ -783,6 +833,23 @@ export class Player {
   /** Cuánto lleva la lata en los labios (0–1; 0 si no se bebe). Tras el trago se queda llena un instante, para que la barra del HUD (10 Hz) llegue al final. */
   get drinking() {
     return this.drinkT > 0 ? Math.min(1, this.drinkT / DRINK_T) : performance.now() - this.drankAt < 250 ? 1 : 0;
+  }
+
+  /** Sacar una Monster (se bebe manteniendo 3 s; ver `monsterT`). */
+  equipMonster() {
+    if (this.monster <= 0) return;
+    this.hold('none');
+    this.gadget = 'none';
+    this.prop = 'monster';
+    if (!this.items.monster.children.length) {
+      const m = itemModel('monster');
+      if (m) this.items.monster.add(fit(m.clone(true), 0.2));
+    }
+  }
+  /** Usar la carta Uno Reverse: cambia de sitio con un compañero al azar (lo decide el servidor) y se gasta. */
+  useUno() {
+    if (!this.uno || !this.onUno) return;
+    this.onUno((ok) => ok && (this.uno = false));
   }
 
   /** Sacar la lata de Almond Water (se bebe manteniendo; ver `drinkT`). */
@@ -795,12 +862,12 @@ export class Player {
 
   /** Lo que se lleva, para HOT. */
   get own() {
-    return { water: this.water, totem: this.totem, radar: this.radar, camera: this.has.camera, gun: this.has.gun, caution: this.caution, watergun: this.poolGear.watergun };
+    return { water: this.water, monster: this.monster, uno: this.uno, totem: this.totem, radar: this.radar, camera: this.has.camera, gun: this.has.gun, caution: this.caution, watergun: this.poolGear.watergun };
   }
 
   /** Todo lo que lleva, como lo cuenta el servidor (el inventario que se conserva entre rondas). */
   get inventory(): Inventory {
-    return { spares: this.spares, water: this.water, totem: this.totem, ammo: this.ammo + this.spare, radar: this.radar, camera: this.has.camera, gun: this.has.gun, caution: this.caution, ...this.poolGear };
+    return { spares: this.spares, water: this.water, totem: this.totem, ammo: this.ammo + this.spare, radar: this.radar, camera: this.has.camera, gun: this.has.gun, caution: this.caution, uno: this.uno, monster: this.monster, ...this.poolGear };
   }
   /** Lo de las Poolrooms (traje de buzo, pistola de agua): aquí no se usa, pero se conserva para devolverlo al servidor. */
   private poolGear = { tank: false, watergun: false };
@@ -814,8 +881,13 @@ export class Player {
     this.poolGear = { tank: inv.tank, watergun: inv.watergun };
     if (!inv.watergun && this.hand === 'watergun') this.hold('none');
     this.spares = inv.spares;
+    if (inv.spares < 1) this.left = 'none';
+    else if (!had.spares && this.left === 'none') this.left = 'flashlight';
     this.water = inv.water;
     this.totem = inv.totem;
+    this.monster = inv.monster;
+    this.uno = inv.uno;
+    if (!inv.monster && this.prop === 'monster') this.prop = 'none';
     this.radar = inv.radar;
     this.caution = inv.caution;
     this.has.camera = inv.camera;
@@ -836,7 +908,7 @@ export class Player {
     if (!inv.caution && this.gadget === 'caution') this.gadget = 'none';
     if (!inv.totem && this.gadget === 'totem') this.gadget = 'none';
     for (const g of ['camera', 'gun'] as const) if (inv[g] && !had[g]) (this.stow(g), this.autoSlot(g));
-    for (const k of ['water', 'totem', 'radar', 'caution', 'watergun'] as const) if (inv[k] && !had[k]) this.autoSlot(k);
+    for (const k of ['water', 'totem', 'radar', 'caution', 'watergun', 'uno', 'monster'] as const) if (inv[k] && !had[k]) this.autoSlot(k);
   }
 
   /** Empezar la ronda con este inventario (el del servidor): nada de lo anterior, el cargador lleno. */
@@ -845,7 +917,9 @@ export class Player {
     this.hand = this.belt = 'none';
     this.gadget = 'none';
     this.has.camera = this.has.gun = this.radar = this.caution = false;
-    this.spares = this.water = this.totem = this.ammo = this.spare = 0;
+    this.spares = this.water = this.totem = this.ammo = this.spare = this.monster = 0;
+    this.uno = false;
+    this.buffT = this.monsterT = 0;
     this.apply(inv);
     const t = this.ammo + this.spare;
     this.ammo = Math.min(AMMO_PACK, t);
@@ -874,9 +948,8 @@ export class Player {
 
   /** Poner `it` en `slot` (o vaciarlo con 'none'): sale de donde estuviera; lo que había, al almacén. */
   place(slot: Slot, it: Gear | 'none') {
-    if (slot === 'left' && it === 'none') return false; // la linterna es de la mano secundaria y no se guarda
     if (it !== 'none') {
-      if (!FITS[slot].includes(it) || (it !== 'flashlight' && !this.has[it])) return false;
+      if (!FITS[slot].includes(it) || (it === 'flashlight' ? this.spares < 1 : !this.has[it])) return false;
       if (this.hand === it) this.hold('none');
       if (this.belt === it) this.belt = 'none';
       if (this.left === it) this.left = 'none';
@@ -889,6 +962,7 @@ export class Player {
 
   /** Lo recién cogido: a la mano si está libre, si no al cinturón, si no al almacén. */
   stow(it: 'camera' | 'gun') {
+    if (!perks.stats.hot) return; // sin barra rápida (mejora) no se saca nada: queda en la mochila
     if (this.hand === 'none') this.hold(it);
     else if (this.belt === 'none') this.belt = it;
   }

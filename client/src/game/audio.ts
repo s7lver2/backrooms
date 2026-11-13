@@ -6,6 +6,11 @@
  */
 import { settings } from '../settings';
 
+/** El audio vivo, para que la interfaz (React) pueda sonar sin tenerlo a mano: `sound('buy')`. */
+let live: GameAudio | undefined;
+type Cue = 'ui' | 'buy' | 'sell' | 'upgrade' | 'bag' | 'bagClose' | 'equip' | 'hurt' | 'denied';
+export const sound = (k: Cue) => live?.cue(k);
+
 export class GameAudio {
   readonly ctx: AudioContext;
   private out: GainNode;
@@ -27,7 +32,7 @@ export class GameAudio {
     this.muted = muted;
     this.shaper = c.createWaveShaper();
     this.out = c.createGain();
-    this.out.gain.value = 0.8;
+    this.out.gain.value = 1.1;
     this.master = c.createGain();
     this.master.gain.value = muted ? 0 : volume;
     this.amb = c.createGain();
@@ -35,12 +40,68 @@ export class GameAudio {
     this.amb.connect(this.shaper);
     this.sfx.connect(this.shaper);
     this.setMix();
-    this.shaper.connect(this.out);
+    // un compresor antes de la salida: se puede subir todo sin que varios sonidos a la vez saturen
+    const comp = c.createDynamicsCompressor();
+    comp.threshold.value = -16;
+    comp.knee.value = 12;
+    comp.ratio.value = 5;
+    comp.attack.value = 0.004;
+    comp.release.value = 0.2;
+    this.shaper.connect(comp);
+    comp.connect(this.out);
     this.out.connect(this.master);
     this.master.connect(c.destination);
     this.noise = c.createBuffer(1, c.sampleRate * 2, c.sampleRate);
     const d = this.noise.getChannelData(0);
     for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
+    live = this;
+    document.addEventListener('click', this.onClick, true);
+  }
+
+  /** Cualquier botón de la interfaz hace su clic (los del juego ya suenan por su cuenta: solo botones y casillas). */
+  private onClick = (e: MouseEvent) => {
+    if ((e.target as Element | null)?.closest?.('button, [role=button], [role=treeitem], .iv-slot, .iv-cell')) this.cue('ui');
+  };
+
+  /** Los sonidos de la interfaz y de los hechos del juego (compra, venta, mejora…). */
+  cue(k: Cue) {
+    switch (k) {
+      case 'ui':
+        this.burst(0.02, 0.35, 3200, 3, 'bandpass');
+        this.tone(1500, 0.05, 0.08, 'square', 0, 900);
+        break;
+      case 'buy': // una moneda que cae
+        this.tone(1568, 0.1, 0.16, 'triangle');
+        this.tone(2093, 0.4, 0.14, 'triangle', 0.07);
+        break;
+      case 'sell': // la caja registradora: el timbre y las monedas
+        this.burst(0.04, 0.5, 5000, 2, 'bandpass');
+        [0, 0.06, 0.12, 0.18].forEach((t, i) => this.tone([1318, 1568, 1976, 2637][i], 0.35, 0.14, 'triangle', t));
+        this.tone(3136, 0.8, 0.07, 'sine', 0.2);
+        break;
+      case 'upgrade': // un arpegio que sube
+        [0, 0.09, 0.18, 0.27].forEach((t, i) => (this.tone([392, 494, 587, 784][i], 0.5, 0.16, 'triangle', t), this.tone([392, 494, 587, 784][i] * 2, 0.5, 0.05, 'sine', t)));
+        break;
+      case 'bag': // la mochila que se abre: un roce de tela
+        this.burst(0.18, 0.3, 700, 1.1, 'bandpass');
+        this.burst(0.1, 0.2, 2200, 2, 'bandpass', 0.07);
+        break;
+      case 'bagClose':
+        this.burst(0.14, 0.25, 500, 1.1, 'bandpass');
+        break;
+      case 'equip': // un clac metálico
+        this.burst(0.03, 0.5, 1800, 4, 'bandpass');
+        this.tone(320, 0.08, 0.15, 'square', 0.02, 180);
+        break;
+      case 'hurt':
+        this.burst(0.3, 0.8, 320, 0.8, 'lowpass');
+        this.tone(150, 0.35, 0.5, 'sawtooth', 0, 55);
+        break;
+      case 'denied':
+        this.tone(160, 0.18, 0.25, 'square');
+        this.tone(120, 0.25, 0.25, 'square', 0.14);
+        break;
+    }
   }
 
   /** Quitar o devolver el volumen de todo el juego. */
@@ -57,8 +118,8 @@ export class GameAudio {
 
   /** Los volúmenes de efectos y ambiente de los ajustes. */
   setMix() {
-    this.sfx.gain.value = settings.sfx;
-    this.amb.gain.value = settings.ambient;
+    this.sfx.gain.value = settings.sfx * 2.6; // (antes todo sonaba muy bajo: el volumen de base sube y el compresor lo contiene)
+    this.amb.gain.value = settings.ambient * 2;
   }
 
   private loop(src: AudioScheduledSourceNode, ...chain: AudioNode[]) {
@@ -335,9 +396,11 @@ export class GameAudio {
     this.burst(0.012, 0.3, 4200, 4, 'bandpass');
     this.burst(0.015, 0.2, 2600, 4, 'bandpass', 0.06);
   }
-  pickup() {
+  /** Recoger algo; con rareza (1–4) suena además un campanilleo de tantas notas como rareza. */
+  pickup(rarity = 0) {
     this.burst(0.08, 0.15, 600, 1.5);
     this.tone(880, 0.06, 0.03, 'square', 0.05);
+    for (let i = 0; i < rarity; i++) this.tone(1046 * 1.25 ** i, 0.5, 0.1, 'sine', 0.1 + i * 0.08);
   }
   /** Un trozo del chorro de la pistola de agua (se llama a ~8 Hz mientras se dispara) y el glu-glu de la recarga. */
   squirt() {
@@ -404,6 +467,8 @@ export class GameAudio {
   }
 
   dispose() {
+    document.removeEventListener('click', this.onClick, true);
+    if (live === this) live = undefined;
     for (const n of this.nodes) {
       try {
         (n as AudioScheduledSourceNode).stop?.();

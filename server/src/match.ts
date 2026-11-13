@@ -1,6 +1,6 @@
 import {
   Breath, levelCaps, seesXZ, CELL, DIFFICULTY, HIT_DAMAGE, EntitySim, TV_REACH, centerOf, generateMaze, poolMaze, hideStates, itemSpots, solidAt, tickHides, totemSpot, tvPoint, tvSites, NOISE_RUN, NOISE_SHOT,
-  type Difficulty, type Inventory, type Look, type Mission, type HideState, type EntState, type ItemSpot, type Kind, type Maze, type Noise, type PlayerState, type SimTarget, type WorldSnapshot,
+  type Difficulty, type Inventory, type Ups, type Look, type Mission, type HideState, type EntState, type ItemSpot, type Kind, type Maze, type Noise, type PlayerState, type SimTarget, type WorldSnapshot,
 } from '@backrooms/shared';
 
 /*
@@ -40,6 +40,8 @@ export interface Player {
   /** Lo que conserva entre rondas (la tienda y lo que trajo del ascensor) y lo que puede llevar ahora (inicio + recogido - soltado): el tope de lo que declara al subir. */
   inv: Inventory;
   cap: Inventory;
+  /** Sus mejoras del árbol en esta sala (niveles comprados). */
+  ups: Ups;
   /** Ha subido vivo al ascensor: ya no juega (las entidades no lo ven) hasta que acabe la ronda. */
   boarded?: boolean;
   /** Cuándo soltó (o compró) algo por última vez (anti-spam). */
@@ -296,6 +298,11 @@ export class Match {
         occ.noise = p.noise;
       }
     }
+  }
+
+  /** La celda de un objeto del mapa que sigue ahí (de ella sale su rareza). */
+  cellOf(id: string) {
+    return this.taken.has(id) ? undefined : this.items.get(id)?.cell;
   }
 
   /** Recoger un objeto: el primero en llegar se lo lleva; hay que estar cerca de donde está. */

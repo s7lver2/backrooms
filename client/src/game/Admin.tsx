@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react';
-import { ACHIEVEMENTS, LEVELS, SHOP, type AdminAction, type AdminFx, type AdminInfo, type RoomView } from '@backrooms/shared';
+import { ACHIEVEMENTS, ENTITIES, ITEMS, ITEM_IDS, LEVELS, RARITIES, UPGRADES, UP_IDS, upLevel, type AdminAction, type AdminFx, type AdminInfo, type ItemId, type Kind, type RoomView } from '@backrooms/shared';
 import type { BackroomsGame } from './game';
 import type { Sock } from '../net';
 import { netStats } from '../net';
@@ -12,7 +12,14 @@ import './admin.css';
  * los del propio cliente (velocidad, salto, aguante y cordura infinitos, luz total...) se aplican aquí. Con la consola abierta el puntero
  * queda suelto y el juego no recibe teclas: se hace con una llave propia de Input (`block('admin')`), que lo que haga el juego con
  * `suspend` (inventario, ordenador, tótem...) no pisa ni deja colgada.
+ *
+ * Las listas salen de las tablas de shared, no de botones escritos a mano: las entidades de ENTITIES, los objetos de ITEMS (más el botín), las
+ * rarezas de RARITIES, las mejoras de UPGRADES, los niveles de LEVELS y los logros de ACHIEVEMENTS. Una entrada nueva en cualquiera de ellas
+ * aparece aquí sola (y el servidor la valida contra la misma tabla).
  */
+const name = (k: string) => k.replace(/([a-z])([A-Z])/g, '$1 $2').toUpperCase();
+/** Lo que se puede dar: todo ITEMS y una pieza de botín. */
+const GIVE: { id: ItemId | 'loot'; name: string }[] = [...ITEM_IDS.map((id) => ({ id, name: ITEMS[id].name })), { id: 'loot', name: 'ARTIFACT (LOOT)' }];
 interface Props {
   game: React.RefObject<BackroomsGame | undefined>;
   sock?: Sock;
@@ -56,6 +63,7 @@ export default function AdminConsole({ game, sock, room, me }: Props) {
   const [fx, setFx] = useState({ ao: false, smaa: false, sun: false });
   const [find, setFind] = useState('');
   const [count, setCount] = useState(1);
+  const [rar, setRar] = useState(-1); // la rareza de lo que se da (-1: al azar)
   useSyncExternalStore(errSubscribe, errVersion); // los errores de render que van saliendo (errlog.ts): el contador de la cabecera y del botón
   const inRoom = !!sock && !!room;
   const openRef = useRef(open);
@@ -202,7 +210,10 @@ export default function AdminConsole({ game, sock, room, me }: Props) {
     if (inRoom) send({ a: 'god', t: 'me', on });
   };
   const val = (k: 'speed' | 'jump' | 'slow', n: number) => (setTog({ ...tog, [k]: n }), g?.adminCheat(k, n));
-  const give = (id: (typeof SHOP)[number]['id']) => (inRoom ? send({ a: 'give', t, item: id }) : solo1({ item: id }));
+  const give = (id: ItemId | 'loot') => (inRoom ? send({ a: 'give', t, item: id, ...(rar >= 0 ? { r: rar } : {}) }) : id !== 'loot' && solo1({ item: id }));
+  const spawn = (kind: Kind) => Array.from({ length: count }).forEach(() => (inRoom ? send({ a: 'ent', op: 'spawn', kind, near: t === 'all' ? 'me' : t }) : solo1({ spawn: kind })));
+  // las mejoras del objetivo (las de ME cuando es ALL)
+  const ups = room?.players.find((p) => p.id === (one ? t : me))?.ups;
   const mine = t === 'me' || !inRoom;
   const nErr = errList().length;
   // los errores de render al portapapeles, con la sala y la GPU, para pegarlos tal cual (sin errores copia igualmente el contexto)
@@ -338,8 +349,9 @@ export default function AdminConsole({ game, sock, room, me }: Props) {
           <h3>SPAWN × {count}</h3>
           <Slider label="COUNT" v={count} min={1} max={8} step={1} set={setCount} />
           <div className="br-adm__row">
-            <B run={() => Array.from({ length: count }).forEach(() => (inRoom ? send({ a: 'ent', op: 'spawn', kind: 'bacteria', near: t === 'all' ? 'me' : t }) : solo1('spawn')))}>+ BACTERIA</B>
-            <B run={() => Array.from({ length: count }).forEach(() => (inRoom ? send({ a: 'ent', op: 'spawn', kind: 'partygoer', near: t === 'all' ? 'me' : t }) : solo1('spawn')))}>+ PARTYGOER</B>
+            {(Object.keys(ENTITIES) as Kind[]).map((k) => (
+              <B key={k} run={() => spawn(k)}>+ {name(k)}</B>
+            ))}
           </div>
           <div className="br-adm__row">
             <B run={() => (inRoom ? send({ a: 'ent', op: 'clear' }) : solo1('clear'))}>CLEAR ALL</B>
@@ -352,18 +364,43 @@ export default function AdminConsole({ game, sock, room, me }: Props) {
       {tab === 'ITEMS' && (
         <section>
           <h3>GIVE ITEM</h3>
+          {inRoom && (
+            <div className="br-adm__row">
+              <B on={rar < 0} run={() => setRar(-1)}>RANDOM</B>
+              {RARITIES.map((x, i) => (
+                <B key={x.name} on={rar === i} run={() => setRar(i)}>{x.name}</B>
+              ))}
+            </div>
+          )}
           <div className="br-adm__row">
-            <B run={() => SHOP.forEach((s) => give(s.id))}>GIVE ALL</B>
+            <B run={() => GIVE.forEach((s) => give(s.id))}>GIVE ALL</B>
           </div>
           <input className="br-adm__find" type="text" placeholder="FILTER…" value={find} onChange={(e) => setFind(e.target.value)} spellCheck={false} />
           <div className="br-adm__row">
-            {SHOP.filter((s) => s.name.toLowerCase().includes(find.trim().toLowerCase())).map((s) => (
+            {GIVE.filter((s) => (inRoom || s.id !== 'loot') && s.name.toLowerCase().includes(find.trim().toLowerCase())).map((s) => (
               <B key={s.id} run={() => give(s.id)}>{s.name}</B>
             ))}
           </div>
         </section>
       )}
 
+      {tab === 'ROOM' && inRoom && (
+        <section>
+          <h3>UPGRADES · {t === 'all' ? 'ALL' : one ? 'TARGET' : 'ME'}</h3>
+          <div className="br-adm__row">
+            {(['me', 'all', ...others.map((p) => p.id)] as string[]).map((id) => (
+              <B key={id} on={t === id} run={() => setT(id)}>{id === 'me' ? 'ME' : id === 'all' ? 'ALL' : (others.find((p) => p.id === id)?.name ?? '').slice(0, 12)}</B>
+            ))}
+          </div>
+          <div className="br-adm__row">
+            <B run={() => send({ a: 'ups', t, id: '*', lv: 99 })}>MAX ALL</B>
+            <B run={() => send({ a: 'ups', t, id: '*', lv: 0 })}>RESET ALL</B>
+          </div>
+          {UP_IDS.map((id) => (
+            <Slider key={id} label={UPGRADES[id].name} v={upLevel(ups, id)} min={0} max={UPGRADES[id].cost.length} step={1} set={(n) => send({ a: 'ups', t, id, lv: n })} fmt={(n) => UPGRADES[id].fmt(UPGRADES[id].val[n])} />
+          ))}
+        </section>
+      )}
       {tab === 'ROOM' && inRoom && (
         <section>
           <h3>MONEY · BANK ${room!.bank}</h3>

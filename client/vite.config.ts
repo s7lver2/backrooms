@@ -1,6 +1,6 @@
 import { defineConfig, type Plugin } from 'vite';
 import react from '@vitejs/plugin-react';
-import { existsSync, watch, writeFileSync } from 'node:fs';
+import { existsSync, readFileSync, watch, writeFileSync } from 'node:fs';
 import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
@@ -26,7 +26,15 @@ const gripsSaver = (): Plugin => ({
       req.on('end', () => {
         try {
           JSON.parse(body);
+          const data = JSON.parse(body) as Record<string, { slot: string }>;
           writeFileSync(fileURLToPath(new URL('./src/game/' + file, import.meta.url)), body);
+          if (file === 'pieces.json') {
+            // el slot de cada pieza (gorro/mochila) también va en COSMETICS: se mantiene igual para que el armario coincida
+            const p = fileURLToPath(new URL('../shared/src/progress.ts', import.meta.url));
+            let s = readFileSync(p, 'utf8');
+            for (const [id, v] of Object.entries(data)) s = s.replace(new RegExp(`slot: '(?:head|back)'(, id: '${id}')`), `slot: '${v.slot}'$1`);
+            writeFileSync(p, s);
+          }
           res.end('ok');
         } catch {
           res.statusCode = 400;

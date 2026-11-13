@@ -1,5 +1,5 @@
 import { useEffect, useState, type ReactNode } from 'react';
-import { DIFFICULTY, ROOM_NAME_MAX, type Difficulty, type RoomSettings, type RoomView } from '@backrooms/shared';
+import { DIFFICULTY, MAX_PLAYERS, ROOM_NAME_MAX, type Difficulty, type RoomSettings, type RoomView } from '@backrooms/shared';
 import type { Sock } from '../net';
 
 /*
@@ -41,7 +41,7 @@ export default function RoomSettingsPanel({ room, me, sock }: { room: RoomView; 
       </Setting>
       <Setting label="PLAYERS">
         {owner ? (
-          <button type="button" className="br-opt" onClick={() => set({ max: room.max >= 4 ? Math.max(2, room.players.length) : room.max + 1 })}>
+          <button type="button" className="br-opt" onClick={() => set({ max: room.max >= MAX_PLAYERS ? Math.max(2, room.players.length) : room.max + 1 })}>
             ◀ {room.max} ▶
           </button>
         ) : room.max}
@@ -61,13 +61,6 @@ export default function RoomSettingsPanel({ room, me, sock }: { room: RoomView; 
             }}
           />
         ) : room.fixedSeed || 'RANDOM'}
-      </Setting>
-      <Setting label="POOLROOMS">
-        {owner ? (
-          <button type="button" className="br-opt" onClick={() => set({ pools: !room.pools })}>
-            ◀ {room.pools ? 'ON' : 'OFF'} ▶
-          </button>
-        ) : room.pools ? 'ON' : 'OFF'}
       </Setting>
       <Setting label="DIFFICULTY">
         {owner ? (

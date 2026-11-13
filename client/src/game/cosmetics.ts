@@ -104,6 +104,10 @@ export class Cosmetics {
 
   /** Poner este aspecto (si no cambió, no hace nada). Los accesorios llegan cuando se descargan. */
   set(look: Look) {
+    // el hueso lo manda pieces.json (la herramienta /?grips cambia gorro ↔ mochila): se recolocan las dos piezas por su `slot`
+    const want = { head: '', back: '' };
+    for (const id of [look.head, look.back]) if (id && PIECES[id]) want[PIECES[id].slot] = id;
+    look = { ...look, ...want };
     const key = `${look.color}|${look.head}|${look.back}`;
     if (key === this.key) return;
     this.key = key;
@@ -118,7 +122,7 @@ export class Cosmetics {
       const id = look[slot], cur = this.items[slot];
       if (cur?.id === id) continue;
       if (cur) (cur.obj.removeFromParent(), delete this.items[slot]);
-      if (!id || !cosmetic(slot, id) || !PIECES[id]) continue;
+      if (!id || !PIECES[id]) continue;
       void model(id).then((src) => {
         if (!src || tok !== this.tok) return;
         // el modelo, a tamaño 1; el tamaño y los giros se aplican en cada update, para que retocarlos se vea al momento
