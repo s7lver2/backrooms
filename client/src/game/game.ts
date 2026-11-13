@@ -10,7 +10,7 @@ import { CELL, SUITE_L, generateMaze, suitesMaze, wrapX } from './maze';
 import { World, center, HEIGHT } from './world';
 import { FLASH } from './lightmap';
 import { Input, type Controls } from './input';
-import { Player, EYE, fit, CAM_AIM_SLOW } from './player';
+import { Player, EYE, fit, CAM_AIM_SLOW, WALK, RUN, JUMP } from './player';
 import { HOT } from './quickslots';
 import { EffectComposer } from 'three/examples/jsm/postprocessing/EffectComposer.js';
 import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js';
@@ -153,6 +153,7 @@ export interface Hud {
   hps: Record<string, number>;
   /** Bebiendo una lata de Almond Water: lo que lleva del trago (0–1; 0 si no). */
   drink: number;
+  drinkName: string;
   /** Recargando la pistola de agua en un bebedero (0–1; 0 si no). */
   refill: number;
   /** Escondido: el aire (0–1), si una entidad lo inspecciona (hay que mantener Space) y si lo contiene. */
@@ -954,7 +955,7 @@ export class BackroomsGame {
     if (pl && this.mp?.inv?.tank) inv.tank = true;
     const hidden = !!p && p.hideState !== 'out';
     const ms = this.mission, up = this.ascent;
-    return { mission: ms ? { kind: ms.kind, text: ms.text, line: missionLine(ms), progress: ms.progress, goal: ms.goal, done: ms.done } : null, ascent: up ? { boarded: !!this.mp && up.boarded.includes(this.mp.id), left: Math.max(0, up.left - (performance.now() - up.at) / 1000) } : null, act: hidden || this.run ? null : this.tvs?.hint ?? this.doorAct ?? pl?.act ?? null, totem: this.totemHud(), needClick: this.input.needClick, bag: this.bagOpen && !this.shopOpen, shop: this.bagOpen && this.shopOpen, note: this.gadgets?.note ?? null, hint: hidden || this.run || this.tvs?.hint ? null : this.gadgets?.hint ?? this.items?.hint ?? pl?.hint ?? null, hide: this.dying >= 0 || this.winning || this.spectating ? null : hidden ? (p!.hideState === 'hidden' ? 'leave' : null) : this.hideNear() ? 'hide' : null, breath: p?.concealed ? { air: this.breath.air, warn: this.inspected, held: this.holding } : null, drink: p?.dead ? 0 : p?.drinking ?? 0, refill: pl?.fill ?? 0, inv, aiming: !!p?.aiming, scoped: !!p?.scoped && !this.spectating, zoom: p?.zoom ?? 1, focus: !!this.items?.focus, tapes: this.items?.tapes ?? 0, photos: this.items?.photos ?? 0, ammo: p?.has.gun ? p.ammo : null, spare: p?.spare ?? 0, battery, time: this.t, hp: p?.hp ?? HP_MAX, hps: this.hps, spectating: this.spectating && !this.run ? (this.remotes.get(this.watching)?.name ?? '') : null, watchList: this.spectating && !this.run ? [...this.remotes.values()].map((r) => ({ name: r.name, on: r.id === this.watching && this.specView !== 'free', dead: r.dead })) : undefined, specView: this.spectating && !this.run ? this.specView : undefined };
+    return { mission: ms ? { kind: ms.kind, text: ms.text, line: missionLine(ms), progress: ms.progress, goal: ms.goal, done: ms.done } : null, ascent: up ? { boarded: !!this.mp && up.boarded.includes(this.mp.id), left: Math.max(0, up.left - (performance.now() - up.at) / 1000) } : null, act: hidden || this.run ? null : this.tvs?.hint ?? this.doorAct ?? pl?.act ?? null, totem: this.totemHud(), needClick: this.input.needClick, bag: this.bagOpen && !this.shopOpen, shop: this.bagOpen && this.shopOpen, note: this.gadgets?.note ?? null, hint: hidden || this.run || this.tvs?.hint ? null : this.gadgets?.hint ?? this.items?.hint ?? pl?.hint ?? null, hide: this.dying >= 0 || this.winning || this.spectating ? null : hidden ? (p!.hideState === 'hidden' ? 'leave' : null) : this.hideNear() ? 'hide' : null, breath: p?.concealed ? { air: this.breath.air, warn: this.inspected, held: this.holding } : null, drink: p?.dead ? 0 : p?.drinking || p?.drinkingMonster || p?.drinkingUno || 0, drinkName: p?.prop === 'monster' ? 'MONSTER' : p?.prop === 'uno' ? 'UNO REVERSE' : 'ALMOND WATER', refill: pl?.fill ?? 0, inv, aiming: !!p?.aiming, scoped: !!p?.scoped && !this.spectating, zoom: p?.zoom ?? 1, focus: !!this.items?.focus, tapes: this.items?.tapes ?? 0, photos: this.items?.photos ?? 0, ammo: p?.has.gun ? p.ammo : null, spare: p?.spare ?? 0, battery, time: this.t, hp: p?.hp ?? HP_MAX, hps: this.hps, spectating: this.spectating && !this.run ? (this.remotes.get(this.watching)?.name ?? '') : null, watchList: this.spectating && !this.run ? [...this.remotes.values()].map((r) => ({ name: r.name, on: r.id === this.watching && this.specView !== 'free', dead: r.dead })) : undefined, specView: this.spectating && !this.run ? this.specView : undefined };
   }
 
   /** Lo abierto que es el sitio: las celdas libres en 7 × 7 alrededor (0–1). */
@@ -1779,6 +1780,9 @@ export class BackroomsGame {
     // con la pestaña oculta o la ventana sin foco el navegador para los fotogramas: la sala sigue sabiendo dónde estoy
     const beat = setInterval(() => performance.now() - this.lastFrame > 150 && !this.spectating && this.sendState(), 1000 / 15);
     this.offNet.push(() => clearInterval(beat));
+    const onFx = (fx: AdminFx) => this.adminFx(fx); // (también los jugadores normales: la carta Uno Reverse los teletransporta)
+    s.on('adminFx', onFx);
+    this.offNet.push(() => s.off('adminFx', onFx));
     this.offNet.push(() => (s.off('room', onRoom), s.off('players', onPlayers), s.off('world', onWorld), s.off('dead', onDead), s.off('reviving', onReviving), s.off('revived', onRevived), s.off('runFailed', onRunFailed), removeEventListener('keydown', key)));
     if (items) (items.claim = (id, done) => s.emit('pickup', id, done)), (items.onPhoto = () => s.emit('photo'));
   }
@@ -1835,8 +1839,9 @@ export class BackroomsGame {
 
   /** El snapshot del servidor: las entidades (las nuevas se crean, las que faltan han muerto) y los objetos. */
   private applyWorld(w: WorldSnapshot) {
-    const world = this.world, mp = this.mp;
+    const world = this.world ?? this.poolWorld, mp = this.mp;
     if (!world || !mp) return;
+    const pl = this.pool instanceof PoolLevel ? this.pool : undefined;
     const here = new Set<number>(), now = performance.now(), t = w.t ?? now;
     // al volver de otra pestaña el reloj de interpolación y los estados guardados son de antes del parón (los paquetes llegan en
     // ráfaga): se parte de cero y las entidades se colocan ya donde dice el servidor (si no, se quedaban clavadas en las paredes)
@@ -1850,6 +1855,7 @@ export class BackroomsGame {
       if (!e) {
         e = new Entity(s.kind, world, this.assets!, world.cellAt(s.x, s.z), s.speed, s.hp, true);
         e.id = s.id;
+        if (pl) e.ground = (x, z) => pl.floorY(x, z);
         e.onHit = (id) => mp.sock.emit('hit', id);
         e.net(s, true, t);
         this.entMap.set(s.id, e);
@@ -2119,8 +2125,10 @@ export class BackroomsGame {
       if (c.bag) this.bagOpen ? this.closeBag() : pl instanceof PoolLevel && (pl.dead || this.winning) ? undefined : this.openBag();
       if (pl instanceof PoolLevel) c = this.poolMatch(pl, dt, c);
     }
+    if (pl instanceof PoolLevel && me) (pl.walkSp = WALK * perks.stats.speed * me.speedMul), (pl.runSp = RUN * perks.stats.speed * me.speedMul), (pl.jumpV = JUMP * me.jumpMul); // (las del Player: el mismo personaje en todos los niveles)
     pl.update(dt, me?.winded && c.run ? { ...c, run: false } : c); // sin aguante no se corre (el Player lo gasta en poolHands)
     this.poolHands(pl, dt, c);
+    if (pl instanceof PoolLevel && me) for (const e of this.entities) e.alive && e.update(dt, me.pos, pl.camera.position, null, false, true); // las entidades de la sala (el servidor las lleva)
     if (this.spectating) this.specCam(dt, c);
     // la cinta (líneas de barrido, croma) fuera del nivel: solo el grano de la película, que se mueve
     // (mirando por la cámara de fotos sí: el visor con la cinta, como en el nivel 0)
@@ -2162,9 +2170,11 @@ fps ${(1 / Math.max(dt, 1e-3)).toFixed(0)}`;
     pl.slowMul = (me.aiming ? CAM_AIM_SLOW : 1) * me.buffSpeed; // enfocar con la camcorder frena (igual que en el laberinto)
     // (la altura se suaviza: PoolLevel sube peldaños y flota con sacudidas que, pegadas a las manos, las hacían temblar)
     const ty = cam.position.y - EYE + me.duckLift;
-    this.handY = this.handY === undefined || Math.abs(this.handY - ty) > 0.5 ? ty : this.handY + (ty - this.handY) * Math.min(1, dt * 9);
-    me.pos.set(st.x, this.handY, st.z); // (la vista agachada ya la baja PoolLevel: se le suma lo que el Player baja la suya)
-    me.yaw = st.yaw;
+    this.handY = this.handY === undefined || Math.abs(this.handY - ty) > 0.5 ? ty : this.handY + (ty - this.handY) * (st.air ? 1 : Math.min(1, dt * 9)); // (en el aire sin suavizar: si no, los brazos iban por detrás de lo que llevan en la mano)
+    // muerto, el cuerpo se queda tumbado donde cayó (st sigue a la cámara del espectador: ver haunt)
+    const dp = pl.dead ? this.deathAt : undefined;
+    me.pos.set(dp?.x ?? st.x, dp ? dp.y : this.handY, dp?.z ?? st.z); // (la vista agachada ya la baja PoolLevel: se le suma lo que el Player baja la suya)
+    me.yaw = dp?.yaw ?? st.yaw;
     me.pitch = st.pitch;
     me.dead = pl.dead; // muerto: el Player tumba el cuerpo y esconde las manos
     // el salto lo hace PoolLevel (el Player lo ve en st.air); la barra rápida y la rueda las lleva poolMatch
@@ -2173,7 +2183,7 @@ fps ${(1 / Math.max(dt, 1e-3)).toFixed(0)}`;
     // (sin `look`: la mirada ya es la de PoolLevel; si el Player la sumara otra vez, las manos irían un fotograma por delante de la cámara)
     me.update(dt, { ...c, look: _none, jump: false, crouch: !!c.crouch && !st.swim && !pl.dead, aim: c.aim && cam_ok, zoom: cam_ok ? c.zoom : 0, slot: -1, wheel: 0, use: false, swap: false });
     if (!cam_ok && me.aiming) (me.aiming = false), (me.zoom = 1);
-    if (st.swim && !pl.dead) me.rig.root.visible = false; // nadando el cuerpo colgaba bajo la vista (se veía una copia del personaje andando en el fondo)
+    if (st.swim && !pl.dead) me.rig.root.visible = false;
     if (c.fire && cam_ok && me.hand === 'camera' && me.aiming && this.t - this.picAt > 0.8) {
       this.picAt = this.t;
       this.picSnap = true;
@@ -2236,6 +2246,7 @@ fps ${(1 / Math.max(dt, 1e-3)).toFixed(0)}`;
     p.spawnAt(ox, oz);
     // el controlador de siempre (manos con IK, linterna, barra rápida, inventario) solo como figura: PoolLevel pone la posición y la física, el Player pone lo que se ve
     const stub = { root: p.scene, solid: (x: number, z: number) => p.solidAt(x, z), furniture: () => false, voidAt: (x: number, z: number) => p.wetAt(x, z) } as unknown as World; // (la cinta de acordonar solo se tiende en seco)
+    this.poolWorld = { root: p.scene, cellAt: (x: number, z: number) => ({ x: Math.floor(x / CELL), y: Math.floor(z / CELL) }) } as unknown as World;
     const me = (this.player = new Player(stub, this.assets!, p.camera, this.flash, this.opts.reduced));
     me.poolMode = true;
     me.load(mp.inv ?? START_INV);
@@ -2292,6 +2303,8 @@ fps ${(1 / Math.max(dt, 1e-3)).toFixed(0)}`;
     this.renderer.setAnimationLoop(() => this.frame());
   }
   private poolTok = 0;
+  /** El «mundo» mínimo que piden las entidades dentro de las Poolrooms (donde pintarlas y en qué celda están). */
+  private poolWorld?: World;
   private deadAt = 0;
   /** Qué es cada objeto soltado (`d…`) que hay en el nivel: los ids no lo dicen. */
   private dropKind = new Map<string, string>();
@@ -2376,7 +2389,9 @@ fps ${(1 / Math.max(dt, 1e-3)).toFixed(0)}`;
   }
 
   /** El servidor me mata (admin, tótem...): sin mandos, la cámara cae y, pasado un rato, a mirar a los compañeros. */
+  private deathAt?: { x: number; y: number; z: number; yaw: number };
   private poolDied(p: PoolLevel) {
+    this.deathAt = { x: p.state.x, y: p.state.y, z: p.state.z, yaw: p.state.yaw };
     p.dead = true;
     p.gunOn = false;
     this.deadAt = this.t;
@@ -2402,6 +2417,10 @@ fps ${(1 / Math.max(dt, 1e-3)).toFixed(0)}`;
     const p = this.pool;
     if (!p) return;
     this.pool = undefined;
+    this.poolWorld = undefined;
+    this.entities.forEach((e) => e.dispose());
+    this.entities = [];
+    this.entMap.clear();
     this.gadgets?.dispose();
     this.gadgets = undefined;
     this.dropKind.clear();

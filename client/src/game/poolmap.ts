@@ -322,6 +322,8 @@ export class PoolLevel {
   private hemi: THREE.HemisphereLight;
   readonly sun = new THREE.DirectionalLight(0xfff1d2, 3.4);
   private lamps?: THREE.InstancedMesh;
+  /** Puntos de la ruta de los toboganes (cada ~0,4 m), para chocar con los tubos: [x, y, z]. Se saltan la boca y la salida, por donde se entra y se sale. */
+  private tubePts: [number, number, number][] = [];
   private tubes: { curve: THREE.Curve<THREE.Vector3>; len: number; x: number; z: number; s0: number }[] = [];
   private ride?: { curve: THREE.Curve<THREE.Vector3>; len: number; s: number; h?: number };
   private lampLvl: number[] = [];
@@ -863,6 +865,14 @@ export class PoolLevel {
         end.applyMatrix4(place(1, M, -1, tail)), end.frustumCulled = false;
         sc.add(end);
       }
+      {
+        const mouth = v[0], endP = tail.getPoint(1), n = Math.ceil(len / 0.4);
+        for (let q = 0; q <= n; q++) {
+          const p = whole.getPointAt(q / n);
+          if (Math.hypot(p.x - mouth.x, p.z - mouth.z) < 1.4 || Math.hypot(p.x - t.pts[0][0], p.z - t.pts[0][2]) < 1.4 || Math.hypot(p.x - endP.x, p.z - endP.z) < 1.8) continue;
+          this.tubePts.push([p.x, p.y, p.z]);
+        }
+      }
       this.tubes.push({ curve: whole, len, x: t.pts[0][0], z: t.pts[0][2], s0: t.back ? Math.hypot(t.pts[0][0] - t.back[0], t.pts[0][2] - t.back[2]) : 0 });
     });
 
@@ -1099,6 +1109,10 @@ export class PoolLevel {
   jetting = false;
   /** Multiplicador de velocidad que pone quien lleva las manos (game.poolHands): p. ej. enfocar con la camcorder. */
   slowMul = 1;
+  /** Andar, correr (m/s) y velocidad de salto: los pone Game.poolHands con los del Player, para que el personaje se mueva igual que en los demás niveles. */
+  walkSp = 2.8;
+  runSp = 5;
+  jumpV = 5;
   refilling = false;
   /** Cuánto lleva la recarga en curso (0–1; 0 si no se recarga): la barra del HUD. */
   get fill() {
@@ -1327,6 +1341,12 @@ export class PoolLevel {
     return i >= 0 && (!!this.map.water[i] || this.map.ya[i] > 0.5 || !!this.map.tun[i]);
   }
 
+  /** Altura del suelo en (x, z) (para las entidades). */
+  floorY(x: number, z: number) {
+    const i = this.idx(x, z);
+    return i < 0 ? 0 : this.ground(i, x, z);
+  }
+
   spawnAt(dx: number, dz: number) {
     this.px += dx;
     this.pz += dz;
@@ -1381,6 +1401,10 @@ export class PoolLevel {
       if (was && (lat(x, z) > C / 2 - R - 0.04 || fwd(x, z) < -C / 2 + R + 0.04 || (fwd(x, z) > C / 2 - R && (!this.cab.isOpen || lat(x, z) > 0.3)))) return false; // dentro: las tres paredes y las jambas
       if (now) return true; // (la cabina está en una celda de pared: lo de abajo la daría por maciza)
     }
+    for (const [tx, ty, tz] of this.tubePts) { // los tubos (cilindros de radio COIL.r): no se atraviesan; quien ya está dentro de uno se puede apartar
+      const d = Math.hypot(tx - x, tz - z);
+      if (d < COIL.r + R && py < ty + COIL.r && py + 1.7 > ty - COIL.r && d < Math.hypot(tx - this.px, tz - this.pz)) return false;
+    }
     for (const r of this.refillAt) {
       const d = Math.hypot(r.x - x, r.z - z);
       if (d < R + 0.3 && Math.abs(r.y - py) < 1.2 && d < Math.hypot(r.x - this.px, r.z - this.pz)) return false; // el pedestal del bebedero
@@ -1401,7 +1425,7 @@ export class PoolLevel {
       if (swim) {
         if (!w && g - py > 0.9) return false; // salir del agua a la cubierta: hasta 0,9 m
         if (w && py < g - (!f.layer && m.ramp[i] === PR.stairs ? 0.3 : 0.01)) return false; // en la escalera, un peldaño (0,22 m) no es una pared
-      } else if (g - py > POOL_STEP) return false; // no se sube un escalón de más de 1 m (los peldaños son de 0,19)
+      } else if (g - py > (f.layer !== this.lay ? 0.3 : POOL_STEP)) return false; // (a otra planta solo se pasa a ras de ella: en lo alto de la escalera; antes, en las escaleras el suelo alto a 1 m contaba y se atravesaban sus paredes) // no se sube un escalón de más de 1 m (los peldaños son de 0,19)
     }
     // un tobogán solo se pisa desde la torre o desde otro tramo de tobogán (cuenta la celda del centro, no las esquinas)
     const ci = this.idx(x, z);
@@ -1478,9 +1502,10 @@ export class PoolLevel {
       mz = sz * 5.2 * dt + (sz === 0 ? (cj - this.pz) * Math.min(1, dt * 6) : 0);
       (this.fx = sx * 4.5), (this.fz = sz * 4.5);
     } else {
-      const sp = (c.run ? 5 : 2.8) * (c.crouch ? 0.5 : 1) * (i0 >= 0 && this.wat(i0) ? 0.7 : 1);
-      mx = (fwd.x * c.move.y + right.x * c.move.x) * sp * dt + this.fx * dt;
-      mz = (fwd.z * c.move.y + right.z * c.move.x) * sp * dt + this.fz * dt;
+      const sp = (c.run ? this.runSp : this.walkSp) * (c.crouch && !c.run ? 0.5 : 1) * (i0 >= 0 && this.wat(i0) ? 0.7 : 1); // (como el Player: correr manda sobre agacharse)
+      const dx = fwd.x * c.move.y + right.x * c.move.x, dz = fwd.z * c.move.y + right.z * c.move.x, dl = Math.hypot(dx, dz), dk = dl > 0 ? Math.min(1, c.move.length()) / dl : 0; // (sin ir más rápido en diagonal)
+      mx = dx * dk * sp * dt + this.fx * dt;
+      mz = dz * dk * sp * dt + this.fz * dt;
       const k = Math.max(0, 1 - dt * 2.2); // el impulso del tobogán se apaga
       (this.fx *= k), (this.fz *= k);
     }
@@ -1511,8 +1536,8 @@ export class PoolLevel {
         }
       } else {
         const g = f1 ? f1.y : this.py;
-        this.vy -= 14 * dt;
-        if (c.jump && this.py <= g + 0.05 && !slide) this.vy = 5;
+        this.vy -= 9.8 * dt;
+        if (c.jump && this.py <= g + 0.05 && !slide && !(i0 >= 0 && m.ramp[i0] !== PR.none)) this.vy = this.jumpV; // (no se salta en escaleras ni rampas: en el aire el suelo de la otra planta contaba y se atravesaban las paredes)
         this.py += this.vy * dt;
         if (this.py <= g) {
           // en el suelo: sube los peldaños con suavidad, baja de golpe si el desnivel es grande
@@ -1536,7 +1561,7 @@ export class PoolLevel {
     // la cámara: a la altura de los ojos (más baja al nadar), con transición suave
     this.deadK = Math.min(1, Math.max(0, this.deadK + (this.dead ? dt : -dt * 2) * 1.5)); // muerto: la cámara cae al suelo y se ladea
     this.jam = Math.max(0, this.jam - dt * 1000);
-    const wantEye = (this.ride ? 0.55 : this.swim ? EYE_SWIM : c.crouch ? EYE - 0.6 : EYE) * (1 - 0.8 * this.deadK);
+    const wantEye = (this.ride ? 0.55 : this.swim ? EYE_SWIM : c.crouch && !c.run ? EYE - 0.6 : EYE) * (1 - 0.8 * this.deadK);
     this.eye += (wantEye - this.eye) * Math.min(1, dt * 8);
     this.camera.position.set(this.px, this.py + this.eye, this.pz);
     this.camera.rotation.set(this.pitch, this.yaw, 0, 'YXZ');

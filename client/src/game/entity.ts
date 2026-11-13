@@ -33,6 +33,8 @@ export class Entity implements Target {
   readonly hp0: number;
   // en una sala
   id = -1;
+  /** Altura del suelo en (x, z), si no es plano (las Poolrooms). */
+  ground?: (x: number, z: number) => number;
   onHit?: (id: number) => void;
   private goal = new THREE.Vector3();
   private goalYaw = 0;
@@ -103,6 +105,7 @@ export class Entity implements Target {
         if (a && this.state === 'chase') a.timeScale = this.speed;
       }
     } else this.follow(dt);
+    if (this.ground) this.pos.y = this.ground(this.pos.x, this.pos.z);
     this.rig.root.position.copy(this.pos);
     this.rig.root.rotation.y = this.facing;
     this.rig.update(dt);

@@ -123,6 +123,8 @@ export class Match {
 
   /** Nivel sin entidades (las Poolrooms, mientras no tengan sus propias). */
   private noEnts: boolean;
+  /** El mapa por el que andan las entidades (en las Poolrooms, sin la planta alta). */
+  private emaze?: Maze;
 
   constructor(readonly seed: number, difficulty: Difficulty = 'normal', players = 1, levelId = 'level0', floor = 1) {
     this.speed = DIFFICULTY[difficulty].speed;
@@ -141,6 +143,12 @@ export class Match {
     }
     // al empezar, entidades según la dificultad (alternando bacteria y partygoer), en los arranques más lejanos
     const m = this.maze;
+    if (caps.pool) {
+      // Poolrooms: una sola entidad, al azar (según la semilla), y solo por la planta baja (la alta no se pisa desde el suelo)
+      const lay = m.lay;
+      if (lay) this.emaze = { ...m, open: m.open.map((v, i) => (v && !lay[i] ? 1 : 0)) as unknown as Uint8Array };
+      this.spawn(((seed >>> 3) & 1 ? 'partygoer' : 'bacteria') as Kind, m.spawns[0]);
+    }
     if (!this.noEnts) for (let i = 0; i < D.ents; i++) this.spawn(i % 2 ? 'partygoer' : 'bacteria', m.spawns[i] ?? m.spawns[i % Math.max(1, m.spawns.length)] ?? m.spawns[0]);
   }
 
@@ -181,7 +189,7 @@ export class Match {
   }
 
   private spawn(kind: Kind, at: { x: number; y: number }, speed = 1, hp = 1) {
-    const m = this.maze;
+    const m = this.emaze ?? this.maze;
     this.ents.push({ id: this.nextId++, sim: new EntitySim(kind, m, (x, z) => solidAt(m, x, z), at, speed * this.speed, hp, true) });
   }
 

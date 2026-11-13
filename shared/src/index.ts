@@ -111,9 +111,9 @@ export type Difficulty = 'easy' | 'normal' | 'hard';
  * cuántas entidades hay al empezar, qué parte de las latas, linternas y rifles extra del mapa queda (loot) y cuánto paga cada misión (money).
  */
 export const DIFFICULTY: Record<Difficulty, { speed: number; grace: number; life: number; ents: number; loot: number; money: number }> = {
-  easy: { speed: 0.85, grace: 16, life: 84, ents: 1, loot: 1, money: 0.75 },
-  normal: { speed: 1, grace: 10, life: 54, ents: 2, loot: 0.8, money: 1 },
-  hard: { speed: 1.05, grace: 6, life: 36, ents: 3, loot: 0.5, money: 1.5 },
+  easy: { speed: 0.75, grace: 16, life: 84, ents: 1, loot: 1, money: 0.75 },
+  normal: { speed: 0.88, grace: 10, life: 54, ents: 2, loot: 0.8, money: 1 },
+  hard: { speed: 0.95, grace: 6, life: 36, ents: 3, loot: 0.5, money: 1.5 },
 };
 export const ROOM_NAME_MAX = 20;
 /** Lo que el propietario puede cambiar de la sala (en el lobby). */

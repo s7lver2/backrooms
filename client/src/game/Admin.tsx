@@ -102,13 +102,6 @@ export default function AdminConsole({ game, sock, room, me }: Props) {
     e.preventDefault();
   };
 
-  // los efectos que manda el servidor a este jugador (teletransporte, objeto, curación)
-  useEffect(() => {
-    if (!sock) return;
-    const on = (fx: AdminFx) => game.current?.adminFx(fx);
-    sock.on('adminFx', on);
-    return () => void sock.off('adminFx', on);
-  }, [sock, game]);
 
   const toggle = useCallback(
     (on: boolean) => {

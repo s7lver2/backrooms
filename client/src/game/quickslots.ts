@@ -103,9 +103,9 @@ export const HOT: Record<string, HotDef> = {
     name: 'UNO REVERSE',
     icon: 'uno',
     have: (o) => !!o.uno,
-    use: (p) => p.useUno(),
-    held: () => false,
-    info: 'Swap places with a random teammate. One use: the card is gone after.',
+    use: (p) => p.equipUno(),
+    held: (p) => p.prop === 'uno',
+    info: 'Take it in hand and hold the key (or the left click) to play it: you swap places with a random teammate. One use: the card is gone after.',
   },
   monster: {
     name: 'MONSTER',
@@ -123,6 +123,6 @@ export const HOT: Record<string, HotDef> = {
     count: (o) => o.water,
     use: (p) => p.equipWater(),
     held: (p) => p.prop === 'water',
-    info: 'Take it in hand, then hold the key (or the left click) briefly to drink. Restores 40% health, stamina and sanity.',
+    info: 'Take it in hand and press the key (or the left click) to drink it at once. Restores 40% health, stamina and sanity.',
   },
 };

@@ -43,7 +43,8 @@ const REACH_T = 0.85; // lo que dura recoger algo, en segundos
 const DRINK_T = 0.05; // lo que se mantiene la lata para beberla (s): antes 0,5; ahora casi instantáneo (>0 para no dividir por cero en la barra)
 /** Balance: enfocar con la camcorder (mirar por el visor) frena un 8 %. */
 export const CAM_AIM_SLOW = 0.92;
-const WALK = 1.7, RUN = 3.85, JUMP = Math.sqrt(2 * 9.8 * 0.9), G = 9.8, R = 0.3;
+const UNO_T = 1.2; // s manteniendo la carta
+export const WALK = 1.7, RUN = 3.85, JUMP = Math.sqrt(2 * 9.8 * 0.9), G = 9.8, R = 0.3;
 
 /** Un modelo escalado para que su lado mayor mida `size`, centrado en el origen y girado `ry`. */
 export function fit(o: THREE.Object3D, size: number, ry = 0) {
@@ -70,7 +71,7 @@ export class Player {
   /** Lo que se lleva en la mano sin ser camcorder ni rifle (cinta de acordonar, radar); con uno de ellos la mano derecha queda libre. */
   gadget: 'none' | 'caution' | 'radar' | 'totem' = 'none';
   /** Un objeto suelto en la mano derecha, sin función de juego (lo usa Anim Studio para colocar su agarre). */
-  prop: 'none' | 'water' | 'monster' | 'soap' | 'tape' | 'ammo' = 'none';
+  prop: 'none' | 'water' | 'monster' | 'uno' | 'soap' | 'tape' | 'ammo' = 'none';
   left: 'none' | 'flashlight' = 'none'; // la linterna es una del inventario (inv.spares): la mano la lleva si se equipa (y la primera que se tiene se equipa sola)
   belt: 'none' | 'camera' | 'gun' = 'none';
   readonly has = { camera: false, gun: false };
@@ -140,7 +141,7 @@ export class Player {
   onFall?: () => void;
   readonly rig: Rig;
   /** Lo que va en las manos, pegado a la cámara: la linterna a la izquierda y la cámara o la pistola a la derecha. */
-  readonly items = { flashlight: new THREE.Group(), camera: new THREE.Group(), gun: new THREE.Group(), caution: new THREE.Group(), radar: new THREE.Group(), totem: new THREE.Group(), watergun: new THREE.Group(), water: new THREE.Group(), monster: new THREE.Group(), soap: new THREE.Group(), tape: new THREE.Group(), ammo: new THREE.Group() };
+  readonly items = { flashlight: new THREE.Group(), camera: new THREE.Group(), gun: new THREE.Group(), caution: new THREE.Group(), radar: new THREE.Group(), totem: new THREE.Group(), watergun: new THREE.Group(), water: new THREE.Group(), monster: new THREE.Group(), uno: new THREE.Group(), soap: new THREE.Group(), tape: new THREE.Group(), ammo: new THREE.Group() };
   speed = 0;
   /** Agachado (C o Ctrl): ojos más bajos, mitad de velocidad, sin correr; las entidades te ven de menos lejos. `duckK` es la transición (0–1). */
   duck = false;
@@ -160,6 +161,7 @@ export class Player {
   /** Monster: latas, segundos bebiendo la actual, segundos que le quedan al efecto, y la carta Uno Reverse. */
   monster = 0;
   private monsterT = 0;
+  private unoT = 0;
   buffT = 0;
   uno = false;
   onMonster?: () => void;
@@ -175,6 +177,10 @@ export class Player {
   /** Lo que lleva bebido de la Monster (0–1). */
   get drinkingMonster() {
     return this.monsterT > 0 ? Math.min(1, this.monsterT / MONSTER.drink) : 0;
+  }
+  /** Lo que lleva jugada la carta Uno Reverse (0–1). */
+  get drinkingUno() {
+    return this.unoT > 0 ? Math.min(1, this.unoT / UNO_T) : 0;
   }
   private drankAt = -1e9;
   /** En la sala de espera no se bebe (el servidor solo da vida en una ronda). */
@@ -239,7 +245,7 @@ export class Player {
     this.items.ammo.add(new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.06, 0.06), new THREE.MeshStandardMaterial({ color: 0xb08d3a, roughness: 0.5, metalness: 0.5 })));
     this.placeItems(0);
     for (const it of Object.values(this.items)) camera.add(it);
-    for (const k of ['camera', 'gun', 'caution', 'radar', 'totem', 'watergun', 'water', 'monster', 'soap', 'tape', 'ammo'] as const) this.items[k].visible = false;
+    for (const k of ['camera', 'gun', 'caution', 'radar', 'totem', 'watergun', 'water', 'monster', 'uno', 'soap', 'tape', 'ammo'] as const) this.items[k].visible = false;
     // la pose de referencia: el primer fotograma de Neutral Idle. Con algo en las manos el torso y los dos brazos (hombros, brazos, manos y dedos)
     // vuelven a ella cada fotograma, después del mezclador: los hombros no se mueven con el paso, y el IK parte siempre del mismo sitio y no
     // hereda el giro del antebrazo del clip (que daba un salto en cada vuelta del ciclo de andar o correr)
@@ -336,8 +342,13 @@ export class Player {
     // la lata en la mano: mantener su tecla (o X, o el clic) medio segundo para beberla; soltar y volver a mantener para otra
     const wi = this.hot.indexOf('water');
     const held = !this.drinkOff && this.prop === 'water' && this.water > 0 && ((wi >= 0 && c.slotHeld === wi) || !!c.useHeld || !!c.fireHeld);
-    this.drinkT = held ? this.drinkT + dt : 0;
-    if (this.drinkT >= DRINK_T) (this.drinkT = -1e9), this.drink();
+    if (held && this.drinkT === 0) (this.drinkT = -1e9), this.drink(); // (al instante; para otra lata, soltar y volver a pulsar)
+    else if (!held) this.drinkT = 0;
+    // la carta Uno Reverse en la mano: se juega al mantener (como el agua lo hacía), para que no se gaste sin querer
+    const ui = this.hot.indexOf('uno');
+    const playing = this.prop === 'uno' && this.uno && ((ui >= 0 && c.slotHeld === ui) || !!c.useHeld || !!c.fireHeld);
+    this.unoT = playing ? this.unoT + dt : 0;
+    if (this.unoT >= UNO_T) (this.unoT = -1e9), this.useUno();
     // la Monster: mantener 3 s; después 5 s de velocidad y aguante sin límite
     const mi = this.hot.indexOf('monster');
     const sip = !this.drinkOff && this.prop === 'monster' && this.monster > 0 && this.buffT <= 0 && ((mi >= 0 && c.slotHeld === mi) || !!c.useHeld || !!c.fireHeld);
@@ -369,8 +380,8 @@ export class Player {
     const v = f.multiplyScalar(c.move.y).add(r.multiplyScalar(c.move.x));
     if (v.lengthSq() > 0) v.normalize().multiplyScalar(speed * dt);
     // el borde de un pozo es un muro mientras se pisa suelo (se desliza por él, como por las paredes): sin ese colisionador, una pasarela de 0,75 m
-    // se pierde con cualquier giro de ratón. Se cae saltando; quien ya está dentro del borde (aterrizó de un salto) no se frena. Los mundos falsos no tienen pitAt.
-    const edge = (x: number, z: number) => this.ground && !this.falling && !!this.world.pitAt?.(x, z) && !this.world.pitAt(this.pos.x, this.pos.z);
+    // se pierde con cualquier giro de ratón. Ya no se cae saltando (saltar y agacharse sin parar acababa en el pozo); quien ya está dentro del borde no se frena. Los mundos falsos no tienen pitAt.
+    const edge = (x: number, z: number) => !this.falling && !!this.world.pitAt?.(x, z) && !this.world.pitAt(this.pos.x, this.pos.z);
     if (this.noclip || !(this.blocked(this.pos.x + v.x, this.pos.z) || edge(this.pos.x + v.x, this.pos.z))) this.pos.x += v.x;
     if (this.noclip || !(this.blocked(this.pos.x, this.pos.z + v.z) || edge(this.pos.x, this.pos.z + v.z))) this.pos.z += v.z;
     if (this.poolMode && this.ext) speed = this.ext.speed; // (Poolrooms: la velocidad real de PoolLevel, para que el Animator case los pasos)
@@ -500,13 +511,13 @@ export class Player {
       if (!rk && g.right) grip('Right', it, g.right);
       if (two && !rk && g.left) grip('Left', it, g.left);
     }
-    for (const k of ['caution', 'radar', 'totem', 'water', 'monster', 'soap', 'tape', 'ammo'] as const) this.items[k].visible = false;
+    for (const k of ['caution', 'radar', 'totem', 'water', 'monster', 'uno', 'soap', 'tape', 'ammo'] as const) this.items[k].visible = false;
     if (this.prop === 'soap' && !this.items.soap.children.length) {
       const m = poolPart('soap');
       if (m) this.items.soap.add(fit(m.clone(true), 0.2));
       else void loadPoolKit();
     }
-    const pg = this.prop !== 'none' && this.hand === 'none' && this.gadget === 'none' && hk < 0.3 && !this.aiming ? grips[this.prop === 'monster' ? 'water' : this.prop] : undefined;
+    const pg = this.prop !== 'none' && this.hand === 'none' && this.gadget === 'none' && hk < 0.3 && !this.aiming ? grips[this.prop === 'monster' || this.prop === 'uno' ? 'water' : this.prop] : undefined;
     if (pg) {
       // un objeto suelto en la mano (lata, jabón, cinta VHS, balas)
       const it = this.items[this.prop as 'water'];
@@ -856,7 +867,18 @@ export class Player {
   /** Usar la carta Uno Reverse: cambia de sitio con un compañero al azar (lo decide el servidor) y se gasta. */
   useUno() {
     if (!this.uno || !this.onUno) return;
-    this.onUno((ok) => ok && (this.uno = false));
+    this.onUno((ok) => ok && ((this.uno = false), this.prop === 'uno' && (this.prop = 'none')));
+  }
+  /** Sacar la carta Uno Reverse (se juega manteniendo; ver `unoT`). */
+  equipUno() {
+    if (!this.uno) return;
+    this.hold('none');
+    this.gadget = 'none';
+    this.prop = 'uno';
+    if (!this.items.uno.children.length) {
+      const m = itemModel('uno');
+      if (m) this.items.uno.add(fit(m.clone(true), 0.2));
+    }
   }
 
   /** Sacar la lata de Almond Water (se bebe manteniendo; ver `drinkT`). */
@@ -895,6 +917,7 @@ export class Player {
     this.monster = inv.monster;
     this.uno = inv.uno;
     if (!inv.monster && this.prop === 'monster') this.prop = 'none';
+    if (!inv.uno && this.prop === 'uno') this.prop = 'none';
     this.radar = inv.radar;
     this.caution = inv.caution;
     this.has.camera = inv.camera;
@@ -926,7 +949,7 @@ export class Player {
     this.has.camera = this.has.gun = this.radar = this.caution = false;
     this.spares = this.water = this.totem = this.ammo = this.spare = this.monster = 0;
     this.uno = false;
-    this.buffT = this.monsterT = 0;
+    this.buffT = this.monsterT = this.unoT = 0;
     this.apply(inv);
     const t = this.ammo + this.spare;
     this.ammo = Math.min(AMMO_PACK, t);

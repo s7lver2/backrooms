@@ -1048,7 +1048,7 @@ export default function Backrooms({ onQuit, onWin }: { onQuit: () => void; onWin
       )}
       {screen === 'play' && hud && hud.drink > 0 && !hud.bag && hud.spectating == null && (
         <div className="br-drink" role="status" aria-label={`Drinking ${Math.round(hud.drink * 100)}%`}>
-          <p>ALMOND WATER</p>
+          <p>{hud.drinkName}</p>
           <div className="br-breath__bar">
             <i style={{ width: `${Math.round(hud.drink * 100)}%` }} />
           </div>

@@ -1341,42 +1341,17 @@ export class World {
     const exits = maze.props.filter((p) => p.kind === 'exit'), e = exits.find((p) => p.cell.x === maze.elevator.x && p.cell.y === maze.elevator.y) ?? exits[0];
     const [ox, oy] = DIRS[e.rot] ?? DIRS[0];
     this.elevatorFront = new THREE.Vector3(ox, 0, oy);
-    const el = assets.gltf.elevator.scene.clone(true);
-    el.getObjectByName('Null_1')?.removeFromParent();
-    for (const n of ['R', 'L']) el.getObjectByName(n)?.removeFromParent(); // del modelo solo queda el marco: las hojas son las de la cabina
-    let bb = new THREE.Box3().setFromObject(el);
-    // la puerta a escala de una persona (1,8 m de alto, ojos a 1,62): unos 2,15 m de hueco, y que quepa en la celda
-    // el ancho lo limita la celda (1,5 m): llena casi todo; la altura se estira hasta 2,45 m (hasta 1,35× lo proporcional)
-    const kx = (CELL * 0.97) / (bb.max.x - bb.min.x), ky = Math.min(2.45 / bb.max.y, kx * 1.35);
-    el.scale.set(Math.min(kx, ky), ky, Math.min(kx, ky));
-    bb = new THREE.Box3().setFromObject(el);
-    const mid = bb.getCenter(new THREE.Vector3());
-    const holder = new THREE.Group();
-    el.position.set(-mid.x, 0, -bb.max.z); // la cara de las puertas en la boca, el resto hacia dentro
-    holder.add(el);
-    const ec = center(maze.elevator);
+    // la cabina nueva (el prefab de elevator.ts, la misma que en las Poolrooms) llena la celda; su puerta queda a ras de la boca; cerrada hasta cumplir la misión
+    const holder = new THREE.Group(), ec = center(maze.elevator);
     holder.position.set(ec.x + ox * (CELL / 2), 0, ec.z + oy * (CELL / 2));
     holder.rotation.y = Math.atan2(ox, oy); // +z local hacia el lado abierto
     this.root.add(holder);
-    // el marco: pared a los dos lados de las puertas y encima, hasta llenar la boca
-    const dw = bb.max.x - bb.min.x, dh = bb.max.y, side = (CELL - dw) / 2;
-    const slab = (wd: number, ht: number, x: number, y: number) => {
-      if (wd <= 0.01 || ht <= 0.01) return;
-      const s = new THREE.Mesh(new THREE.BoxGeometry(wd, ht, 0.12), wallMat);
-      s.position.set(x, y, -0.06);
-      holder.add(s);
-    };
-    slab(side, HEIGHT, -(dw + side) / 2, HEIGHT / 2);
-    slab(side, HEIGHT, (dw + side) / 2, HEIGHT / 2);
-    slab(dw, HEIGHT - dh, 0, (HEIGHT + dh) / 2);
-    // la cabina (el prefab de elevator.ts) ocupa la celda, detrás del marco del modelo; cerrada hasta cumplir la misión
-    this.cab = new ElevatorCab(CELL - 0.04, CELL - 0.14, HEIGHT - 0.04, 0, true);
-    this.cab.group.position.z = -0.1;
+    this.cab = new ElevatorCab(CELL, CELL - 0.04, HEIGHT - 0.04, 0, true);
     holder.add(this.cab.group);
     this.elevator = holder;
     const sign = assets.gltf.exit.scene.clone(true);
     sign.scale.setScalar(2.2);
-    sign.position.set(0, Math.min(HEIGHT - 0.4, bb.max.y + 0.08), 0.02);
+    sign.position.set(0, 2.45, 0.02);
     holder.add(sign);
     // los ascensores de adorno (el mismo marco y puertas cerradas, sin luz): el pasillo de las Suites se repite y no puede haber uno solo
     for (const d of exits) {

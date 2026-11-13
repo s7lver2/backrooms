@@ -177,7 +177,7 @@ function leave(id: string) {
 function checkOver(r: RoomState) {
   if (r.phase !== 'playing') return;
   const grace = !!r.boardAt && Date.now() - r.boardAt >= ASCENT_GRACE * 1000;
-  if (!grace && [...r.players.values()].some((p) => !p.dead && !p.boarded)) return;
+  if (!grace && [...r.players.values()].some((p) => (!p.dead && !p.boarded) || p.reviving)) return; // (quien corre «Run for your life» aún puede volver)
   finish(r);
 }
 
@@ -372,8 +372,8 @@ function revive(r: RoomState, p: Player, at: PlayerState) {
   p.seen = false;
   p.reviving = undefined;
   p.immuneUntil = Date.now() + REVIVE_IMMUNE;
-  p.st = { ...START, x: at.x + o[0], y: 0, z: at.z + o[1], yaw: at.yaw };
-  io.to(r.code).emit('revived', { id: p.id, name: p.name, x: p.st.x, y: 0, z: p.st.z, yaw: p.st.yaw });
+  p.st = { ...START, x: at.x + o[0], y: at.y, z: at.z + o[1], yaw: at.yaw };
+  io.to(r.code).emit('revived', { id: p.id, name: p.name, x: p.st.x, y: p.st.y, z: p.st.z, yaw: p.st.yaw });
   push(r);
 }
 
@@ -814,8 +814,11 @@ io.on('connection', (sock) => {
     if (ok) {
       p!.cap.totem--;
       if (p!.uid) award(p!.uid, 'second_chance');
-      t!.reviving = { by: p!.id, at: Date.now() };
-      io.to(r!.code).emit('reviving', { id: t!.id, name: t!.name, by: p!.id });
+      if (levelCaps(r!.levelId).pool) revive(r!, t!, p!.st); // (en las Poolrooms no hay «Run for your life»: vuelve al momento junto a quien lo usó)
+      else {
+        t!.reviving = { by: p!.id, at: Date.now() };
+        io.to(r!.code).emit('reviving', { id: t!.id, name: t!.name, by: p!.id });
+      }
     }
     if (typeof cb === 'function') cb(ok);
   });
@@ -824,7 +827,7 @@ io.on('connection', (sock) => {
   sock.on('runDone', () => {
     const r = roomOf(sock.id), p = r?.players.get(sock.id);
     if (!r?.match || !p || r.phase !== 'playing' || !p.dead || !p.reviving || Date.now() - p.reviving.at < REVIVE_MIN) return;
-    const by = r.players.get(p.reviving.by), at = by && !by.dead ? by : [...r.players.values()].find((q) => q !== p && !q.dead);
+    const by = r.players.get(p.reviving.by), at = by === p ? p : by && !by.dead ? by : [...r.players.values()].find((q) => q !== p && !q.dead); // (su propio Tótem: vuelve donde cayó)
     p.reviving = undefined;
     if (!at) return;
     revive(r, p, at.st);
@@ -1082,6 +1085,20 @@ setInterval(() => {
     r.match.tick(DT, [...r.players.values()], (p) => {
       r.deaths++;
       io.to(r.code).emit('dead', p.id);
+      // con un Tótem en la mochila, el que cae corre «Run for your life» por sí mismo (tras su muerte, 4,5 s): si llega, vuelve donde cayó
+      if (p.cap.totem > 0 && !p.reviving) {
+        p.cap.totem--;
+        if (levelCaps(r.levelId).pool) { // (sin carrera: vuelve donde cayó a los 4,5 s)
+          if (p.uid) award(p.uid, 'second_chance');
+          bag(p);
+          setTimeout(() => r.phase === 'playing' && p.dead && !p.boarded && revive(r, p, p.st), 4500);
+          return push(r);
+        }
+        p.reviving = { by: p.id, at: Date.now() + 4500 };
+        if (p.uid) award(p.uid, 'second_chance');
+        bag(p);
+        setTimeout(() => r.phase === 'playing' && p.dead && p.reviving?.by === p.id && io.to(r.code).emit('reviving', { id: p.id, name: p.name, by: p.id }), 4500);
+      }
       push(r);
     });
     roundTick(r);
