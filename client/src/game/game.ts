@@ -3030,7 +3030,7 @@ fps ${(1 / Math.max(dt, 1e-3)).toFixed(0)}`;
     const scene = this.parking?.level.scene ?? (this.pool instanceof PoolLevel ? this.pool.scene : this.scene);
     if (!this.arc) {
       // la trayectoria: una línea blanca ancha (Line2: el ancho se da en píxeles), puntos blancos en cada rebote y un aro donde se queda
-      const line = new THREE.Mesh(new THREE.BufferGeometry(), new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.92, depthTest: false, depthWrite: false, side: THREE.DoubleSide, toneMapped: false })); // (una cinta de cuadriláteros que mira a la cámara: Line2 no se veía)
+      const line = new THREE.Mesh(new THREE.BufferGeometry(), new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.5, depthTest: false, depthWrite: false, side: THREE.DoubleSide, toneMapped: false })); // (una cinta de cuadriláteros que mira a la cámara: Line2 no se veía)
       const dots = new THREE.Points(new THREE.BufferGeometry().setAttribute('position', new THREE.BufferAttribute(new Float32Array(12 * 3), 3)), new THREE.PointsMaterial({ color: 0xffffff, size: 0.2, depthTest: false, toneMapped: false }));
       const ring = new THREE.Mesh(new THREE.RingGeometry(0.2, 0.3, 28).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.9, depthTest: false, depthWrite: false, side: THREE.DoubleSide, toneMapped: false }));
       for (const o of [line, dots, ring]) (o.frustumCulled = false), (o.renderOrder = 10), (o.visible = false);
@@ -3070,7 +3070,7 @@ fps ${(1 / Math.max(dt, 1e-3)).toFixed(0)}`;
       to.set(cam.x - pts[i * 3], cam.y - pts[i * 3 + 1], cam.z - pts[i * 3 + 2]);
       sd.crossVectors(t, to).normalize().multiplyScalar(0.035);
       pos.set([pts[i * 3] + sd.x, pts[i * 3 + 1] + sd.y, pts[i * 3 + 2] + sd.z, pts[i * 3] - sd.x, pts[i * 3 + 1] - sd.y, pts[i * 3 + 2] - sd.z], i * 6);
-      if (i < n - 1) idx.push(i * 2, i * 2 + 1, i * 2 + 2, i * 2 + 1, i * 2 + 3, i * 2 + 2);
+      if (i < n - 1 && i % 3 !== 2) idx.push(i * 2, i * 2 + 1, i * 2 + 2, i * 2 + 1, i * 2 + 3, i * 2 + 2);
     }
     line.geometry.dispose();
     line.geometry.setAttribute('position', new THREE.BufferAttribute(pos, 3));
@@ -3104,15 +3104,18 @@ fps ${(1 / Math.max(dt, 1e-3)).toFixed(0)}`;
       return note(m.on ? `${m.name.toUpperCase()} · CALL CONNECTED: YOU CAN HEAR EACH OTHER ANYWHERE` : `CALL WITH ${m.name.toUpperCase()} ENDED`);
     }
     if (m.k === 'bat') return void (this.audio?.cue('equip'), m.id !== this.mp?.id && this.remotes.get(m.id)?.swing());
+    // el pasillo del hotel se repite y el servidor cuenta siempre en la copia del medio: el vuelo y el humo se pintan en la copia donde está quien mira
+    const px = this.caps.hotel ? this.player?.pos.x ?? 0 : 0, span = SUITE_L * CELL, shift = this.caps.hotel && px < 3 * span ? (Math.max(0, Math.floor(px / span)) - 1) * span : 0;
     if (m.k === 'throw') {
+      const path = shift ? m.path.map((v, i) => (i % 3 ? v : v + shift)) : m.path;
       const o = new THREE.Mesh(new THREE.SphereGeometry(0.1, 12, 8), new THREE.MeshStandardMaterial({ color: m.what === 'pokeball' ? 0xd32f2f : 0x59684a }));
       (this.parking?.level.scene ?? (this.pool instanceof PoolLevel ? this.pool.scene : this.scene)).add(o);
       this.throwS = m.s;
       let t = 0;
       this.fxList.push((dt) => {
         t += dt;
-        const i = Math.min(m.path.length / 3 - 1, Math.floor(t / FLIGHT_DT));
-        o.position.set(m.path[i * 3], m.path[i * 3 + 1], m.path[i * 3 + 2]);
+        const i = Math.min(path.length / 3 - 1, Math.floor(t / FLIGHT_DT));
+        o.position.set(path[i * 3], path[i * 3 + 1], path[i * 3 + 2]);
         if (t < m.s) return true;
         o.removeFromParent();
         o.geometry.dispose();
@@ -3127,7 +3130,7 @@ fps ${(1 / Math.max(dt, 1e-3)).toFixed(0)}`;
       const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: this.smokeTexture(), color: 0xbfbfbf, transparent: true, depthWrite: false, opacity: 0 }));
       sp.scale.setScalar(2.2 + Math.random() * 2.2);
       (this.parking?.level.scene ?? (this.pool instanceof PoolLevel ? this.pool.scene : this.scene)).add(sp);
-      return { sp, x: m.x + Math.cos(a) * d, y: 0.3 + Math.random() * 2.1, z: m.z + Math.sin(a) * d, ph: Math.random() * 6 };
+      return { sp, x: m.x + shift + Math.cos(a) * d, y: 0.3 + Math.random() * 2.1, z: m.z + Math.sin(a) * d, ph: Math.random() * 6 };
     });
     let t = -this.throwS; // (el humo sale cuando la granada acaba de rebotar)
     this.fxList.push((dt) => {
