@@ -113,6 +113,8 @@ interface Ent {
   stun?: number;
   /** Soltada de una pokeball: pelea de tu lado mientras dura el hechizo y después desaparece. */
   summoned?: boolean;
+  /** Mojada por la pistola de agua hasta esta hora (ms). */
+  wetUntil?: number;
   charm?: { until: number; by: string; prev: { passive: boolean; enraged: boolean; roused: boolean } };
 }
 
@@ -393,7 +395,7 @@ export class Match {
           tg = [...targets.filter((t) => t.id !== by), ...this.ents.filter((o) => o !== e && o.sim.alive).map((o) => ({ id: '#' + o.id, x: o.sim.x, y: 0, z: o.sim.z, ex: o.sim.x, ey: o.sim.height * 0.85, ez: o.sim.z, torch: null, exposed: true }))];
         }
       }
-      e.sim.speedBonus = Date.now() < this.curseUntil ? .5 : 0;
+      e.sim.speedBonus = (Date.now() < this.curseUntil ? .5 : 0) - (e.wetUntil && Date.now() < e.wetUntil ? 0.7 : 0);
       const id = e.sim.update(dt, tg, false, hidden, noises);
       if (this.hotel) {
         const x = e.lobby ? Math.max(e.sim.x, 3 * SUITE_L * CELL + 0.6) : wrapX(e.sim.x); // (el del vestíbulo no pasa al pasillo; el del pasillo, como los jugadores, siempre en la copia del medio)
@@ -425,7 +427,7 @@ export class Match {
       return { parking, ents: [], taken: parking.tapes, tapes: parking.tapes.length };
     }
     return {
-      ents: this.ents.map((e) => ({ id: e.id, kind: e.sim.kind, x: e.sim.x, z: e.sim.z, yaw: e.sim.facing, state: e.sim.state, hp: e.sim.hp, speed: e.sim.speed }) satisfies EntState),
+      ents: this.ents.map((e) => ({ id: e.id, kind: e.sim.kind, x: e.sim.x, z: e.sim.z, yaw: e.sim.facing, state: e.sim.state, hp: e.sim.hp, speed: e.sim.speed, wet: !!e.wetUntil && Date.now() < e.wetUntil }) satisfies EntState),
       taken: [...this.taken],
       tapes: this.tapes,
       ...(this.vengeance ? { vengeance: true } : {}),
@@ -556,6 +558,14 @@ export class Match {
       const dx = q.st.x - x, dz = q.st.z - z, d = Math.hypot(dx, dz);
       if (d < bd && (d < 0.3 || (dx * fx + dz * fz) / d >= SQUIRT_COS)) (bd = d), (best = q);
     }
+    // las entidades también se mojan: más lentas unos segundos (y se ve chorrear); si una está más cerca que cualquier jugador, es a ella a quien se da
+    let wetE: Ent | undefined;
+    for (const e of this.ents) {
+      if (!e.sim.alive) continue;
+      const dx = e.sim.x - x, dz = e.sim.z - z, d = Math.hypot(dx, dz);
+      if (d < bd && (d < 0.3 || (dx * fx + dz * fz) / d >= SQUIRT_COS)) (bd = d), (wetE = e);
+    }
+    if (wetE) return void (wetE.wetUntil = now + 4000);
     if (!best) return;
     const ev = applyWet((best.wet ??= { last: 0, acc: 0, wetUntil: 0, stunUntil: 0, coolUntil: 0 }), now);
     return ev && { to: best, ev };

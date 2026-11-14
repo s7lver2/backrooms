@@ -83,11 +83,42 @@ export class Entity implements Target {
   }
 
   /** El estado que manda el servidor, con la hora del snapshot (`snap`: colocarla ya, sin interpolar). La posición se dibuja algo en el pasado: ver interp.ts. */
+  /** Mojada por la pistola de agua: chorrea. */
+  wet = false;
+  private drip?: { pts: THREE.Points; v: Float32Array };
+  /** Gotas que caen por el cuerpo mientras está mojada. */
+  private dripFx(dt: number) {
+    if (!this.drip && !this.wet) return;
+    if (!this.drip) {
+      const n = 36, pos = new Float32Array(n * 3), v = new Float32Array(n);
+      for (let i = 0; i < n; i++) (v[i] = 0.6 + Math.random() * 0.9), this.dripReset(pos, i, true);
+      const pts = new THREE.Points(new THREE.BufferGeometry().setAttribute('position', new THREE.BufferAttribute(pos, 3)), new THREE.PointsMaterial({ color: 0x9fd8ff, size: 0.045, transparent: true, opacity: 0.85, depthWrite: false }));
+      pts.frustumCulled = false;
+      this.rig.root.add(pts);
+      this.drip = { pts, v };
+    }
+    const { pts, v } = this.drip, a = pts.geometry.getAttribute('position') as THREE.BufferAttribute, arr = a.array as Float32Array;
+    pts.visible = this.wet || arr.some((_, i) => i % 3 === 1 && arr[i] > 0.05); // (al secarse, las gotas que quedan acaban de caer)
+    for (let i = 0; i < v.length; i++) {
+      arr[i * 3 + 1] -= v[i] * dt;
+      if (arr[i * 3 + 1] < 0) this.wet ? this.dripReset(arr, i, false) : (arr[i * 3 + 1] = -1);
+    }
+    a.needsUpdate = true;
+  }
+  private dripReset(arr: Float32Array, i: number, spread: boolean) {
+    const h = this.rig.root.scale.y * (ENTITIES[this.kind].height);
+    const ang = Math.random() * Math.PI * 2, r = 0.12 + Math.random() * 0.22;
+    arr[i * 3] = Math.cos(ang) * r;
+    arr[i * 3 + 1] = spread ? Math.random() * h : h * (0.55 + Math.random() * 0.4);
+    arr[i * 3 + 2] = Math.sin(ang) * r;
+  }
+
   net(s: EntState, snap = false, t = performance.now()) {
     this.track.push({ t, x: s.x, y: 0, z: s.z, yaw: s.yaw, pitch: 0 }, 0);
     this.netState = s.state;
     this.hp = s.hp;
     this.speed = s.speed;
+    this.wet = !!s.wet;
     if (snap) (this.goal.set(s.x, 0, s.z), this.pos.copy(this.goal), (this.facing = s.yaw), (this.goalYaw = s.yaw));
   }
 
@@ -121,6 +152,7 @@ export class Entity implements Target {
     this.rig.root.position.copy(this.pos);
     this.rig.root.rotation.y = this.facing;
     this.rig.update(dt);
+    this.dripFx(dt);
     if (this.balloon && this.state !== 'dead') {
       const hand = this.rig.bone('RightHand');
       if (hand) this.balloon.position.copy(hand.getWorldPosition(new THREE.Vector3()));

@@ -107,6 +107,8 @@ export interface EntState {
   hp: number;
   /** Multiplicador de velocidad (las que reaparecen corren más). */
   speed: number;
+  /** Mojada por la pistola de agua (va más lenta y chorrea). */
+  wet?: boolean;
 }
 
 /** Un jugador, visto por una entidad. */
