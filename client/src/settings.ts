@@ -32,7 +32,7 @@ export interface Settings {
   warmup: number; // 0 perezoso, 1 rápido, 2 completo: cuánto se precompila al cargar (ver game/compile.ts; se aplica al recargar)
 }
 
-export const DEFAULTS: Settings = { volume: 1, sfx: 1, ambient: 1, sens: 1, invertY: false, vhs: 1, fov: 70, fps: false, crosshair: true, reduceMotion: false, toggleBreath: false, resScale: 1, brightness: 1, ui: 1, quality: 0, shadows: 2, bloom: true, fpsLimit: 3, poolAO: true, poolAA: true, texFilter: 2, voiceMode: 1, voiceVol: 1, warmup: 2 };
+export const DEFAULTS: Settings = { volume: 1, sfx: 0.55, ambient: 1, sens: 1, invertY: false, vhs: 1, fov: 70, fps: false, crosshair: true, reduceMotion: false, toggleBreath: false, resScale: 1, brightness: 1, ui: 1, quality: 0, shadows: 2, bloom: true, fpsLimit: 3, poolAO: true, poolAA: true, texFilter: 2, voiceMode: 1, voiceVol: 1, warmup: 2 };
 
 /** Los topes de fotogramas por segundo de FPS LIMIT (0 = sin tope) y los niveles de TEXTURE FILTERING. */
 export const FPS_CAPS = [30, 45, 60, 0] as const;
