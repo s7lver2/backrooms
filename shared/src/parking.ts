@@ -291,7 +291,17 @@ function buildNavigation(map: ParkingMap) {
   }
 }
 
-export type ParkingInteraction = { kind: 'tape' | 'repair' | 'elevator' | 'door' | 'loot'; id?: string; held?: boolean };
+const lockerHash = (id: string) => { let h = 2166136261; for (let i = 0; i < id.length; i++) h = Math.imul(h ^ id.charCodeAt(i), 16777619); return (h >>> 0) % 1000; };
+/** Lo que guarda cada taquilla (fijo por su id: servidor y cliente lo calculan igual). */
+const LOCKER_POOL = [['water', 28], ['flashlight', 22], ['beer', 14], ['pills', 11], ['monster', 9], ['glasses', 9], ['steelcard', 7]] as const;
+export function lockerItem(id: string) {
+  let r = lockerHash(id + 'i') / 10;
+  for (const [k, w] of LOCKER_POOL) if ((r -= w) < 0) return k;
+  return LOCKER_POOL[0][0];
+}
+/** Algunas taquillas (4 de cada 10) están cerradas con llave: se abren con el minijuego de la ganzúa. */
+export const lockerLocked = (id: string) => lockerHash(id + 'l') < 400;
+export type ParkingInteraction = { kind: 'tape' | 'repair' | 'elevator' | 'door' | 'loot' | 'unlock'; id?: string; held?: boolean };
 export interface ParkingSnapshot {
   repaired: string[];
   tapes: string[];
@@ -300,6 +310,8 @@ export interface ParkingSnapshot {
   elevatorOpenedAt: number | null;
   doors: Record<string, number>;
   looted: string[];
+  /** Taquillas con llave que ya se han forzado. */
+  unlocked: string[];
   skinwalkers: Pick<SkinAgent,'id'|'pos'|'yaw'|'state'|'beast'|'transform'|'attackAt'|'moving'|'fakeTask'>[];
   smilers: Smiler[];
   gaze: Record<string,number>;

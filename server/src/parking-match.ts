@@ -1,4 +1,4 @@
-import { parkingSurface } from '@backrooms/shared';
+import { parkingSurface, lockerItem, lockerLocked } from '@backrooms/shared';
 import {
   HIT_DAMAGE, MONSTER, ParkingSkinAI, ParkingSmilerAI, addItem, boostOf, canHold, generateParking, parkingContains, parkingDoorBlocks, parkingFits, parkingGeneratorBounds, parkingOptionsForMission,
   type ItemId, type Mission, type ParkingInteraction, type ParkingPoint, type ParkingRect, type ParkingSnapshot, type PlayerState, type SkinTarget,
@@ -33,6 +33,7 @@ export class ParkingMatch {
   private readonly tapes = new Set<string>();
   private readonly doors: Record<string, number> = {};
   private readonly looted = new Set<string>();
+  private readonly unlocked = new Set<string>();
   private readonly lastState = new Map<string, number>();
   private readonly moveCredit = new Map<string, number>();
   private readonly monsterUntil = new Map<string, number>();
@@ -217,7 +218,7 @@ export class ParkingMatch {
       this.updateTapeDifficulty();
       return true;
     }
-    if(action.kind!=='door'&&action.kind!=='loot')return false;
+    if(action.kind!=='door'&&action.kind!=='loot'&&action.kind!=='unlock')return false;
     const pos=this.point(p);
     if(!pos)return false;
     const f=this.map.floors[pos.floor];
@@ -233,12 +234,17 @@ export class ParkingMatch {
       for(const [index,locker] of (room.lockers??[]).entries()) {
         const point={...locker,y:f.y+(index%2?.98:.55),floor:f.index};
         const body={x:locker.x-.27,z:locker.z-.27,w:.54,d:.54};
+        if(action.kind==='unlock'&&locker.id===id&&lockerLocked(id)&&this.aim(p,{...point,y:f.y+1.05},2.65,.64,body)) {
+          this.unlocked.add(id);
+          return true;
+        }
         if(action.kind==='door'&&locker.id===id&&this.aim(p,{...point,y:f.y+1.05},2.65,.64,body)) {
+          if(lockerLocked(id)&&!this.unlocked.has(id))return false;
           this.doors[id]=this.doors[id]?0:1;
           return true;
         }
         if(action.kind==='loot'&&id===locker.id+'-item'&&this.doors[locker.id]&&!this.looted.has(id)&&this.aim(p,point,2.45,.76,body)) {
-          const item=index%2?'flashlight':'water';
+          const item=lockerItem(locker.id);
           if(!canHold(p.cap,item))return false;
           this.looted.add(id);
           p.cap=addItem(p.cap,item);
@@ -332,7 +338,7 @@ export class ParkingMatch {
       skinwalkers:this.skinwalkers.agents.map(({id,pos,yaw,state,beast,transform,attackAt,moving,fakeTask})=>({id,pos,yaw,state,beast,transform,attackAt,moving,fakeTask})),
       smilers:this.smilers.sections.flatMap(section=>section.active?[section.active]:[]),
       gaze:Object.fromEntries(this.targets.map(p=>[p.id,this.smilers.gazeFor(p.id)])),
-      repaired:[...this.repaired],tapes:[...this.tapes],doors:{...this.doors},looted:[...this.looted],elevatorOpenedAt:this.elevatorOpenedAt,
+      repaired:[...this.repaired],tapes:[...this.tapes],doors:{...this.doors},looted:[...this.looted],unlocked:[...this.unlocked],elevatorOpenedAt:this.elevatorOpenedAt,
       ...(this.mission.kind === 'survive' ? { survivalElapsed: this.progress } : {}),
       ...(active?{repair:{id:active.id,by:active.by,seconds:Math.min(8,(now-active.since)/1000)}}:{}),
     };

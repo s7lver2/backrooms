@@ -474,6 +474,12 @@ export class BackroomsGame {
   openLocker(id: string, items: LockerItem[], taken: boolean[]) {
     this.items?.openLocker(id, items, taken);
   }
+  /** Ganado el minijuego de una taquilla con llave de la Habitable Zone: el servidor la da por forzada y se abre. */
+  parkingUnlock(id: string) {
+    this.sendState(true);
+    this.mp?.sock.emit('parkingInteract', { kind: 'unlock', id });
+    this.mp?.sock.emit('parkingInteract', { kind: 'door', id });
+  }
   setLockerUi(on: boolean) {
     this.input.suspend = on;
     if (on) this.input.clear(), this.input.unlock();
@@ -2694,6 +2700,7 @@ fps ${(1 / Math.max(dt, 1e-3)).toFixed(0)}`;
     this.t += dt;
     round.setListening(!this.paused && !document.hidden);
     const aboard = round.update(dt, c, this.camera, active, this.t, action => {
+      if (action.kind === 'unlock') return void (action.id && this.onLocker?.('park:' + action.id)); // taquilla con llave: el minijuego (LockerGame) y, al ganar, parkingUnlock
       this.sendState(true);
       this.mp?.sock.emit('parkingInteract', action);
     });

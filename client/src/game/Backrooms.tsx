@@ -874,6 +874,7 @@ export default function Backrooms({ onQuit, onWin }: { onQuit: () => void; onWin
           id={locker}
           sock={net.sock}
           onOpen={(items, taken) => game.current?.openLocker(locker, items, taken)}
+          onPicked={() => game.current?.parkingUnlock(locker.slice(5))}
           onClose={() => (setLocker(null), game.current?.setLockerUi(false))}
         />
       )}

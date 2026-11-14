@@ -18,7 +18,7 @@ const arc = (a: number, b: number, rad: number) => {
   return `M${x0} ${y0}A${rad} ${rad} 0 ${b - a > 180 ? 1 : 0} 1 ${x1} ${y1}`;
 };
 
-export default function LockerGame({ id, sock, onOpen, onClose }: { id: string; sock?: Sock; onOpen: (items: LockerItem[], taken: boolean[]) => void; onClose: () => void }) {
+export default function LockerGame({ id, sock, onOpen, onClose, onPicked }: { id: string; sock?: Sock; onOpen: (items: LockerItem[], taken: boolean[]) => void; onClose: () => void; onPicked?: () => void }) {
   const [phase, setPhase] = useState<'pick' | 'loot'>('pick');
   const [hits, setHits] = useState(0);
   const [bad, setBad] = useState(false);
@@ -45,7 +45,7 @@ export default function LockerGame({ id, sock, onOpen, onClose }: { id: string; 
 
   // minijuego superado: se abre la taquilla del mundo (la puerta gira y el contenido queda dentro, para cogerlo con G); aquí no hay más interfaz
   const open = () =>
-    sock?.emit('locker', id, (r) => {
+    id.startsWith('park:') ? (sound('upgrade'), onPicked?.(), onClose()) : sock?.emit('locker', id, (r) => {
       if (!r.ok || !r.items) return setMsg('TOO FAR, OR IT IS STUCK'), setPhase('loot');
       sound('upgrade');
       onOpen(r.items, r.taken ?? r.items.map(() => false));

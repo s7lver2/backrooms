@@ -3,13 +3,14 @@ import { ElevatorCab } from './elevator';
 import type { ParkingCue } from './parking-audio';
 import { ParkingAtmosphere } from './parking-atmosphere';
 import { ParkingPuddles } from './parking-puddles';
+import { itemModel } from './itemModels';
 import type { Terrain } from './terrain';
 import { parkingLampState } from './parking-lighting';
 import { GLTFLoader, type GLTF } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { MeshoptDecoder } from 'three/examples/jsm/libs/meshopt_decoder.module.js';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { DecalGeometry } from 'three/examples/jsm/geometries/DecalGeometry.js';
-import { PARKING_HEIGHT as H, PARKING_SLAB, parkingContains, parkingFits, parkingDoorBlocks, parkingLeafBlocks, parkingWorkbench, parkingArea, parkingFloorLabel, parkingGeneratorBounds, type ParkingRoom, type ParkingMap, type ParkingFloor, type ParkingPoint, type ParkingRect, type WorldSnapshot } from '@backrooms/shared';
+import { PARKING_HEIGHT as H, PARKING_SLAB, parkingContains, parkingFits, parkingDoorBlocks, parkingLeafBlocks, parkingWorkbench, parkingArea, parkingFloorLabel, parkingGeneratorBounds, lockerItem, lockerLocked, ITEMS, type ItemId, type ParkingRoom, type ParkingMap, type ParkingFloor, type ParkingPoint, type ParkingRect, type WorldSnapshot } from '@backrooms/shared';
 
 type Placement = { x: number; y: number; z: number; yaw?: number; sx?: number; sy?: number; sz?: number };
 type Part = { name?: string; geometry: THREE.BufferGeometry; material: THREE.Material | THREE.Material[] };
@@ -60,8 +61,9 @@ export class ParkingLevel {
   private floor = -1;
   private hinges: Hinge[] = [];
   private doorStates: Record<string, number> = {};
-  private storageItems = new Map<string, { mesh: THREE.Object3D; locker: Hinge; kind: 'WATER' | 'FLASHLIGHT' }>();
-  takeItem?: (kind: 'water' | 'flashlight') => boolean;
+  private storageItems = new Map<string, { mesh: THREE.Object3D; locker: Hinge; kind: ItemId }>();
+  private unlocked = new Set<string>();
+  takeItem?: (kind: ItemId) => boolean;
   private lastTime = 0;
   private notice = '';
   private noticeUntil = 0;
@@ -244,10 +246,20 @@ export class ParkingLevel {
               return parkingLeafBlocks(p.x, p.z, h.x, h.z, -.414 * Math.cos(angle), .414 * Math.sin(angle), radius + .025);
             } };
             this.hinges.push(hinge);
-            const kind = i % 2 ? 'FLASHLIGHT' : 'WATER', id = `${locker.id}-item`;
-            const items = this.parts(kind === 'WATER' ? assets.water : assets.flashlight, null, kind === 'WATER' ? .24 : .17, kind === 'WATER' ? 'y' : 'x');
+            const kind = lockerItem(locker.id), id = `${locker.id}-item`;
             const item = new THREE.Group(); item.position.set(0, i % 2 ? .94 : .49, .025); root.add(item);
-            this.place(item, items, [{ x: 0, y: 0, z: 0 }]); item.userData.parkingAction = id; item.userData.parkingDynamic = true;
+            if (kind === 'water' || kind === 'flashlight') this.place(item, this.parts(kind === 'water' ? assets.water : assets.flashlight, null, kind === 'water' ? .24 : .17, kind === 'water' ? 'y' : 'x'), [{ x: 0, y: 0, z: 0 }]);
+            else {
+              const model = itemModel(kind)?.clone(true);
+              if (model) {
+                const b = new THREE.Box3().setFromObject(model), s = .2 / Math.max(...b.getSize(new THREE.Vector3()).toArray(), .0001);
+                model.scale.multiplyScalar(s);
+                const b2 = new THREE.Box3().setFromObject(model), c = b2.getCenter(new THREE.Vector3());
+                model.position.set(-c.x, -b2.min.y, -c.z);
+                item.add(model);
+              }
+            }
+            item.userData.parkingAction = id; item.userData.parkingDynamic = true;
             this.storageItems.set(id, { mesh: item, locker: hinge, kind });
           }
           this.batchRoomStatics(roomsGroup);
@@ -413,6 +425,7 @@ export class ParkingLevel {
       hinge.target = target;
       this.onSound?.(hinge.kind === 'room' ? 'roomDoor' : 'lockerDoor', this.hingeSoundPosition(hinge));
     }
+    this.unlocked = new Set(state.unlocked ?? []);
     for (const id of state.looted) {
       const item = this.storageItems.get(id);
       if (!item) continue;
@@ -437,6 +450,11 @@ export class ParkingLevel {
     }
   }
 
+  /** Una taquilla con llave que aún no se ha forzado. */
+  private lockedFast(id: string) {
+    return id.includes('-locker-') && !id.endsWith('-item') && lockerLocked(id) && !this.unlocked.has(id) && !this.hinges.find(h => h.id === id)?.target;
+  }
+
   roomInteraction(camera: THREE.Camera, position: ParkingPoint) {
     const target = this.focus(camera, position);
     if (!target) return;
@@ -444,6 +462,7 @@ export class ParkingLevel {
     if (id === 'elevator') return this.elevatorUnlocked && !this.elevatorOpening ? { kind: 'elevator', id } as const : undefined;
     if (this.tapes.has(id)) return { kind: 'tape', id } as const;
     if (this.storageItems.has(id)) return { kind: 'loot', id } as const;
+    if (this.lockedFast(id)) return { kind: 'unlock', id } as const;
     const generator = this.generators.get(id);
     if (generator) return generator.repaired ? undefined : { kind: 'repair', id } as const;
     return { kind: 'door', id } as const;
@@ -587,8 +606,9 @@ export class ParkingLevel {
       if (id === 'elevator') return { id, label: !this.elevatorUnlocked ? 'ELEVATOR LOCKED - COMPLETE THE OBJECTIVE' : this.elevatorOpening ? (this.elevatorOpen ? 'STEP INTO THE ELEVATOR' : 'ELEVATOR OPENING') : 'E - OPEN ELEVATOR' };
       if (this.tapes.has(id)) return { id, label: 'E - COLLECT VHS TAPE' };
       const item = this.storageItems.get(id);
-      if (item && item.locker.floor === p.floor && item.locker.current > .8) return { id, label: `E · TAKE ${item.kind === 'WATER' ? 'ALMOND WATER' : 'SPARE FLASHLIGHT'}` };
+      if (item && item.locker.floor === p.floor && item.locker.current > .8) return { id, label: `E · TAKE ${ITEMS[item.kind].name}` };
       const hinge = this.hinges.find(h => h.id === id && h.floor === p.floor);
+      if (hinge?.kind === 'locker' && this.lockedFast(id)) return { id, label: 'E · PICK THE LOCK' };
       if (hinge) return { id, label: `E · ${hinge.target ? 'CLOSE' : 'OPEN'} ${hinge.kind === 'room' ? 'ROOM DOOR' : 'LOCKER'}` };
       return;
     }
@@ -617,12 +637,12 @@ export class ParkingLevel {
     }
     const item = this.storageItems.get(target.id);
     if (item) {
-      const kind = item.kind === 'WATER' ? 'water' : 'flashlight';
+      const kind = item.kind;
       if (this.takeItem?.(kind)) {
         this.onSound?.('pickup', p);
         item.mesh.traverse(object => { object.visible = false; });
         this.storageItems.delete(target.id);
-        this.notice = kind === 'water' ? 'ALMOND WATER ADDED' : 'SPARE FLASHLIGHT ADDED';
+        this.notice = `${ITEMS[kind].name} ADDED`;
       } else this.notice = 'INVENTORY FULL';
       this.noticeUntil = this.lastTime + 2;
       return true;
