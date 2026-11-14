@@ -294,6 +294,7 @@ export async function loadAssets(progress: (f: number) => void): Promise<Assets>
  */
 export class BackroomsGame {
   private steelRoll?: NonNullable<Hud['steelRoll']> & { until: number };
+  private lastFrameErr = '';
   private rollSerial = 0;
   private readonly xray = new THREE.Group();
   private readonly xrayMaterial = new THREE.LineBasicMaterial({ color: 0xff2525, transparent: true, depthTest: false, depthWrite: false, toneMapped: false });
@@ -998,7 +999,17 @@ export class BackroomsGame {
     this.itemEffects();
     if (this.fxList.length) this.fxList = this.fxList.filter((f) => f(dt));
     if (this.player?.charging || this.arc) this.arcFrame();
-    if (this.parking) return this.parkingFrame(dt, c);
+    if (this.parking) {
+      // (un fallo en un fotograma de la Habitable Zone se anota en el registro y no deja el juego congelado)
+      try {
+        return this.parkingFrame(dt, c);
+      } catch (e) {
+        const m = e instanceof Error ? e.stack ?? e.message : String(e);
+        if (m !== this.lastFrameErr) (this.lastFrameErr = m), dlog('frame-error', m.slice(0, 600));
+        this.composer.render(dt);
+        return;
+      }
+    }
     if (this.run) return this.runFrame(dt, c);
     this.vhs.uniforms.uPool.value = this.film.uniforms.uVhs.value = this.pool instanceof PoolLevel ? 1 : 0; // (el aspecto de cinta de las Poolrooms: sin amarillo, con barrido y croma)
     this.film.uniforms.uWarm.value = this.caps.hotel && !this.run ? 1 : 0; // (Las Suites: el color cálido del hotel)
@@ -2596,6 +2607,7 @@ fps ${(1 / Math.max(dt, 1e-3)).toFixed(0)}`;
       if (!this.mp) return done(false);
       this.sendState(true);
       this.mp.sock.timeout(3000).emit('useParkingItem', id, (error, result) => {
+        dlog('item', `${id} ${error ? 'ERROR ' + error.message : result ? 'ok ' + JSON.stringify(result) : 'refused'} hp ${Math.round(p.hp)}`);
         if (error || !result || this.player !== p) return done(false);
         if (id === 'pills') this.audio?.drink();
         else if (id !== 'beer') this.audio?.cue('equip');

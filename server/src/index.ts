@@ -1211,7 +1211,7 @@ io.on('connection', (sock) => {
     if (typeof cb !== 'function') return;
     const r = roomOf(sock.id), p = r?.players.get(sock.id), match = r?.match;
     if (!r || !p || !match || r.phase !== 'playing' || p.dead || p.boarded
-      || !PARKING_ITEM_IDS.includes(id) || !hasItem(p.cap, id)) return cb(null);
+      || !PARKING_ITEM_IDS.includes(id) || !hasItem(p.cap, id)) return (r && p && rlog(r, `${p.name} use ${id} refused (phase ${r.phase} dead ${p.dead} boarded ${p.boarded})`), cb(null));
     const now = Date.now();
     if (id === 'glasses' && now < (p.glassesUntil ?? 0)) return cb(null);
     let result: { item?: ItemId; curse?: boolean } = {};
@@ -1234,7 +1234,7 @@ io.on('connection', (sock) => {
         const open = openOf(r);
         const allowed = ITEM_IDS.filter(item => item !== 'steelcard' && itemOpen(item, open) && canHold(remaining, item, st(p))
           && (!match.parking || !['gun', 'ammo', 'watergun', 'tank', 'totem', 'radar', 'caution'].includes(item)));
-        if (!allowed.length) return cb(null);
+        if (!allowed.length) return (rlog(r, `${p.name} steel card: nothing to roll (open ${[...open].join(',')})`), cb(null));
         if (Math.random() < .05) {
           match.curseUntil = now + 60_000;
           result = { curse: true };
@@ -1274,6 +1274,7 @@ io.on('connection', (sock) => {
         }, duration * 1000);
       }
     }
+    rlog(r, `${p.name} used ${id}${result.item ? ' -> ' + result.item : result.curse ? ' -> curse' : ''} hp ${Math.round(p.hp)}`);
     sock.emit('inv', p.cap);
     bag(p);
     cb(result);
@@ -1308,7 +1309,10 @@ io.on('connection', (sock) => {
     (p.toolAt ??= {})[k] = now;
     const fx = (e: ToolFx) => io.to(r.code).emit('toolFx', e);
     // pokeball y granada vuelan en parábola con rebotes (shared/throw.ts, la misma que dibuja el arco del cliente): `reach` les da más fuerza
-    const fl = k === 'pokeball' || k === 'grenade' ? flight((x, z) => solidAt(m.maze, x, z), [p.st.x, p.st.y + 1.5, p.st.z], yaw, Math.max(-1.45, Math.min(1.45, Number(a.pitch) || 0)), 11 * Math.sqrt(S.reach)) : undefined;
+    // (en la Habitable Zone no hay laberinto: el vuelo se calcula sobre el suelo de esa planta y los choques salen de su mapa)
+    const pk = m.parking, fy = pk ? p.st.y : 0;
+    const fl = k === 'pokeball' || k === 'grenade' ? flight(pk ? (x, z) => !pk.openItemPath(x, z, fy + 1) : (x, z) => solidAt(m.maze, x, z), [p.st.x, pk ? 1.5 : p.st.y + 1.5, p.st.z], yaw, Math.max(-1.45, Math.min(1.45, Number(a.pitch) || 0)), 11 * Math.sqrt(S.reach)) : undefined;
+    if (fl && fy) (fl.pts = fl.pts.map((v, i) => (i % 3 === 1 ? v + fy : v))), (fl.end[1] += fy);
     if (k === 'pokeball' && fl) {
       // cada bola se lanza una vez: sale de la mano y cae donde acabe el vuelo; al recuperarla es otra bola, según lo que atrapó
       const was = p.cap.q?.pokeball ?? { r: 0, w: 0 }, mul = was.c ? BALL_KINDS[was.c]?.mul ?? 1 : 1;
