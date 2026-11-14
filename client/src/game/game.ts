@@ -2212,10 +2212,11 @@ export class BackroomsGame {
   private netFrame(dt: number, c: Controls) {
     const hall = this.caps.hotel && this.player ? { x: this.player.pos.x, span: SUITE_L * CELL } : undefined;
     for (const r of this.remotes.values()) ((r.hall = hall), r.update(dt), r.talk(voice.speaking.has(r.id)));
-    // el chat de voz según la distancia (voice.ts): cuánto y hacia qué lado oigo a cada compañero; muerto o espectando, a todos por igual
+    // el chat de voz según la distancia (voice.ts): cuánto y hacia qué lado oigo a cada compañero; muerto o espectando, a todos por igual; a los muertos que espectean, también por igual
     const me = this.player, ears = new Map<string, { d: number; pan: number }>();
     if (me && !me.dead && !this.spectating)
       for (const r of this.remotes.values()) {
+        if (r.dead) continue; // (un muerto que espectea no tiene sitio en el mapa: sin entrada se oye entero y centrado, para poder hablarle)
         const dx = r.pos.x - me.pos.x, dz = r.pos.z - me.pos.z, d = Math.hypot(dx, dz);
         ears.set(r.id, { d: Math.hypot(d, (r.pos.y - me.pos.y) * 0.5), pan: d > 0.01 ? (dx * Math.cos(me.yaw) - dz * Math.sin(me.yaw)) / d : 0 });
       }
