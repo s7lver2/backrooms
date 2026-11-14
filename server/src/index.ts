@@ -410,7 +410,7 @@ function closeVote(r: RoomState): Mission {
 
 /** Votación cerrada y nivel cargado: empieza la partida. */
 function play(r: RoomState) {
-  r.match = new Match(r.seed, r.difficulty, r.players.size, r.levelId, r.floor);
+  r.match = new Match(r.seed, r.difficulty, r.players.size, r.levelId, r.floor, r.round);
   r.match.setMission(r.chosen!);
   r.match.onSeal = () => io.to(r.code).emit('seal');
   r.match.onHeld = (p) => p.uid && (count(p.uid, 'holds'), award(p.uid, 'held_breath'));

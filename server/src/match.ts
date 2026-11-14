@@ -164,9 +164,11 @@ export class Match {
   /** El mapa por el que andan las entidades (en las Poolrooms, sin la planta alta). */
   private emaze?: Maze;
 
-  constructor(readonly seed: number, difficulty: Difficulty = 'normal', players = 1, readonly levelId = 'level0', floor = 1) {
-    this.speed = DIFFICULTY[difficulty].speed;
-    this.grace = DIFFICULTY[difficulty].grace;
+  constructor(readonly seed: number, difficulty: Difficulty = 'normal', players = 1, readonly levelId = 'level0', floor = 1, round = 2) {
+    // la primera ronda de la sala es de rodaje: entidades un 20 % más lentas, 8 s más de gracia y una entidad menos al empezar
+    const first = round <= 1;
+    this.speed = DIFFICULTY[difficulty].speed * (first ? 0.8 : 1);
+    this.grace = DIFFICULTY[difficulty].grace + (first ? 8 : 0);
     const caps = levelCaps(levelId);
     this.noEnts = !caps.ents;
     this.hotel = !!caps.hotel;
@@ -208,7 +210,7 @@ export class Match {
         this.ents[this.ents.length - 1].lobby = x >= 3 * span;
       }
     }
-    if (!this.noEnts) for (let i = 0; i < D.ents; i++) this.spawn(i % 2 ? 'partygoer' : 'bacteria', m.spawns[i] ?? m.spawns[i % Math.max(1, m.spawns.length)] ?? m.spawns[0]);
+    if (!this.noEnts) for (let i = 0, n = first ? Math.max(1, D.ents - 1) : D.ents; i < n; i++) this.spawn(i % 2 ? 'partygoer' : 'bacteria', m.spawns[i] ?? m.spawns[i % Math.max(1, m.spawns.length)] ?? m.spawns[0]);
   }
 
   /** Se juega esta misión (la elegida en la pizarra). */
