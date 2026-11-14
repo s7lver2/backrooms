@@ -429,7 +429,7 @@ function play(r: RoomState) {
     const [ox, oz] = startOffset(slot);
     const parking = r.match.parking;
     const start = parking ? parkingSpawn(parking.map, slot) : { x: r.match.start.x + ox, y: 0, z: r.match.start.z + oz };
-    p.pillsUntil = p.glassesUntil = undefined;
+    p.pillsUntil = p.glassesOn = undefined;
     slot++;
     (p.dead = false), (p.seen = false), (p.hp = st(p).hp), (p.water = 0), (p.totem = 0), (p.reviving = p.immuneUntil = p.ball = p.call = undefined), (p.st = { ...START, x: start.x, y: start.y, z: start.z });
   }
@@ -1207,13 +1207,27 @@ io.on('connection', (sock) => {
     bag(p);
   });
 
+  // las gafas (mano de repuesto, F): el cliente dice si están activas (los demás las ven puestas) y cuándo se rompen (20 s gastados)
+  sock.on('glasses', (on) => {
+    const r = roomOf(sock.id), p = r?.players.get(sock.id);
+    if (p) p.glassesOn = !!on && hasItem(p.cap, 'glasses');
+  });
+  sock.on('glassesBreak', () => {
+    const r = roomOf(sock.id), p = r?.players.get(sock.id);
+    if (!r || !p || r.phase !== 'playing' || !hasItem(p.cap, 'glasses')) return;
+    p.glassesOn = false;
+    p.cap = removeItem(p.cap, 'glasses');
+    rlog(r, `${p.name} glasses broke`);
+    sock.emit('inv', p.cap);
+    bag(p);
+  });
+
   sock.on('useParkingItem', (id, cb) => {
     if (typeof cb !== 'function') return;
     const r = roomOf(sock.id), p = r?.players.get(sock.id), match = r?.match;
     if (!r || !p || !match || r.phase !== 'playing' || p.dead || p.boarded
       || !PARKING_ITEM_IDS.includes(id) || !hasItem(p.cap, id)) return (r && p && rlog(r, `${p.name} use ${id} refused (phase ${r.phase} dead ${p.dead} boarded ${p.boarded})`), cb(null));
     const now = Date.now();
-    if (id === 'glasses' && now < (p.glassesUntil ?? 0)) return cb(null);
     let result: { item?: ItemId; curse?: boolean } = {};
     const hurt = (q: Player, fraction: number) => {
       q.hp = Math.max(0, q.hp - st(q).hp * fraction);
@@ -1249,7 +1263,6 @@ io.on('connection', (sock) => {
         }
       }
       p.cap = result.item ? addItem(remaining, result.item) : remaining;
-      if (id === 'glasses') p.glassesUntil = now + 60_000;
       if (id === 'beer') {
         const { x, y, z, yaw, pitch, duck } = p.st;
         const vx = -Math.sin(yaw) * Math.cos(pitch) * 12, vz = -Math.cos(yaw) * Math.cos(pitch) * 12;
@@ -1477,7 +1490,7 @@ setInterval(() => {
     if (r.phase !== 'playing' && !inWait(r)) continue;
     // volatile: si el socket de alguien (un túnel lento) no ha terminado de vaciar lo anterior, este se descarta en vez de
     // encolarse: llega siempre lo último y no una ráfaga de estados viejos
-    io.to(r.code).volatile.emit('players', Object.fromEntries([...r.players].map(([id, p]) => [id, { ...p.st, name: p.name, dead: p.dead, hp: p.dead ? 0 : p.hp, xrayGlasses: r.phase === 'playing' && !p.dead && !p.boarded && now < (p.glassesUntil ?? 0) }])));
+    io.to(r.code).volatile.emit('players', Object.fromEntries([...r.players].map(([id, p]) => [id, { ...p.st, name: p.name, dead: p.dead, hp: p.dead ? 0 : p.hp, xrayGlasses: r.phase === 'playing' && !p.dead && !p.boarded && !!p.glassesOn }])));
   }
 }, 1000 / 15);
 const lobbyHad = new Set<string>(); // salas de espera a las que ya se mandó una lista con algo (para mandar también la vacía)

@@ -746,3 +746,22 @@
 .br-fx[data-kind="bad"] { color: #ff6b5e; border-color: #b04a42; box-shadow: inset 0 0 10px #b04a4255; }
 .br-fx i { position: absolute; left: 0; right: 0; bottom: 0; height: 3px; background: currentColor; transform-origin: left; }
 .br-fx small { position: absolute; left: 50%; bottom: 100%; transform: translateX(-50%); white-space: nowrap; font-size: 10px; opacity: 0; transition: opacity 0.12s; }
+
+/* las gafas de visión (estilo Warden): tinte frío, viñeta y líneas de barrido sobre la vista */
+.br-warden {
+  position: fixed;
+  inset: 0;
+  z-index: 5;
+  pointer-events: none;
+  background:
+    repeating-linear-gradient(0deg, rgba(120, 220, 255, 0.07) 0 1px, transparent 1px 4px),
+    radial-gradient(ellipse at center, rgba(70, 190, 255, 0.14) 0%, rgba(10, 70, 110, 0.32) 62%, rgba(0, 20, 40, 0.72) 100%);
+  mix-blend-mode: screen;
+  box-shadow: inset 0 0 120px 30px rgba(0, 15, 30, 0.85);
+  animation: br-warden-flick 5s steps(1) infinite;
+}
+@keyframes br-warden-flick {
+  0%, 93%, 100% { opacity: 1; }
+  94% { opacity: 0.8; }
+  96% { opacity: 0.95; }
+}

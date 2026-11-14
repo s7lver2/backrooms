@@ -38,5 +38,7 @@ export type GripSet = Record<GripId, GearGrips>;
 /** Lo guardado en grips.json; `grips` es la copia viva (la herramienta la modifica y el jugador la lee cada fotograma). */
 export const DEFAULT_GRIPS = raw as unknown as GripSet;
 // los objetos nuevos que aún no tienen agarre propio en grips.json parten del de la lata (la herramienta los guarda al pulsar SAVE)
-for (const k of ['monster', 'uno', 'pokeball', 'grenade', 'nokia', 'bat', 'glasses', 'pills', 'steelcard', 'beer'] as const) DEFAULT_GRIPS[k] ??= structuredClone(DEFAULT_GRIPS.water);
+for (const k of ['monster', 'uno', 'pokeball', 'grenade', 'nokia', 'bat', 'pills', 'steelcard', 'beer'] as const) DEFAULT_GRIPS[k] ??= structuredClone(DEFAULT_GRIPS.water);
+// (las gafas van en la mano de repuesto, como la linterna: parten de su agarre)
+DEFAULT_GRIPS.glasses ??= structuredClone(DEFAULT_GRIPS.flashlight);
 export const grips: GripSet = structuredClone(DEFAULT_GRIPS);

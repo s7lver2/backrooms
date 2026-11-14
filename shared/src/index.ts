@@ -295,6 +295,8 @@ export type ToolFx =
   | { k: 'note'; text: string };
 
 export interface ClientToServer {
+  glasses: (on: boolean) => void;
+  glassesBreak: () => void;
   /** Consola de admin: el servidor rechaza (ok = false) a cualquiera que no sea la cuenta de admin. */
   admin: (a: AdminAction, cb?: (r: AdminReply) => void) => void;
   /** Crea una sala; con `resume` (el código de una guardada de esta cuenta) la reabre con su banco, su ronda y lo de cada uno. */

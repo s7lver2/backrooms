@@ -7,7 +7,7 @@ import type { Terrain } from './terrain';
 import { FLASH } from './lightmap';
 import type { Assets } from './game';
 import { settings } from '../settings';
-import { RIFLE_MAG, HP_MAX, MONSTER, PILLS, WATER_HEAL, PARKING_ITEM_IDS, addItem, hasItem, removeItem, type Inventory, type ItemId, type Look, type ParkingItemId } from '@backrooms/shared';
+import { RIFLE_MAG, HP_MAX, MONSTER, PILLS, GLASSES, WATER_HEAL, PARKING_ITEM_IDS, addItem, hasItem, removeItem, type Inventory, type ItemId, type Look, type ParkingItemId } from '@backrooms/shared';
 import { Rig } from './rig';
 import { Cosmetics } from './cosmetics';
 import { build } from './anim/core';
@@ -223,7 +223,11 @@ export class Player {
   private parkingItems: Partial<Pick<Inventory, ParkingItemId>> = {};
   private specialPending = false;
   pillsUntil = 0;
-  glassesUntil = 0;
+  /** Las gafas puestas en la mano de repuesto (no cabe la linterna a la vez), si dan visión, y los segundos que les quedan. */
+  glassesEq = false;
+  glassesOn = false;
+  glassesLeft: number = GLASSES.time;
+  onGlasses?: (e: 'on' | 'off' | 'break') => void;
   onParkingItem?: (id: ParkingItemId, receive: (accepted: boolean) => void) => void;
   get glasses() { return this.parkingItems.glasses; }
   get pills() { return this.parkingItems.pills; }
@@ -233,7 +237,39 @@ export class Player {
   get pillOn() { return performance.now() < this.pillsUntil; }
   get pillSpeed() { return 0; }
 
+  /** Ponerse las gafas (o quitárselas): ocupan la mano de repuesto, así que la linterna se guarda. F las activa. */
+  equipGlasses() {
+    if (!this.owns('glasses')) return;
+    if (this.glassesEq) return this.unequipGlasses();
+    this.glassesEq = true;
+    this.left = 'none';
+    this.flashOn = false;
+    const group = this.items.glasses, model = itemModel('glasses');
+    if (model && !group.children.length) group.add(fit(model.clone(true), .16));
+    if (this.hand === 'none' && this.gadget === 'none') this.prop = 'glasses'; // (se ven en la mano mientras no haya otra cosa)
+  }
+  unequipGlasses() {
+    this.setGlasses(false);
+    this.glassesEq = false;
+    if (this.prop === 'glasses') this.prop = 'none';
+    if (this.left === 'none' && this.spares > 0) this.left = 'flashlight';
+  }
+  private setGlasses(on: boolean) {
+    if (on === this.glassesOn || (on && this.glassesLeft <= 0)) return;
+    this.glassesOn = on;
+    this.onGlasses?.(on ? 'on' : 'off');
+  }
+  private breakGlasses() {
+    this.setGlasses(false);
+    this.glassesLeft = GLASSES.time; // (el siguiente par)
+    this.glassesEq = false;
+    if (this.prop === 'glasses') this.prop = 'none';
+    this.apply(removeItem(this.inventory, 'glasses'));
+    this.onGlasses?.('break');
+  }
+
   equipParkingItem(id: ParkingItemId) {
+    if (id === 'glasses') return this.equipGlasses();
     if (!this.owns(id)) return;
     this.empty();
     this.prop = id;
@@ -248,7 +284,6 @@ export class Player {
       this.specialPending = false;
       if (!accepted) return;
       if (id === 'pills') this.pillsUntil = performance.now() + PILLS.time * 1000;
-      if (id === 'glasses') this.glassesUntil = performance.now() + 60_000;
     });
   }
   uno = false;
@@ -465,6 +500,7 @@ export class Player {
     this.spray(dt, c);
     // las Suites: el objeto en la mano se usa con el clic (el servidor decide qué pasa)
     this.toolCd = Math.max(0, this.toolCd - dt);
+    if (this.glassesOn && ((this.glassesLeft -= dt) <= 0)) this.breakGlasses();
     this.swingT = Math.max(0, this.swingT - dt);
     if (this.prop === 'pokeball' || this.prop === 'grenade' || this.prop === 'beer') {
       // como una granada de videojuego: mantener el clic muestra el arco (game.ts lo dibuja) y soltarlo lanza; el clic derecho cancela
@@ -986,6 +1022,7 @@ export class Player {
 
   /** F o el interruptor: enciende o apaga; con la linterna gastada, saca una de repuesto si hay. */
   toggleLight() {
+    if (this.glassesEq) return this.setGlasses(!this.glassesOn);
     if (this.left !== 'flashlight') return;
     if (this.charge <= 0) {
       if (this.spares < 2) return; // (una de repuesto además de la que lleva)
@@ -1136,7 +1173,9 @@ export class Player {
     if (!inv.watergun && this.hand === 'watergun') this.hold('none');
     this.spares = inv.spares;
     if (inv.spares < 1) this.left = 'none';
-    else if (!had.spares && this.left === 'none') this.left = 'flashlight';
+    else if (!had.spares && this.left === 'none' && !this.glassesEq) this.left = 'flashlight';
+    if (!inv.glasses && this.glassesEq) (this.glassesEq = this.glassesOn = false), this.prop === 'glasses' && (this.prop = 'none'); // (se soltaron o se rompieron)
+    if (inv.glasses && !had.glasses) this.glassesLeft = GLASSES.time;
     this.water = inv.water;
     this.totem = inv.totem;
     this.monster = inv.monster;
@@ -1181,7 +1220,9 @@ export class Player {
     this.uno = this.pokeball = this.nokia = this.bat = false;
     this.grenade = 0;
     this.buffT = this.monsterT = this.unoT = 0;
-    this.pillsUntil = this.glassesUntil = 0;
+    this.pillsUntil = 0;
+    this.glassesEq = this.glassesOn = false;
+    this.glassesLeft = GLASSES.time;
     this.parkingItems = {};
     this.apply(inv);
     const t = this.ammo + this.spare;
@@ -1217,6 +1258,7 @@ export class Player {
       if (this.belt === it) this.belt = 'none';
       if (this.left === it) this.left = 'none';
     }
+    if (slot === 'left' && this.glassesEq) this.unequipGlasses(); // (la mano de repuesto: o la linterna o las gafas)
     if (slot === 'right') this.hold(it as Player['hand']);
     else if (slot === 'belt') this.belt = it as Player['belt'];
     else this.left = it as Player['left'];

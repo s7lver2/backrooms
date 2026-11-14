@@ -18,7 +18,7 @@ const PHOTO_COS = Math.cos((24 * Math.PI) / 180); // el visor cierra 12° como m
 
 export interface Player {
   pillsUntil?: number;
-  glassesUntil?: number;
+  glassesOn?: boolean;
   id: string;
   name: string;
   st: PlayerState;
