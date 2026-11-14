@@ -441,10 +441,11 @@ export class ParkingLevel {
     const target = this.focus(camera, position);
     if (!target) return;
     const { id } = target;
-    if (id === 'elevator') return { kind: 'elevator', id } as const;
+    if (id === 'elevator') return this.elevatorUnlocked && !this.elevatorOpening ? { kind: 'elevator', id } as const : undefined;
     if (this.tapes.has(id)) return { kind: 'tape', id } as const;
     if (this.storageItems.has(id)) return { kind: 'loot', id } as const;
-    if (this.generators.has(id)) return { kind: 'repair', id } as const;
+    const generator = this.generators.get(id);
+    if (generator) return generator.repaired ? undefined : { kind: 'repair', id } as const;
     return { kind: 'door', id } as const;
   }
 

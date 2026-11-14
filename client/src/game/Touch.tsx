@@ -67,7 +67,7 @@ export default function Touch({ input, hand, aiming, parking = false }: { input:
         {parking ? (
           <>
             <button type="button"
-              onPointerDown={e => { e.currentTarget.setPointerCapture(e.pointerId); input.press('bag'); input.hold('bag', true); }}
+              onPointerDown={e => { e.currentTarget.setPointerCapture(e.pointerId); input.press('grab'); input.hold('bag', true); }}
               onLostPointerCapture={() => input.hold('bag', false)}>
               [ USE ]
             </button>

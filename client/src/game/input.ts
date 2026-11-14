@@ -115,14 +115,14 @@ export class Input {
       if (!this.active || e.defaultPrevented || (e.target as HTMLElement | null)?.tagName === 'INPUT') return; // escribiendo (el chat): no es para el juego
       if ((e.ctrlKey || e.metaKey) && this.locked) e.preventDefault(); // Ctrl+R, Ctrl+S, Ctrl+F...: no son del navegador mientras se juega (Ctrl+W/T/N no los suelta Firefox: ver Keyboard Lock más abajo)
       if (e.repeat) return; // (la repetición de Esc tras reanudar volvía a pausar)
-      // tras reanudar con Esc el navegador no da el puntero hasta un gesto: cualquier otra tecla lo es
-      if (this.needClick && e.code !== 'Escape' && !this.suspend) this.lock(true);
-      if (e.code === 'Escape') return this.pulses.add(this.suspend ? 'bag' : 'pause'); // con el inventario abierto, lo cierra
       if (e.code === 'Tab' && this.tabInventory) {
         e.preventDefault();
         this.pulses.add('inventory');
         return;
       }
+      // tras reanudar con Esc el navegador no da el puntero hasta un gesto: cualquier otra tecla lo es
+      if (this.needClick && e.code !== 'Escape' && !this.suspend) this.lock(true);
+      if (e.code === 'Escape') return this.pulses.add(this.suspend ? 'bag' : 'pause'); // con el inventario abierto, lo cierra
       if (/^Digit[1-4]$/.test(e.code)) this.slotV = +e.code.slice(5) - 1;
       this.keys.add(e.code);
       // contener la respiración alternando (ajuste): Space la pone y la quita; entrar o salir de un escondite (E) la suelta
@@ -168,7 +168,7 @@ export class Input {
     doc('pointerlockchange', () => {
       this.asked = -1e9;
       // un puntero que llega cuando ya no se juega (se pidió con el clic de entrar y la carga del nivel empezó antes de que el navegador lo diera): se devuelve
-      if (this.locked && (!this.active || this.noLock)) return void document.exitPointerLock();
+      if (this.locked && (!this.active || this.noLock || this.suspend)) return void document.exitPointerLock();
       if (this.locked) (this.lockedAt = performance.now()), (this.needClick = this.soft_ = false), this.grabKeyboard();
       else this.freeKeyboard();
       if (this.wasLocked && !this.locked && this.active && !this.suspend) this.pulses.add('pause');

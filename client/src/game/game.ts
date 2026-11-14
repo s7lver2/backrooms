@@ -2460,11 +2460,13 @@ fps ${(1 / Math.max(dt, 1e-3)).toFixed(0)}`;
     if (c.pause && !this.winning && !this.paused) this.pause();
     const active = !this.paused && !document.hidden && (!this.input.suspend || this.bagOpen);
     if (active && !this.winning && this.dying < 0) {
-      if (this.bagOpen && c.bag) {
+      if (this.bagOpen && (c.bag || c.inventory)) {
+        this.input.clear();
         this.closeBag();
-        c.bag = false;
-      } else if (!this.bagOpen && c.inventory) this.openBag();
-      if (this.bagOpen) c.bag = c.grab = false;
+        c.bag = c.grab = c.bagHeld = false;
+      } else if (!this.bagOpen && (c.inventory || (c.bag && !c.grab && !round.level.roomInteraction(this.camera, round.position)))) {
+        this.openBag();
+      }
     }
     if (!active || this.bagOpen) c = { ...c, move: _none, look: _none, bag: false, grab: false, bagHeld: false, flash: false, slot: -1, wheel: 0, use: false, useHeld: false, aim: false };
     this.t += dt;

@@ -1060,6 +1060,9 @@ export default function Backrooms({ onQuit, onWin }: { onQuit: () => void; onWin
         </p>
       )}
       {screen === 'play' && hud?.parking?.prompt && !hud.bag && <p className="br-hint">{touch ? hud.parking.prompt.replace(/\bE\b/g, 'USE') : hud.parking.prompt}</p>}
+      {screen === 'play' && hud?.parking && !hud.parking.prompt && !touch && !hud.bag && !hud.aiming && !hud.inv.escaped && hud.hp > 0 && (
+        <p className="br-hint">[TAB / E] INVENTORY</p>
+      )}
       {screen === 'play' && hud?.hide && !hud.bag && !hud.aiming && hud.spectating == null && (
         <p className="br-hint">
           [{touch ? 'BAG' : 'E'}] {hud.hide === 'hide' ? 'HIDE' : 'LEAVE'}
