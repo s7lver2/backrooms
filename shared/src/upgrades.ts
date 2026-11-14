@@ -4,7 +4,7 @@
  * entrada más en UPGRADES (y un campo en Stats si da algo distinto): el terminal, el servidor y la consola de admin salen de esta tabla.
  */
 
-export type UpId = 'pack' | 'belt' | 'back' | 'hp' | 'lungs' | 'legs' | 'pool';
+export type UpId = 'pack' | 'belt' | 'back' | 'hp' | 'lungs' | 'legs' | 'pool' | 'light' | 'rest' | 'heal' | 'sneak' | 'suites' | 'reach';
 export interface UpDef {
   name: string;
   info: string;
@@ -27,6 +27,7 @@ export interface Stage {
   needs?: [UpId, number][];
 }
 const pct = (v: number) => `${Math.round(v * 100)}%`;
+const mul = (v: number) => `×${v}`;
 const st = (n: number, row: number, ...needs: [UpId, number][]): Stage => ({ n, row, ...(needs.length ? { needs } : {}) });
 export const UPGRADES: Record<UpId, UpDef> = {
   pack: { name: 'POCKETS', info: 'Backpack cells. Everything you carry needs one.', cost: [80, 140, 220, 340, 500, 750], val: [2, 4, 6, 9, 12, 16, 20], fmt: (v) => `${v} CELLS`, stages: [st(2, 0), st(2, 1), st(2, 4, ['pool', 1])], col: 0 },
@@ -36,6 +37,12 @@ export const UPGRADES: Record<UpId, UpDef> = {
   lungs: { name: 'LUNGS', info: 'How long you can run before you are out of breath.', cost: [100, 180, 300, 460], val: [0.4, 0.55, 0.7, 0.85, 1], fmt: pct, stages: [st(2, 0), st(2, 2)], col: 3 },
   legs: { name: 'LEGS', info: 'Walking and running speed.', cost: [150, 260, 420], val: [0.85, 0.9, 0.95, 1], fmt: pct, stages: [st(1, 1, ['lungs', 2]), st(2, 4, ['lungs', 4], ['pool', 1])], col: 3 },
   pool: { name: 'LEVEL 37', info: 'Unlocks the Poolrooms: they can come up in a round, with better loot and its own gear in the shop.', cost: [600], val: [0, 1], fmt: (v) => (v ? 'UNLOCKED' : 'LOCKED'), stages: [st(1, 3, ['pack', 4], ['belt', 2], ['hp', 4], ['lungs', 4], ['legs', 1])], col: 2, level: 'poolrooms' },
+  light: { name: 'BATTERIES', info: 'Your flashlight lasts longer.', cost: [90, 170, 300], val: [1, 1.15, 1.3, 1.5], fmt: mul, stages: [st(1, 2, ['pack', 2]), st(2, 3, ['belt', 2])], col: 0 },
+  rest: { name: 'SECOND WIND', info: 'You get your breath back faster.', cost: [200, 340], val: [1, 1.4, 1.8], fmt: mul, stages: [st(2, 3, ['lungs', 4])], col: 1 },
+  heal: { name: 'MEDIC', info: 'Almond Water heals more.', cost: [110, 200, 340], val: [1, 1.15, 1.3, 1.5], fmt: mul, stages: [st(2, 1, ['hp', 2]), st(1, 4, ['hp', 4])], col: 2 },
+  sneak: { name: 'SOFT STEPS', info: 'Crouching is faster: sneak past what hunts you.', cost: [180, 320], val: [0.5, 0.65, 0.8], fmt: pct, stages: [st(2, 3, ['legs', 1])], col: 3 },
+  suites: { name: 'LEVEL -20', info: 'Unlocks the Suites: a hotel with its own staff, and four new items in the shop.', cost: [1500], val: [0, 1], fmt: (v) => (v ? 'UNLOCKED' : 'LOCKED'), stages: [st(1, 5, ['pool', 1], ['pack', 6], ['belt', 4], ['hp', 4], ['lungs', 4], ['legs', 3], ['light', 3], ['rest', 2], ['heal', 3], ['sneak', 2])], col: 2, level: 'suites' },
+  reach: { name: 'THROWING ARM', info: 'Thrown items fly further and the bat hits harder.', cost: [300, 500, 800], val: [1, 1.15, 1.3, 1.5], fmt: mul, stages: [st(3, 6, ['suites', 1])], col: 3 },
 };
 export const UP_IDS = Object.keys(UPGRADES) as UpId[];
 /** Niveles comprados (lo que falta es 0). */
@@ -49,10 +56,15 @@ export interface Stats {
   hp: number;
   stamina: number;
   speed: number;
+  light: number;
+  rest: number;
+  heal: number;
+  sneak: number;
+  reach: number;
 }
 export const upLevel = (u: Ups | undefined, id: UpId) => Math.max(0, Math.min(UPGRADES[id].cost.length, Math.floor(Number(u?.[id]) || 0)));
 const v = (u: Ups | undefined, id: UpId) => UPGRADES[id].val[upLevel(u, id)];
-export const statsOf = (u?: Ups): Stats => ({ cells: v(u, 'pack'), hot: v(u, 'belt'), back: !!v(u, 'back'), hp: v(u, 'hp'), stamina: v(u, 'lungs'), speed: v(u, 'legs') });
+export const statsOf = (u?: Ups): Stats => ({ cells: v(u, 'pack'), hot: v(u, 'belt'), back: !!v(u, 'back'), hp: v(u, 'hp'), stamina: v(u, 'lungs'), speed: v(u, 'legs'), light: v(u, 'light'), rest: v(u, 'rest'), heal: v(u, 'heal'), sneak: v(u, 'sneak'), reach: v(u, 'reach') });
 /** Todo al máximo: jugando solo (sin sala) no hay árbol. */
 export const FULL_UPS: Ups = Object.fromEntries(UP_IDS.map((id) => [id, UPGRADES[id].cost.length]));
 export const FULL_STATS = statsOf(FULL_UPS);

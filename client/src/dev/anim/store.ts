@@ -114,7 +114,9 @@ export function applyCarry(S: Live) {
     p.gadget = g === 'caution' || g === 'radar' || g === 'totem' ? g : 'none';
     if (g === 'monster') (p.monster = Math.max(p.monster, 1)), p.equipMonster(); // (su modelo se pone al sacarla)
     if (g === 'uno') (p.uno = true), p.equipUno();
-    p.prop = g === 'water' || g === 'monster' || g === 'uno' || g === 'soap' || g === 'tape' || g === 'ammo' ? g : 'none';
+    if (g === 'pokeball' || g === 'nokia' || g === 'bat') (p[g] = true), p.equipTool(g);
+    if (g === 'grenade') (p.grenade = Math.max(p.grenade, 1)), p.equipTool('grenade');
+    p.prop = g === 'water' || g === 'monster' || g === 'uno' || g === 'pokeball' || g === 'grenade' || g === 'nokia' || g === 'bat' || g === 'soap' || g === 'tape' || g === 'ammo' ? g : 'none';
   } else {
     p.gadget = 'none';
     p.prop = 'none';

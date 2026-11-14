@@ -180,6 +180,10 @@ export function suitesMaze(seed: number, floor = 1): Maze {
     [spots[i], spots[j]] = [spots[j], spots[i]];
   }
   spots.sort((a, b) => Number(reserve.has(at(a.x, a.y))) - Number(reserve.has(at(b.x, b.y)))); // primero las celdas libres de muebles (estable: conserva el orden al azar)
+  // y nunca dentro de un mueble: se descartan las reservadas y las pegadas a una celda con pieza (los muebles se salen de su celda)
+  const near = (c: Cell) => [-1, 0, 1].some((dx) => [-1, 0, 1].some((dy) => used.has(at(c.x + dx, c.y + dy)) && (dx || dy) && props.some((p) => p.cell.x === c.x + dx && p.cell.y === c.y + dy && p.kind !== 'door' && p.kind !== 'plant' && p.kind !== 'bin')));
+  const clear = spots.filter((c) => !reserve.has(at(c.x, c.y)) && !near(c));
+  if (clear.length >= 14) spots.splice(0, spots.length, ...clear);
   const take = (n: number) => spots.splice(0, n);
   const [camera] = take(1), [pistol] = take(1);
   const lamps: Cell[] = [];

@@ -30,6 +30,10 @@ function modelOf(assets: Assets, k: IconKey | 'loot', r: number): THREE.Object3D
     case 'loot': return lootModel(r);
     case 'uno':
     case 'monster':
+    case 'pokeball':
+    case 'grenade':
+    case 'nokia':
+    case 'bat':
     case 'glasses':
     case 'pills':
     case 'steelcard':

@@ -4,10 +4,10 @@ import { MeshoptDecoder } from 'three/examples/jsm/libs/meshopt_decoder.module.j
 import { PARKING_ITEM_IDS } from '@backrooms/shared';
 
 /*
- * Los modelos de los objetos nuevos (taquilla, carta Uno Reverse, lata de Monster; ver public/models/items/LICENSES.txt). Se bajan una vez al
- * cargar el juego y se piden con `itemModel`; si alguno no llega, ese objeto sale con una caja.
+ * Los modelos de los objetos nuevos (taquilla, carta Uno Reverse, lata de Monster, pokeball, granada, nokia y bate; ver public/models/items/LICENSES.txt).
+ * Se bajan una vez al cargar el juego y se piden con `itemModel`; si alguno no llega, ese objeto sale con una caja.
  */
-export const inventoryModels = ['uno', 'monster', ...PARKING_ITEM_IDS] as const;
+export const inventoryModels = ['uno', 'monster', 'pokeball', 'grenade', 'nokia', 'bat', ...PARKING_ITEM_IDS] as const;
 const models = ['locker', ...inventoryModels] as const;
 export type ItemModel = typeof models[number];
 const cache = new Map<ItemModel, THREE.Object3D>();

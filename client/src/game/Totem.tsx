@@ -34,9 +34,9 @@ export default function TotemUi({ hud, avatars, touch, onPick, onClose }: { hud:
       {t.pick && (
         <div className="br-totem" role="dialog" aria-labelledby="br-totem-t">
           <p className="br-totem__head" id="br-totem-t">
-            TOTEM OF LIFE
+            {t.phone ? 'NOKIA' : 'TOTEM OF LIFE'}
           </p>
-          <p className="br-totem__sub">{t.pick.length ? 'WHO COMES BACK? THEY MUST RUN FOR THEIR LIFE FIRST.' : 'NO ONE TO REVIVE'}</p>
+          <p className="br-totem__sub">{t.phone ? (t.pick.length ? 'WHO DO YOU CALL? THE BATTERY DRAINS WHILE YOU TALK.' : 'NO ONE TO CALL') : t.pick.length ? 'WHO COMES BACK? THEY MUST RUN FOR THEIR LIFE FIRST.' : 'NO ONE TO REVIVE'}</p>
           <ul>
             {t.pick.map((m) => (
               <li key={m.id}>

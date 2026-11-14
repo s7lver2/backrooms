@@ -176,16 +176,41 @@ export class Remote {
     this.rig.root.rotation.set(0, 0, 0);
     this.rig.animator?.stopOver();
     this.emoting = 0;
-    const x = this.labelCtx;
+    this.speaking = false;
+    this.paintLabel();
+  }
+
+  private speaking = false;
+  /** Habla por el chat de voz: el altavoz junto al nombre. */
+  talk(on: boolean) {
+    if (on === this.speaking) return;
+    this.speaking = on;
+    this.paintLabel();
+  }
+  private paintLabel() {
+    const x = this.labelCtx, t = this.name.toUpperCase();
     x.clearRect(0, 0, 256, 64);
     x.font = 'bold 30px ui-monospace, Consolas, monospace';
     x.textAlign = 'center';
     x.lineWidth = 6;
     x.strokeStyle = '#000';
     x.fillStyle = '#f2f1ea';
-    const t = name.toUpperCase();
-    x.strokeText(t, 128, 42);
-    x.fillText(t, 128, 42);
+    const w = x.measureText(t).width, shift = this.speaking ? 14 : 0; // (con el altavoz, el nombre se corre un poco a la izquierda)
+    x.strokeText(t, 128 - shift, 42);
+    x.fillText(t, 128 - shift, 42);
+    if (this.speaking) {
+      const ix = 128 - shift + w / 2 + 8, iy = 29;
+      x.fillStyle = '#7dff9a';
+      x.strokeStyle = '#000';
+      x.lineWidth = 4;
+      x.beginPath();
+      x.moveTo(ix, iy - 5), x.lineTo(ix + 7, iy - 5), x.lineTo(ix + 15, iy - 12), x.lineTo(ix + 15, iy + 12), x.lineTo(ix + 7, iy + 5), x.lineTo(ix, iy + 5), x.closePath();
+      x.stroke();
+      x.fill();
+      x.strokeStyle = '#7dff9a';
+      x.lineWidth = 3;
+      for (const r of [8, 14]) (x.beginPath(), x.arc(ix + 15, iy, r, -0.9, 0.9), x.stroke());
+    }
     (this.label.material.map as THREE.Texture).needsUpdate = true;
   }
 
@@ -261,7 +286,7 @@ export class Remote {
       }
       if (this.fresh) (this.fresh = false), this.pos.copy(this.goal), (this.yaw = this.goalYaw), (this.pitch = this.goalPitch);
     }
-    if (this.hall) {
+    if (this.hall && (this.hall.x < 3 * this.hall.span) === (this.goal.x < 3 * this.hall.span)) {
       const d = Math.round((this.hall.x - this.goal.x) / this.hall.span) * this.hall.span;
       if (d) (this.goal.x += d), (this.pos.x += d);
     }

@@ -93,7 +93,7 @@ export function gearIcons(assets: Assets): Record<IconKey, string> {
   // los modelos nuevos llegan con los demás al cargar
   for (const k of inventoryModels) {
     const o = itemModel(k);
-    if (o && !cache.has(k)) (cache.set(k, shoot(o, -0.5, k === 'uno' || k === 'steelcard' ? 0.3 : 0.15)), release());
+    if (o && !cache.has(k)) (cache.set(k, shoot(o, -0.5, k === 'monster' || k === 'glasses' || k === 'pills' || k === 'beer' ? 0.15 : 0.3)), release());
   }
   return Object.fromEntries([...inventoryModels, 'flashlight', 'camera', 'gun', 'tape', 'spare', 'ammo', 'water', 'caution', 'radar', 'totem', 'watergun', 'tank'].map((k) => [k, cache.get(k) ?? ''])) as Record<IconKey, string>;
 }

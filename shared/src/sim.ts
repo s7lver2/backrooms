@@ -49,7 +49,7 @@ export interface EntDef {
 export const ENTITIES: Record<Kind, EntDef> = {
   // el personal del hotel: de pie y en paz hasta que alguien mata a uno; entonces todos van a por quien no esté escondido (y no se rinden)
   faceling: {
-    height: 1.75, walk: 1.3, run: 3.1, sight: 2, hearing: 3, lose: 90, roam: 'dark', rest: [1, 2],
+    height: 1.75, walk: 1.1, run: 2.5, sight: 2, hearing: 3, lose: 90, roam: 'dark', rest: [1, 2],
     brain: ['inspect', 'chase', 'search', 'wander'],
     clips: { idle: 'idle', walk: 'walk', run: 'run', attack: 'attack', dances: ['strut'] },
   },
@@ -128,6 +128,8 @@ export interface SimTarget {
   duck?: boolean;
   /** Hacia dónde mira (yaw del jugador: -z es 0); para las que acechan. */
   yaw?: number;
+  /** Dentro de una nube de humo: fracción (0–1) de alcance que se pierde para verlo. */
+  fog?: number;
 }
 
 // persiguen más rápido de lo que andas y más despacio de lo que corres: escapar cuesta aguante
@@ -185,7 +187,10 @@ export function hideStates(m: Maze): HideState[] {
     return { idx, x: n.x, z: n.z, fx: n.x + dx * CELL, fz: n.z + dy * CELL, yaw: Math.atan2(-dx, -dy), occ: null, cd: 0, by: null };
   });
 }
-export const tickHides = (hs: HideState[], dt: number) => hs.forEach((h) => (h.cd = Math.max(0, h.cd - dt)));
+export function tickHides(hs: HideState[], dt: number) {
+  if (!Number.isFinite(dt) || dt <= 0) return;
+  hs.forEach((h) => (h.cd = Math.max(0, h.cd - dt)));
+}
 
 /**
  * Contener la respiración: 6 s seguidos (1 = lleno), se recupera en 4 al soltar; si se agota, un jadeo y
@@ -199,6 +204,7 @@ export class Breath {
   /** Un paso; devuelve si de verdad contiene (quiere, y le queda aire). */
   step(dt: number, want: boolean, slack = 1) {
     this.gasped = false;
+    if (!Number.isFinite(dt) || dt < 0) return false;
     const hold = want && !this.winded && this.air > 0;
     this.air = Math.max(0, Math.min(1, this.air + (hold ? -1 / (6 * slack) : 1 / 4) * dt));
     if (hold && this.air <= 0) (this.winded = true), (this.gasped = true);
@@ -270,6 +276,8 @@ export class EntitySim {
   /** En paz: no hace nada (el personal del hotel) hasta `rage()`; ya furioso, siempre sabe dónde está el jugador más cercano que no esté escondido. */
   passive = false;
   enraged = false;
+  /** Dentro de una nube de humo: fracción (0–1) de lo lejos que ve. */
+  blind = 0;
   /** Pasea en línea recta por el eje x (con la ficha en paz), por el carril `z` y a `v` m/s. */
   patrol?: { z: number; dir: number; v: number };
   /** Despertada por un ruido (un cuadro de luz): va a mirar; si te ve, te mata; si no, vuelve a su sitio en paz. */
@@ -483,7 +491,8 @@ export class EntitySim {
     if (chasing) range = Math.min(18, range * 2);
     // agachado cuesta más verte y seguirte: la mitad de alcance (incluso persiguiendo, así que puedes escabullirte)
     if (t.duck) range *= 0.5;
-    const beamed = this.beamed(t);
+    range *= (1 - this.blind) * (1 - (t.fog ?? 0));
+    const beamed = !this.blind && !t.fog && this.beamed(t); // (con humo de por medio, ni la linterna delata)
     if (!beamed && !((chasing || faces(tx, tz, this.facing, Math.hypot(tx, tz), Math.cos(CONE)) || d < 2.5) && d < range)) return 0;
     if (!seesXZ(this.solid, this.x, this.z, t.ex, t.ez)) return 0;
     return beamed ? 2.5 : 0.4 + 1.6 * (1 - d / range);
@@ -494,6 +503,7 @@ export class EntitySim {
    * del jugador al que alcanza en este paso (si lo hay).
    */
   update(dt: number, targets: SimTarget[], god = false, hides: HideState[] = [], noises: Noise[] = []): string | undefined {
+    if (!Number.isFinite(dt) || dt <= 0) return undefined;
     this.moving = false;
     // dentro de una pared o un nicho (no debería): a la celda abierta más cercana
     if (this.alive && this.solid(this.x, this.z)) this.unstick();

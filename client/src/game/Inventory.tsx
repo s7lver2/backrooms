@@ -1,6 +1,6 @@
 'use client';
-import { memo, useEffect, useMemo, useRef, useState, type MutableRefObject } from 'react';
-import { DEFAULT_LOOK, RIFLE_MAG, ITEMS, SHOP, PARKING_ITEM_IDS, lootPrice, rarity, sellPrice, type ItemId, type Look, type Qual, type ParkingItemId } from '@backrooms/shared';
+import { Fragment, memo, useEffect, useMemo, useRef, useState, type MutableRefObject } from 'react';
+import { DEFAULT_LOOK, RIFLE_MAG, ITEMS, SHOP, BALL_KINDS, SUBS, fmtSub, subOf, lootPrice, rarity, sellPrice, PARKING_ITEM_IDS, type ItemId, type Look, type Qual, type ParkingItemId } from '@backrooms/shared';
 import { perks } from './perks';
 import { lootIcon } from './rarityFx';
 import type { Assets, Inv, MissionHud } from './game';
@@ -19,19 +19,38 @@ import './inventory.css';
  * al instante. Qué se puede llevar y dónde lo decide player.ts (FITS); aquí solo se pide con onPlace.
  */
 
-const NAME: Partial<Record<Item, string>> = { flashlight: 'FLASHLIGHT', camera: 'CAMCORDER', gun: 'RIFLE', water: 'ALMOND WATER', tape: 'VHS TAPES', spare: 'SPARE FLASHLIGHTS', ammo: 'RIFLE AMMO', tank: 'DIVING TANK', loot: 'ARTIFACT', uno: 'UNO REVERSE', monster: 'MONSTER' };
-type Item = Gear | 'water' | 'caution' | 'radar' | 'totem' | 'watergun' | 'tape' | 'spare' | 'ammo' | 'tank' | 'loot' | 'uno' | 'monster' | ParkingItemId;
+/** Los substats de un objeto de las Suites según su rareza (varias filas). */
+function Subs({ id, q }: { id: ItemId; q: Qual }) {
+  return (
+    <>
+      {SUBS[id]!.map((x) => (
+        <Fragment key={x.key}>
+          <span>{x.name}</span>
+          <span data-up={rarity(q.r).boost > 1 || undefined}>{fmtSub(x, subOf({ q: { [id]: q } }, id, x.key))}</span>
+        </Fragment>
+      ))}
+      {q.c && BALL_KINDS[q.c] && (
+        <>
+          <span>CAUGHT</span>
+          <span data-up>{BALL_KINDS[q.c].name} · ×{BALL_KINDS[q.c].mul} TIME</span>
+        </>
+      )}
+    </>
+  );
+}
+const NAME: Partial<Record<Item, string>> = { flashlight: 'FLASHLIGHT', camera: 'CAMCORDER', gun: 'RIFLE', water: 'ALMOND WATER', tape: 'VHS TAPES', spare: 'SPARE FLASHLIGHTS', ammo: 'RIFLE AMMO', tank: 'DIVING TANK', loot: 'ARTIFACT', uno: 'UNO REVERSE', monster: 'MONSTER', pokeball: 'POKEBALL', grenade: 'SMOKE GRENADE', nokia: 'NOKIA', bat: 'BASEBALL BAT' };
+type Item = Gear | 'water' | 'caution' | 'radar' | 'totem' | 'watergun' | 'tape' | 'spare' | 'ammo' | 'tank' | 'loot' | 'uno' | 'monster' | 'pokeball' | 'grenade' | 'nokia' | 'bat' | ParkingItemId;
 /** El objeto de la tienda (ITEMS) que corresponde a cada cosa del inventario: de él salen su rareza, su estado y su precio. La linterna de la mano y las cintas no tienen. */
-const SHOP_ID: Partial<Record<Item, ItemId>> = { flashlight: 'flashlight', camera: 'camera', gun: 'gun', water: 'water', caution: 'caution', radar: 'radar', totem: 'totem', watergun: 'watergun', spare: 'flashlight', ammo: 'ammo', tank: 'tank', uno: 'uno', monster: 'monster', glasses: 'glasses', pills: 'pills', steelcard: 'steelcard', beer: 'beer' };
+const SHOP_ID: Partial<Record<Item, ItemId>> = { flashlight: 'flashlight', camera: 'camera', gun: 'gun', water: 'water', caution: 'caution', radar: 'radar', totem: 'totem', watergun: 'watergun', spare: 'flashlight', ammo: 'ammo', tank: 'tank', uno: 'uno', monster: 'monster', pokeball: 'pokeball', grenade: 'grenade', nokia: 'nokia', bat: 'bat', glasses: 'glasses', pills: 'pills', steelcard: 'steelcard', beer: 'beer' };
 const hex = (r: number) => '#' + rarity(r).color.toString(16).padStart(6, '0');
 /** Una casilla de la mochila: qué hay y cuántas unidades (solo lo que se cuenta pasa de 1). */
 export type Cell = { k: Item; n: number };
 const STACK = new Set<Item>(['water', 'tape', 'spare', 'ammo']);
 /** Lo que el servidor deja soltar al suelo (id de ItemId); las cintas no. */
-const DROP: Partial<Record<Item, string>> = { loot: 'loot', water: 'water', spare: 'flashlight', ammo: 'ammo', camera: 'camera', gun: 'gun', caution: 'caution', radar: 'radar', totem: 'totem', watergun: 'watergun', tank: 'tank', uno: 'uno', monster: 'monster', glasses: 'glasses', steelcard: 'steelcard', beer: 'beer' };
+const DROP: Partial<Record<Item, string>> = { loot: 'loot', water: 'water', spare: 'flashlight', ammo: 'ammo', camera: 'camera', gun: 'gun', caution: 'caution', radar: 'radar', totem: 'totem', watergun: 'watergun', tank: 'tank', uno: 'uno', monster: 'monster', pokeball: 'pokeball', grenade: 'grenade', nokia: 'nokia', bat: 'bat', glasses: 'glasses', steelcard: 'steelcard', beer: 'beer' };
 const hotable = (g: Item) => g === 'camera' || g === 'gun' || barOnly(g);
 /** Lo que solo va en la barra de acceso rápido (no se equipa en las manos): se arrastra a una ranura de la barra. */
-const bagHotItems = ['caution', 'radar', 'totem', 'watergun', 'uno', 'monster', ...PARKING_ITEM_IDS] as const;
+const bagHotItems = ['caution', 'radar', 'totem', 'watergun', 'uno', 'monster', 'pokeball', 'grenade', 'nokia', 'bat', ...PARKING_ITEM_IDS] as const;
 const barOnly = (g: Item): g is 'water' | typeof bagHotItems[number] => g === 'water' || (bagHotItems as readonly Item[]).includes(g);
 const fits = (s: string, g: Item) => (s === 'left' && (g === 'flashlight' || g === 'spare')) || (s === 'back' && g === 'tank');
 const label = (g: Item) => NAME[g] ?? HOT[g]?.name ?? g;
@@ -346,7 +365,7 @@ function Inventory({
         <span className="iv-tip__banner">{R.name}</span>
         <span className="iv-tip__name">{label(g)}</span>
         <span className="iv-tip__rows">
-          {d?.boost && (
+          {id && SUBS[id] ? <Subs id={id} q={q} /> : d?.boost && (
             <>
               <span>{d.boost}</span>
               <span data-up={R.boost > 1 || undefined}>{R.boost > 1 ? `+${Math.round((R.boost - 1) * 100)}%` : '—'}</span>
@@ -517,7 +536,7 @@ function Inventory({
                 <p className="iv-detail__t">{detail.title}</p>
                 {selQ && selItem && (
                   <span className="iv-tip__rows iv-card__rows">
-                    {selId && ITEMS[selId].boost && (
+                    {selId && SUBS[selId] ? <Subs id={selId} q={selQ} /> : selId && ITEMS[selId].boost && (
                       <>
                         <span>{ITEMS[selId].boost}</span>
                         <span data-up={rarity(selQ.r).boost > 1 || undefined}>{rarity(selQ.r).boost > 1 ? `+${Math.round((rarity(selQ.r).boost - 1) * 100)}%` : '—'}</span>

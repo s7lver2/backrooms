@@ -9,7 +9,7 @@ import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { MeshoptDecoder } from 'three/examples/jsm/libs/meshopt_decoder.module.js';
 import type { Terrain } from './terrain';
-import { PickupField, type Pickup, type PickupHost } from './pickups';
+import { PickupField, type Pickup, type PickupHost, type PickupModel } from './pickups';
 import { inventoryModels, itemModel } from './itemModels';
 import { COIL, PK, PR, PY, PDIRS, POOL_CELL as C, POOL_STEP, generatePools, poolCellY, poolFloorY, poolMaze, type Cell, type PoolMap } from '@backrooms/shared';
 import type { Controls } from './input';
@@ -1155,12 +1155,13 @@ export class PoolLevel implements Terrain {
 
   /** Los objetos soltados por los jugadores (`snapshot.drops`, ids `d…`): los nuevos aparecen y los que ya no están desaparecen. */
   syncDrops(list: Drop[]) {
-    const k = this.kit, models = Object.fromEntries(Object.entries({ water: [k.water, 0.17], flashlight: [k.flashlight, 0.24], camera: [k.camera, 0.22], tank: [k.tank, 0.6], watergun: [k.watergun, 0.4], loot: [lootModel(), 0.24] }).filter(([, v]) => v[0]));
+    const k = this.kit, models = Object.fromEntries(Object.entries({ water: [k.water, 0.17], flashlight: [k.flashlight, 0.24], camera: [k.camera, 0.22], tank: [k.tank, 0.6], watergun: [k.watergun, 0.4] }).filter(([, v]) => v[0])) as Partial<Record<ItemId | 'loot', PickupModel>>;
+    models.loot = (r) => [lootModel(r), 0.24];
     for (const id of inventoryModels) {
       const model = itemModel(id);
-      if (model) models[id] = [model, 0.2];
+      if (model) models[id] = [model, id === 'bat' ? 0.7 : 0.2];
     }
-    this.pickups.syncDrops(list, models as Partial<Record<ItemId | 'loot', [THREE.Object3D, number]>>, lootModel);
+    this.pickups.syncDrops(list, models);
   }
 
   private initExtras(kit: PoolKit) {
@@ -1177,7 +1178,7 @@ export class PoolLevel implements Terrain {
     if (pm.camera) put('c', 'camera', kit.camera, pm.camera, 0.22); // la cámara de fotos (servidor: id 'c')
     if (pm.tank) put('k0', 'tank', kit.tank, pm.tank, 0.6);
     if (pm.watergun) put('p0', 'watergun', kit.watergun, pm.watergun, 0.4);
-    itemSpots(pm).filter((o) => o.kind === 'loot').forEach(({ id, cell: c }) => put(id, 'loot', lootModel(spotRarity(id, c, LEVELS.poolrooms?.luck)), c, 0.24, spotRarity(id, c, LEVELS.poolrooms?.luck))); // el botín: solo para vender (los ids, los del servidor)
+    itemSpots(pm).filter((o) => o.kind === 'loot').forEach(({ id, cell: c }) => pk.put(id, 'loot', c, lootModel(spotRarity(id, c, LEVELS.poolrooms?.luck)), 0.24, 0, undefined, false, spotRarity(id, c, LEVELS.poolrooms?.luck), true)); // el botín: solo para vender (los ids, los del servidor)
     // bebederos: los puntos de recarga del mapa (`refills`, cuando shared los trae)
     for (const [c, l] of [...m.refills.map((c) => [c, 0] as const), ...m.refillsUp.map((c) => [c, 1] as const)]) {
       const x = (c.x + 0.5) * C, z = (c.y + 0.5) * C, gy = poolCellY(m, c.x, c.y, l);
@@ -1625,6 +1626,8 @@ export class PoolLevel implements Terrain {
   }
 
   dispose() {
+    this.pickups?.dispose();
     this.owned.forEach((o) => o.dispose());
+    this.owned = [];
   }
 }

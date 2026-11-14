@@ -4,16 +4,17 @@ import { Server } from 'socket.io';
 import {
   SERVER_PORT, MAX_PLAYERS, DEFAULT_PLAYERS, DEFAULT_LOOK, cosmetic, lookAllowed, HP_MAX, NAME_MAX, CHAT_MAX, CHAT_GAP, ROOM_NAME_MAX, DIFFICULTY, START_DELAY, VOTE_TIME, LOAD_GRACE, WAIT_HALF, WAIT_SPAWNS, EMOTES, EMOTE_GAP, STRIP_MAX, STRIP_PTS, STRIP_GAP, REVIVE_IMMUNE, REVIVE_MIN,
   START_BANK, AMMO_PACK, HIT_DAMAGE, START_INV, EMPTY_INV, INV_MAX, ASCENT_GRACE, DROP_MAX, DROP_TTL, DROP_GAP, offerMissions, poolMissions, parkingMissions, parkingSpawn, parkingFits, suitesMissions, contractOffers, SUITE_FLOORS, SUITE_FALL, pickLevel, tvCount, generateMaze, cleanInv, addItem, canHold, hasItem, removeItem, purchase, shopItem, penaltyOf, ITEM_IDS, LEVELS, centerOf,
-  type ItemId, type Inventory, type Mission, type MissionOffer, type RoundResult, type Fate, type Drop, type ActiveMission,
+  type ItemId, type ToolFx, flight, FLIGHT_DT, BALL_KINDS, CELL, type Maze, type Inventory, type Mission, type MissionOffer, type RoundResult, type Fate, type Drop, type ActiveMission,
   type AdminAction, type AdminInfo, type AdminReply, type ClientToServer, type ServerToClient, type Status, type PlayerState, type Room, type RoomView, type RoomInfo, type Look, type Strip,
 } from '@backrooms/shared';
 import { Match, type Player } from './match';
 import { ACHIEVEMENT_KEYS, WATER_HEAL, NOISE_SHOT, NOISE_DROP, NOISE_PHOTO, NOISE_PICK, levelCaps, solidAt, startOffset } from '@backrooms/shared';
-import { lockerContents, facelingStock, type LockerItem, ITEMS, PARKING_ITEM_IDS, RARITIES, SCALE, UPGRADES, UP_IDS, boostOf, itemOpen, levelsOpen, cleanUps, hasRoom, lootPrice, rarity, rollRarity, sellPrice, spotRarity, statsOf, upCost, upLevel, wearInv, type Qual, type SaveInfo, type Ups } from '@backrooms/shared';
+import { lockerContents, facelingStock, type LockerItem, ITEMS, PARKING_ITEM_IDS, RARITIES, SCALE, UPGRADES, UP_IDS, boostOf, itemOpen, levelsOpen, cleanUps, hasRoom, lootPrice, rarity, rollRarity, sellPrice, spotRarity, statsOf, subOf, upCost, upLevel, wearInv, type Qual, type SaveInfo, type Ups } from '@backrooms/shared';
 import { allowedOrigins, handleApi, isAdminName, originOk, userFromCookie } from './auth';
 import { MONEY_LIMIT, parseAdmin } from './admin';
 import { achievementsOf, avatarRef, deleteSave, loadoutOf, saveOf, savesOf, writeSave } from './db';
 import { award, count, hooks } from './progress';
+import { expirePickupReceipts, type PickupReceipt } from './pickup-receipts';
 
 /*
  * El servidor de las salas: crea y lista salas, reparte los estados de los jugadores (15 Hz) y lleva la
@@ -88,6 +89,8 @@ interface RoomState extends Omit<Room, 'floor' | 'caps' | 'offers' | 'leading' |
   tok?: number;
   /** Objetos soltados en el suelo (con la hora a la que se soltaron, para el TTL). */
   drops: Map<string, Drop & { at: number }>;
+  /** Recogidas aceptadas en esta fase: un reintento confirma el resultado sin volver a dar el objeto. */
+  pickups: Map<string, PickupReceipt>;
   /** La cuenta dueña de la sala guardada (0: sala de invitado, no se guarda) y lo de cada cuenta que ha pasado por ella (mejoras e inventario). */
   ownerUid: number;
   members: Map<number, { ups: Ups; inv: Inventory }>;
@@ -205,7 +208,7 @@ function leave(id: string) {
 function checkOver(r: RoomState) {
   if (r.phase !== 'playing') return;
   const grace = !!r.boardAt && Date.now() - r.boardAt >= ASCENT_GRACE * 1000;
-  if (!grace && [...r.players.values()].some((p) => (!p.dead && !p.boarded) || p.reviving)) return; // (quien corre «Run for your life» aún puede volver)
+  if (!grace && [...r.players.values()].some((p) => (!p.dead && !p.boarded) || p.reviving || p.ball)) return; // (quien corre «Run for your life» aún puede volver)
   finish(r);
 }
 
@@ -234,10 +237,11 @@ function backToLobby(r: RoomState, ps: Player[]) {
   r.doneIds = [];
   r.boardAt = undefined;
   r.drops.clear();
+  r.pickups.clear();
   r.lockers.clear();
   prepare(r);
   // de vuelta a la sala de espera: cada uno en su sitio
-  ps.forEach((p, i) => ((p.dead = false), (p.boarded = false), (p.seen = false), (p.hp = st(p).hp), (p.water = 0), (p.totem = 0), (p.reviving = p.immuneUntil = undefined), (p.ready = false), (p.st = waitSpot(i)), (p.cap = { ...p.inv })));
+  ps.forEach((p, i) => ((p.dead = false), (p.boarded = false), (p.seen = false), (p.hp = st(p).hp), (p.water = 0), (p.totem = 0), (p.reviving = p.immuneUntil = p.ball = p.call = undefined), (p.ready = false), (p.st = waitSpot(i)), (p.cap = { ...p.inv })));
   push(r);
   for (const p of ps) io.to(p.id).emit('inv', p.inv);
 }
@@ -285,7 +289,7 @@ function gain(p: Player, id: string, r: number) {
   bag(p);
 }
 /** Con lo soltado `d` de vuelta en el inventario. */
-const withDrop = (inv: Inventory, d: Drop): Inventory => (d.kind === 'loot' ? { ...inv, loot: [...(inv.loot ?? []), d.q ?? { r: 0, w: 0 }] } : addItem(inv, d.kind, d.q?.r, d.q?.w));
+const withDrop = (inv: Inventory, d: Drop): Inventory => (d.kind === 'loot' ? { ...inv, loot: [...(inv.loot ?? []), d.q ?? { r: 0, w: 0 }] } : addItem(inv, d.kind, d.q?.r, d.q?.w, d.q?.c));
 const fitsDrop = (inv: Inventory, d: Drop, p: Player) => (d.kind === 'loot' ? hasRoom(inv, st(p), 'loot') : canHold(inv, d.kind, st(p)));
 /** Sin una unidad de `kind` (la pieza `i` si es botín): lo que queda y la calidad de lo que sale; undefined si no lo lleva. */
 function without(inv: Inventory, kind: ItemId | 'loot', i: number): { inv: Inventory; q: Qual } | undefined {
@@ -363,6 +367,7 @@ function begin(r: RoomState) {
     if (o && fitsDrop(o.inv, d, o)) o.inv = withDrop(o.inv, d);
   }
   r.drops.clear();
+  r.pickups.clear();
   // lo que cada uno lleva a la ronda: su inventario (la tienda y lo conservado)
   for (const p of r.players.values()) (p.boarded = false), (p.cap = { ...p.inv }), io.to(p.id).emit('inv', p.inv);
   r.phase = 'starting';
@@ -407,6 +412,7 @@ function closeVote(r: RoomState): Mission {
 function play(r: RoomState) {
   r.match = new Match(r.seed, r.difficulty, r.players.size, r.levelId, r.floor);
   r.match.setMission(r.chosen!);
+  r.match.onSeal = () => io.to(r.code).emit('seal');
   r.match.onHeld = (p) => p.uid && (count(p.uid, 'holds'), award(p.uid, 'held_breath'));
   r.strips = [];
   r.size0 = r.players.size;
@@ -421,26 +427,62 @@ function play(r: RoomState) {
     const start = parking ? parkingSpawn(parking.map, slot) : { x: r.match.start.x + ox, y: 0, z: r.match.start.z + oz };
     p.pillsUntil = p.glassesUntil = undefined;
     slot++;
-    (p.dead = false), (p.seen = false), (p.hp = st(p).hp), (p.water = 0), (p.totem = 0), (p.reviving = p.immuneUntil = undefined), (p.st = { ...START, x: start.x, y: start.y, z: start.z });
+    (p.dead = false), (p.seen = false), (p.hp = st(p).hp), (p.water = 0), (p.totem = 0), (p.reviving = p.immuneUntil = p.ball = p.call = undefined), (p.st = { ...START, x: start.x, y: start.y, z: start.z });
   }
   push(r);
 }
 
-/** Un caído vuelve a la partida junto a `at` (a 0,7 m por el primer lado libre; si no, encima), con la vida llena e inmune un rato. */
+/** La celda abierta más cercana a (x, z) donde se puede vivir: no es pared ni mueble, ni un nicho, ni el ascensor, y ni ella ni las vecinas son un hueco (no se cae uno). */
+function safeSpot(m: Maze, x: number, z: number) {
+  const bad = new Set<number>(), idx = (c: { x: number; y: number }) => c.y * m.w + c.x;
+  for (const v of m.voids) for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) bad.add((v.y + dy) * m.w + v.x + dx);
+  bad.add(idx(m.elevator));
+  m.props.forEach((q) => bad.add(idx(q.cell)));
+  m.hides.forEach((q) => bad.add(idx(q.cell)));
+  const cx = Math.floor(x / CELL), cy = Math.floor(z / CELL);
+  let best: { x: number; z: number } | undefined, bd = Infinity;
+  for (let dy = -10; dy <= 10; dy++)
+    for (let dx = -10; dx <= 10; dx++) {
+      const X = cx + dx, Y = cy + dy;
+      if (X < 0 || Y < 0 || X >= m.w || Y >= m.h || !m.open[Y * m.w + X] || bad.has(Y * m.w + X)) continue;
+      const c = centerOf({ x: X, y: Y }), d = Math.hypot(c.x - x, c.z - z);
+      if (d < bd) (bd = d), (best = c);
+    }
+  return best;
+}
+/** Un caído vuelve a la partida junto a `at`, siempre en suelo firme y despejado (nunca dentro de una pared, en el aire ni al borde de un hueco), con la vida llena e inmune un rato. */
 function revive(r: RoomState, p: Player, at: PlayerState) {
-  const m = r.match!.maze, parking = r.match!.parking?.map, y = parking ? at.y : 0;
-  const o = [[0.7, 0], [-0.7, 0], [0, 0.7], [0, -0.7]].find(([dx, dz]) => parking ? !!parkingFits(parking, at.x + dx, at.z + dz, y) : !solidAt(m, at.x + dx, at.z + dz)) ?? [0, 0];
+  const m = r.match!.maze, parking = r.match!.parking?.map, y = parking ? at.y : 0, pool = levelCaps(r.levelId).pool, sp = pool || parking ? undefined : safeSpot(m, at.x, at.z); // (las Poolrooms y el parking tienen agua y alturas propias: ahí, como antes)
+  const o = sp ? [sp.x - at.x, sp.z - at.z] : ([[0.7, 0], [-0.7, 0], [0, 0.7], [0, -0.7]].find(([dx, dz]) => parking ? !!parkingFits(parking, at.x + dx, at.z + dz, y) : !solidAt(m, at.x + dx, at.z + dz)) ?? [0, 0]);
   p.dead = false;
   p.hp = st(p).hp;
   p.seen = false;
   p.reviving = undefined;
   p.immuneUntil = Date.now() + REVIVE_IMMUNE;
-  p.st = { ...START, x: at.x + o[0], y: at.y, z: at.z + o[1], yaw: at.yaw };
+  p.st = { ...START, x: at.x + o[0], y: pool || parking ? at.y : 0, z: at.z + o[1], yaw: at.yaw };
   const match = r.match!.parking;
   if (match && !match.teleport(p,p.st)) match.teleport(p,match.map.spawn);
   io.to(r.code).emit('revived', { id: p.id, name: p.name, x: p.st.x, y: p.st.y, z: p.st.z, yaw: p.st.yaw });
   push(r);
 }
+
+/** Pokeball: el caído por una bola vuelve junto a donde estaba la bola (recuperada o perdida). */
+function freeBall(r: RoomState, q: Player) {
+  const at = q.ballAt;
+  q.ball = q.ballAt = undefined;
+  if (q.dead && r.match) revive(r, q, { ...START, x: at?.[0] ?? q.st.x, z: at?.[1] ?? q.st.z });
+}
+/** Nokia: cuelga la llamada de `p` (a los dos). */
+function endCall(r: RoomState, p: Player) {
+  const q = p.call ? r.players.get(p.call) : undefined;
+  for (const [a, b] of [[p, q], [q, p]] as const) {
+    if (!a) continue;
+    a.call = undefined;
+    a.caller = false;
+    if (b) io.to(a.id).emit('toolFx', { k: 'call', peer: b.id, name: b.name, on: false });
+  }
+}
+const TOOLS = ['pokeball', 'grenade', 'bat', 'nokia'];
 
 const roomOf = (id: string) => rooms.get(where.get(id) ?? '');
 
@@ -482,8 +524,8 @@ io.on('connection', (sock) => {
     const diff = sv ? d.difficulty : a?.difficulty;
     const r: RoomState = {
       lockers: new Map(), code: code || newCode(), tape: ++tapeNo, name: typeof d.name === 'string' ? d.name.slice(0, ROOM_NAME_MAX) : `SALA ${tapeNo}`, public: sv ? !!d.public : !!a?.public, ownerId: sock.id, max: num(d.max, DEFAULT_PLAYERS, 2, MAX_PLAYERS),
-      difficulty: diff && diff in DIFFICULTY ? diff : 'normal', fixedSeed: num(d.fixedSeed, 0, 0, 2 ** 31 - 1), phase: 'lobby', seed: 0, players: new Map(), size0: 0, deaths: 0, strips: [],
-      bank: num(d.bank, START_BANK, 0, MONEY_LIMIT), round: num(d.round, 1, 1, 1e6), levelId: 'level0', floor: 1, jobs: 0, bonus: 0, nextSeed: 0, pool: [], cur: false, earned: 0, doneIds: [], votes: new Map(), loaded: new Set(), done: false, lastProgress: -1, drops: new Map(),
+      difficulty: typeof diff === 'string' && Object.hasOwn(DIFFICULTY, diff) ? diff : 'normal', fixedSeed: num(d.fixedSeed, 0, 0, 2 ** 31 - 1), phase: 'lobby', seed: 0, players: new Map(), size0: 0, deaths: 0, strips: [],
+      bank: num(d.bank, START_BANK, 0, MONEY_LIMIT), round: num(d.round, 1, 1, 1e6), levelId: 'level0', floor: 1, jobs: 0, bonus: 0, nextSeed: 0, pool: [], cur: false, earned: 0, doneIds: [], votes: new Map(), loaded: new Set(), done: false, lastProgress: -1, drops: new Map(), pickups: new Map(),
       ownerUid: uid, // (las salas de invitado, uid 0, no se guardan)
       members: new Map(Object.entries(d.members ?? {}).map(([k, m]) => [Number(k), { ups: cleanUps(m?.ups), inv: { ...cleanInv(m?.inv), q: (m?.inv as Inventory | undefined)?.q ?? {}, loot: ((m?.inv as Inventory | undefined)?.loot ?? []).slice(0, 20) } }])),
     };
@@ -533,7 +575,7 @@ io.on('connection', (sock) => {
     if (typeof a.name === 'string') r.name = a.name.replace(/[\u0000-\u001f\u007f]/g, '').trim().slice(0, ROOM_NAME_MAX) || r.name;
     if (typeof a.public === 'boolean') r.public = a.public;
     if (Number.isFinite(a.max)) r.max = Math.min(MAX_PLAYERS, Math.max(2, r.players.size, Math.round(a.max!)));
-    if (a.difficulty && a.difficulty in DIFFICULTY && a.difficulty !== r.difficulty) (r.difficulty = a.difficulty), prepare(r, r.nextSeed, r.levelId); // mismas semilla y nivel: solo cambia lo que da cada misión
+    if (typeof a.difficulty === 'string' && Object.hasOwn(DIFFICULTY, a.difficulty) && a.difficulty !== r.difficulty) (r.difficulty = a.difficulty), prepare(r, r.nextSeed, r.levelId); // mismas semilla y nivel: solo cambia lo que da cada misión
     if (Number.isFinite(a.fixedSeed)) {
       const f = Math.min(2 ** 31 - 1, Math.max(0, Math.floor(a.fixedSeed!)));
       if (f !== r.fixedSeed) (r.fixedSeed = f), prepare(r); // otra semilla: otro mapa y otras misiones
@@ -788,15 +830,20 @@ io.on('connection', (sock) => {
   });
 
   sock.on('pickup', (id, cb) => {
-    const r = roomOf(sock.id), p = r?.players.get(sock.id);
+    const r = roomOf(sock.id), p = r?.players.get(sock.id), now = Date.now();
     const k = String(id);
     const kind = GAIN[k[0]];
+    if (r) expirePickupReceipts(r.pickups, now);
+    if (r && p && (r.phase === 'lobby' || r.phase === 'playing') && r.pickups.get(k)?.by === p.id) {
+      if (typeof cb === 'function') cb(true);
+      return;
+    }
     // (ids d...: soltados) Lo del mapa que no cabe (ya lo lleva, o el tope) se deja donde está: si no, se perdería para todos sin llegar a nadie
     // (en la sala de espera solo hay soltados `d…`: se recogen para el inventario que se conserva)
     if (r?.phase === 'lobby' && p && k[0] === 'd') {
       const d = r.drops.get(k);
       const got = !!d && Math.hypot(p.st.x - d.x, p.st.z - d.z) < 3.6 && fitsDrop(p.inv, d, p);
-      if (got) (r.drops.delete(k), (p.inv = withDrop(p.inv, d!)), sock.emit('inv', p.inv), save(r));
+      if (got) (r.drops.delete(k), (p.inv = withDrop(p.inv, d!)), r.pickups.set(k, { by: p.id, at: now }), sock.emit('inv', p.inv), save(r));
       if (typeof cb === 'function') cb(got);
       return;
     }
@@ -806,6 +853,7 @@ io.on('connection', (sock) => {
     if (ok && p!.uid && k[0] === 't') count(p!.uid, 'tapes'); // las cintas (ids t...)
     if (ok) r!.match!.noise(p!.st.x, p!.st.z, NOISE_PICK);
     if (ok && k[0] !== 'd') gain(p!, k, rar); // lo que se lleva: hay que tenerlo para soltarlo, beberlo o declararlo al subir
+    if (ok) r!.pickups.set(k, { by: p!.id, at: now });
     if (typeof cb === 'function') cb(ok);
   });
 
@@ -851,7 +899,7 @@ io.on('connection', (sock) => {
   // fuego amigo: un tiro del rifle que da a un compañero lo mata (el cliente apunta; aquí se comprueba rifle en mano, distancia y ritmo)
   sock.on('shoot', (id) => {
     const r = roomOf(sock.id), p = r?.players.get(sock.id), q = r?.players.get(String(id));
-    if (!r?.match || !p || !q || q === p || r.phase !== 'playing' || p.dead || p.boarded || q.dead || q.boarded || p.st.held !== 'gun' || (q.immuneUntil ?? 0) > Date.now()) return;
+    if (!r?.match || !p || !q || q === p || r.phase !== 'playing' || p.dead || p.boarded || q.dead || q.boarded || !p.cap.gun || p.st.held !== 'gun' || (q.immuneUntil ?? 0) > Date.now()) return;
     if (Date.now() - p.lastHit < 200 || Math.hypot(p.st.x - q.st.x, p.st.z - q.st.z) > 35) return;
     p.lastHit = Date.now();
     r.match.noise(p.st.x, p.st.z, NOISE_SHOT);
@@ -1106,7 +1154,7 @@ io.on('connection', (sock) => {
   sock.on('drink', () => {
     const r = roomOf(sock.id), p = r?.players.get(sock.id);
     if (!r?.match || !p || r.phase !== 'playing' || p.dead || p.boarded || p.cap.water <= 0) return;
-    const heal = HP_MAX * WATER_HEAL * boostOf(p.cap, 'water'); // (la rareza de la lata cura más)
+    const heal = HP_MAX * WATER_HEAL * boostOf(p.cap, 'water') * st(p).heal; // (la rareza de la lata cura más)
     p.cap = removeItem(p.cap, 'water');
     p.hp = Math.min(st(p).hp, p.hp + heal);
     bag(p);
@@ -1240,6 +1288,64 @@ io.on('connection', (sock) => {
     reply(true);
   });
 
+  // los objetos de las Suites: pokeball, granada de humo, bate y nokia (aquí se decide todo; el cliente solo pinta)
+  sock.on('tool', (a, cb) => {
+    const r = roomOf(sock.id), p = r?.players.get(sock.id), m = r?.match;
+    const reply = (ok: boolean, why?: string, used?: boolean) => typeof cb === 'function' && cb({ ok, why, used });
+    if (!r || !m || !p || r.phase !== 'playing' || p.dead || p.boarded || !a || !TOOLS.includes(a.k) || !hasItem(p.cap, a.k)) return reply(false);
+    const k = a.k, S = st(p), now = Date.now(), all = [...r.players.values()], yaw = Number.isFinite(a.yaw) ? a.yaw : p.st.yaw;
+    if (now - (p.toolAt?.[k] ?? 0) < (k === 'bat' ? subOf(p.cap, 'bat', 'cd') * 1000 : 700)) return reply(false, 'WAIT');
+    (p.toolAt ??= {})[k] = now;
+    const fx = (e: ToolFx) => io.to(r.code).emit('toolFx', e);
+    // pokeball y granada vuelan en parábola con rebotes (shared/throw.ts, la misma que dibuja el arco del cliente): `reach` les da más fuerza
+    const fl = k === 'pokeball' || k === 'grenade' ? flight((x, z) => solidAt(m.maze, x, z), [p.st.x, p.st.y + 1.5, p.st.z], yaw, Math.max(-1.45, Math.min(1.45, Number(a.pitch) || 0)), 11 * Math.sqrt(S.reach)) : undefined;
+    if (k === 'pokeball' && fl) {
+      // cada bola se lanza una vez: sale de la mano y cae donde acabe el vuelo; al recuperarla es otra bola, según lo que atrapó
+      const was = p.cap.q?.pokeball ?? { r: 0, w: 0 }, mul = was.c ? BALL_KINDS[was.c]?.mul ?? 1 : 1;
+      const o = m.ballHit(p, all, fl.pts, subOf(p.cap, 'pokeball', 'time') * mul);
+      const c = o.player ? 'player' : o.ent ?? was.c, id = 'd' + (++dropNo).toString(36);
+      fx({ k: 'throw', what: 'pokeball', path: fl.pts, s: (fl.pts.length / 3) * FLIGHT_DT });
+      p.cap = removeItem(p.cap, 'pokeball');
+      r.drops.set(id, { id, kind: 'pokeball', x: o.at[0], z: o.at[1], by: p.id, at: now, q: { r: was.r, w: was.w, ...(c ? { c } : {}) } });
+      if (o.player) {
+        // un compañero: queda caído hasta que alguien recupere la bola del suelo (o ésta desaparezca)
+        (o.player.ball = id), (o.player.ballAt = o.at), (o.player.dead = true);
+        io.to(r.code).emit('dead', o.player.id);
+        push(r);
+      }
+      bag(p);
+      return reply(true, o.player ? `${o.player.name.toUpperCase()} TRAPPED · PICK THE BALL UP TO FREE THEM` : o.ent ? `${o.ent.toUpperCase()} CAUGHT · PICK THE BALL UP AGAIN` : 'MISSED · PICK THE BALL UP', true);
+    }
+    if (k === 'grenade' && fl) {
+      const sub = (key: string) => subOf(p.cap, 'grenade', key);
+      m.grenade(p, fl.end[0], fl.end[2], { r: sub('range'), dmg: sub('dmg'), fog: sub('fog'), noise: sub('noise') });
+      fx({ k: 'throw', what: 'grenade', path: fl.pts, s: (fl.pts.length / 3) * FLIGHT_DT });
+      fx({ k: 'smoke', x: fl.end[0], z: fl.end[2], r: sub('range'), s: Match.SMOKE_S });
+      p.cap = removeItem(p.cap, 'grenade');
+      bag(p);
+      return reply(true, undefined, true);
+    }
+    if (k === 'bat') {
+      const force = subOf(p.cap, 'bat', 'force') * S.reach, o = m.bat(p, all, yaw, force);
+      fx({ k: 'bat', id: p.id });
+      for (const q of o.pushed) io.to(q.id).emit('adminFx', { k: 'push', x: o.fx * force, z: o.fz * force });
+      // cada golpe la desgasta (1 / durabilidad) y puede romperse antes de tiempo
+      const q0 = p.cap.q?.bat ?? { r: 0, w: 0 }, w = q0.w + 1 / subOf(p.cap, 'bat', 'dur'), broke = w >= 1 || Math.random() < subOf(p.cap, 'bat', 'snap');
+      p.cap = broke ? removeItem(p.cap, 'bat') : { ...p.cap, q: { ...p.cap.q, bat: { r: q0.r, w } } };
+      bag(p);
+      return reply(true, broke ? 'THE BAT BROKE' : undefined, broke);
+    }
+    // nokia: sin `to`, o con una llamada en curso, cuelga; con `to`, llama a un compañero vivo (se conecta al momento)
+    if (p.call) return (endCall(r, p), reply(true));
+    const q = r.players.get(String(a.to));
+    if (!q || q === p || q.dead || q.boarded) return reply(false, 'NO ONE TO CALL');
+    if (q.call) return reply(false, 'LINE BUSY');
+    (p.call = q.id), (q.call = p.id), (p.caller = true);
+    io.to(p.id).emit('toolFx', { k: 'call', peer: q.id, name: q.name, on: true });
+    io.to(q.id).emit('toolFx', { k: 'call', peer: p.id, name: p.name, on: true });
+    reply(true);
+  });
+
   // pistola de agua: el servidor decide a quién moja o para (el cliente solo pinta el chorro)
   const squirtAt = new Map<string, number>();
   sock.on('squirt', (a) => {
@@ -1314,6 +1420,22 @@ setInterval(() => {
       push(r);
     });
     roundTick(r);
+    for (const q of r.players.values()) {
+      // pokeball: el encerrado vuelve cuando la bola del suelo ya no está (la recuperó alguien o caducó)
+      if (q.ball && !r.drops.has(q.ball)) freeBall(r, q);
+      // nokia: la llamada se corta si alguno cae; la batería de quien llamó se gasta mientras habla y, a cero, el nokia desaparece
+      if (q.call && q.caller) {
+        const o = r.players.get(q.call), w = (q.cap.q?.nokia?.w ?? 0) + DT / subOf(q.cap, 'nokia', 'battery');
+        if (!o || q.dead || q.boarded || o.dead || o.boarded || !q.cap.nokia) endCall(r, q);
+        else if (w >= 1) {
+          q.cap = removeItem(q.cap, 'nokia');
+          io.to(q.id).emit('adminFx', { k: 'take', item: 'nokia' });
+          io.to(q.id).emit('toolFx', { k: 'note', text: 'THE NOKIA RAN OUT OF BATTERY' });
+          endCall(r, q);
+          bag(q);
+        } else q.cap = { ...q.cap, q: { ...q.cap.q, nokia: { r: q.cap.q?.nokia?.r ?? 0, w } } };
+      }
+    }
     checkOver(r);
   }
 }, DT * 1000);
