@@ -4,7 +4,7 @@
  * entrada más en UPGRADES (y un campo en Stats si da algo distinto): el terminal, el servidor y la consola de admin salen de esta tabla.
  */
 
-export type UpId = 'pack' | 'belt' | 'back' | 'hp' | 'lungs' | 'legs' | 'pool' | 'light' | 'rest' | 'heal' | 'sneak' | 'suites' | 'reach';
+export type UpId = 'pack' | 'belt' | 'back' | 'hp' | 'lungs' | 'legs' | 'pool' | 'light' | 'rest' | 'heal' | 'sneak' | 'suites' | 'parking' | 'reach';
 export interface UpDef {
   name: string;
   info: string;
@@ -41,8 +41,9 @@ export const UPGRADES: Record<UpId, UpDef> = {
   rest: { name: 'SECOND WIND', info: 'You get your breath back faster.', cost: [200, 340], val: [1, 1.4, 1.8], fmt: mul, stages: [st(2, 3, ['lungs', 4])], col: 1 },
   heal: { name: 'MEDIC', info: 'Almond Water heals more.', cost: [110, 200, 340], val: [1, 1.15, 1.3, 1.5], fmt: mul, stages: [st(2, 1, ['hp', 2]), st(1, 4, ['hp', 4])], col: 2 },
   sneak: { name: 'SOFT STEPS', info: 'Crouching is faster: sneak past what hunts you.', cost: [180, 320], val: [0.5, 0.65, 0.8], fmt: pct, stages: [st(2, 3, ['legs', 1])], col: 3 },
-  suites: { name: 'LEVEL -20', info: 'Unlocks the Suites: a hotel with its own staff, and four new items in the shop.', cost: [1500], val: [0, 1], fmt: (v) => (v ? 'UNLOCKED' : 'LOCKED'), stages: [st(1, 5, ['pool', 1], ['pack', 6], ['belt', 4], ['hp', 4], ['lungs', 4], ['legs', 3], ['light', 3], ['rest', 2], ['heal', 3], ['sneak', 2])], col: 2, level: 'suites' },
-  reach: { name: 'THROWING ARM', info: 'Thrown items fly further and the bat hits harder.', cost: [300, 500, 800], val: [1, 1.15, 1.3, 1.5], fmt: mul, stages: [st(3, 6, ['suites', 1])], col: 3 },
+  suites: { name: 'LEVEL -20', info: 'Unlocks the Suites: a hotel with its own staff, and four new items in the shop.', cost: [1500], val: [0, 1], fmt: (v) => (v ? 'UNLOCKED' : 'LOCKED'), stages: [st(1, 6, ['parking', 1], ['pool', 1], ['pack', 6], ['belt', 4], ['hp', 4], ['lungs', 4], ['legs', 3], ['light', 3], ['rest', 2], ['heal', 3], ['sneak', 2])], col: 2, level: 'suites' },
+  parking: { name: 'LEVEL 1', info: 'Unlocks the Habitable Zone: a concrete parking garage with its own enemies, and four new items in the shop.', cost: [1000], val: [0, 1], fmt: (v) => (v ? 'UNLOCKED' : 'LOCKED'), stages: [st(1, 5, ['pool', 1], ['pack', 4], ['belt', 2])], col: 0, level: 'parking' },
+  reach: { name: 'THROWING ARM', info: 'Thrown items fly further and the bat hits harder.', cost: [300, 500, 800], val: [1, 1.15, 1.3, 1.5], fmt: mul, stages: [st(3, 7, ['suites', 1])], col: 3 },
 };
 export const UP_IDS = Object.keys(UPGRADES) as UpId[];
 /** Niveles comprados (lo que falta es 0). */
