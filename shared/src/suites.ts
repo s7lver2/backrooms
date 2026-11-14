@@ -78,6 +78,7 @@ export function suitesMaze(seed: number, floor = 1): Maze {
   // las suites: el mismo moblaje en las de cada posición de cada copia (por el hueco, no por la copia), así el bucle es perfecto.
   // Cada una es una suite de hotel de verdad: cama contra el fondo, sofá y escritorio con espejo en las paredes de los lados, maleta, planta y papelera.
   // `t` son metros desde la pared del fondo hacia la puerta; las piezas se ponen por metros (`off`) y miran hacia donde `rot` (índice de DIRS).
+  const hides: Maze['hides'] = [];
   const free: Cell[] = [], reserve = new Set<number>(), gens: Cell[] = [];
   // los cuadros eléctricos: escondidos en dos suites al azar (la misma en las tres copias; el de verdad, el de la copia del medio)
   const rg = mulberry32(seed ^ 0x6e6e), g0 = (rg() * 6) | 0, g1 = (g0 + 1 + ((rg() * 5) | 0)) % 6;
@@ -115,7 +116,7 @@ export function suitesMaze(seed: number, floor = 1): Maze {
         const wallA = (d: number) => (ws > 0 ? Xw + d : Xe - d), wallB = (d: number) => (ws > 0 ? Xe - d : Xw + d);
         const busyA: [number, number][] = [], busyB: [number, number][] = [];
         // a veces, un Faceling de pie en un rincón de la suite, junto a la puerta (mira hacia dentro); en las tres copias a la vez, como todo
-        if (mulberry32(seed * 17 + side * 5 + slot * 3 + 11)() < 0.3) (busyA.push([7.85, 8.75]), put('faceling', wallA(0.7), 8.3, faceA, 0.45));
+        if (mulberry32(seed * 17 + side * 5 + slot * 3 + 11)() < 0.04) (busyA.push([7.85, 8.75]), put('faceling', wallA(0.7), 8.3, faceA, 0.45));
         /** Un hueco libre de `len` m a lo largo de la pared, pasada la cama (desde t = 2,4); null si no cabe. */
         const spot = (busy: [number, number][], len: number) => {
           for (let i = 0; i < 10; i++) {
@@ -143,7 +144,13 @@ export function suitesMaze(seed: number, floor = 1): Maze {
         // contra la pared del sofá y la del escritorio, lo que toque, donde quepa
         const sofa = spot(busyA, 1.9);
         if (sofa !== null) put('sofa', wallA(0.62), sofa, faceA, 0.8);
-        if (chance(0.75)) { const t = spot(busyA, 1.2); if (t !== null) put('wardrobe', wallA(0.55), t, faceA, 0.5); }
+        if (chance(0.75)) {
+          const t = spot(busyA, 1.2);
+          if (t !== null) {
+            const c = put('wardrobe', wallA(0.55), t, faceA, 0.5), Z = zAt(t);
+            hides.push({ cell: c, side: faceA, at: [wallA(0.55), Z], front: [wallA(0.55) + (ws > 0 ? 1.1 : -1.1), Z] }); // (se puede uno esconder en él)
+          }
+        }
         if (chance(0.7)) { const t = spot(busyA, 0.9); if (t !== null) put('wingchair', wallA(0.55), t, faceA, 0.35); }
         if (chance(0.6)) { const t = spot(busyA, 0.4); if (t !== null) put('bin', wallA(0.3), t, faceA); }
         if (chance(0.65)) { const t = spot(busyB, 0.6); if (t !== null) put('bistro', wallB(0.5), t, faceB, 0.3); }
@@ -181,6 +188,6 @@ export function suitesMaze(seed: number, floor = 1): Maze {
     floor, span: [SUITE_L, 2 * SUITE_L], w: W, h: H, open, lit: new Uint8Array(W * H).fill(1), zone: new Uint8Array(W * H), voids: [],
     start: cell(CW + 10, 12), stairs: cell(SUITE_L + 1, 1), gens, elevator, camera, pistol, extraGuns: [],
     tapes: take(8), flashlights: take(4), spawns: [cell(SUITE_L + 4, 8), cell(SUITE_L + 5, 9), cell(SUITE_L + 15, 9)],
-    lamps, props, hides: [], rooms,
+    lamps, props, hides, rooms,
   };
 }

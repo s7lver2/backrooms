@@ -8,7 +8,10 @@ import { Animator, TREE, VARIANTS, MANIFEST, guessCat, loadAnimations, type Cat 
 import { DANCES } from '../../game/anim/dance';
 import { grips } from '../../game/grips';
 import { worn, wornModel, placeWorn } from '../../game/worn';
+import { Cosmetics, PIECES } from '../../game/cosmetics';
+import { DEFAULT_LOOK } from '@backrooms/shared';
 import { loadPoolKit, poolPart } from '../../game/poolmap';
+import { loadItemModels } from '../../game/itemModels';
 import { build, reloadPack, type Pack } from '../../game/anim/core';
 import { Player } from '../../game/player';
 import type { Controls } from '../../game/input';
@@ -18,6 +21,7 @@ import { StudioCtx, useStudio, snapshot, restore, applyCarry, CAMS, CAT_COLOR, C
 import { Locomotion, Timeline } from './Dock';
 import { CamBar, Mando, Help } from './Viewport';
 import { VariantsPanel, IkPanel } from './Panels';
+import { IkPicker } from './Grips';
 import { CSS } from './css';
 
 /*
@@ -122,7 +126,7 @@ export default function Studio() {
     let alive = true, raf = 0, last = performance.now();
     const loader = new GLTFLoader().setMeshoptDecoder(MeshoptDecoder);
     const names = ['hazmat', 'flashlight', 'camcorder', 'gun', 'duct', 'radar', 'totem', 'water', 'vhs'] as const;
-    Promise.all([...names.map((n) => loader.loadAsync(`/models/backrooms/${n}.glb`)), loadAnimations(), loadPoolKit()]).then(async (all) => {
+    Promise.all([...names.map((n) => loader.loadAsync(`/models/backrooms/${n}.glb`)), loadAnimations(), loadPoolKit(), loadItemModels()]).then(async (all) => {
       if (!alive) return;
       const gl = all.slice(0, names.length) as Awaited<ReturnType<typeof loader.loadAsync>>[], pack = all[names.length] as Pack;
       const gltf = Object.fromEntries(names.map((n, i) => [n, gl[i]]));
@@ -132,7 +136,7 @@ export default function Studio() {
       const player = new Player(world, { gltf } as unknown as Assets, eye, new THREE.SpotLight(), true);
       player.spawn(new THREE.Vector3(), 0);
       const A = player.rig.animator!;
-      const live: Live = { A, player, pack, manual: false, hold: 'flashlight', gear: '', first: false, gripAim: false, tank: false, ik, danceOn: false, setTerrain, cam, ctl: { speed: 1.6, auto: 'off', turn: 0.8, treadmill: false, timeScale: 1, paused: false, step: false, joy: { x: 0, y: 0 }, crouch: false, jump: false, skeleton: false, grid: true }, setCam: () => {}, reset: () => {} };
+      const live: Live = { A, player, pack, manual: false, hold: 'flashlight', gear: '', first: false, gripAim: false, tank: false, piece: '', ik, danceOn: false, setTerrain, cam, ctl: { speed: 1.6, auto: 'off', turn: 0.8, treadmill: false, timeScale: 1, paused: false, step: false, joy: { x: 0, y: 0 }, crouch: false, jump: false, skeleton: false, grid: true }, setCam: () => {}, reset: () => {} };
       A.ik.ground = (x, z) => (ik.foot ? terrain(x, z) : null);
       const fwd = new THREE.Vector3();
       A.ik.aim = { weight: 1, dir: () => (ik.aim ? fwd.set(Math.sin(ik.yaw), Math.sin(ik.pitch), Math.cos(ik.yaw)).normalize() : null) };
@@ -177,7 +181,14 @@ export default function Studio() {
       // la bombona a la espalda (su sitio: worn.json)
       const tankSrc = poolPart('tank'), tankObj = tankSrc ? wornModel(tankSrc) : undefined;
       if (tankObj) scene.add(tankObj);
+      // accesorios nuevos: cada .glb de public/models/cosmetics sin entrada en pieces.json aparece solo (con medidas por defecto; se guarda con Ctrl+S)
+      fetch('/__grips').then((r) => r.json()).then((ids: string[]) => {
+        for (const id of ids) PIECES[id] ??= { slot: 'head', size: 0.3, scale: 1, up: 0.1, fwd: 0, side: 0, rx: 0, ry: 0, rz: 0 };
+        setPackVer((n) => n + 1);
+      }).catch(() => {});
       const spine = player.rig.bone('Spine2');
+      const cos = new Cosmetics(player.rig.root); // sombreros y mochilas (pieces.json)
+      scene.add(cos.root);
       const skel = new THREE.SkeletonHelper(player.rig.root);
       (skel.material as THREE.LineBasicMaterial).depthTest = false;
       skel.renderOrder = 8;
@@ -213,7 +224,10 @@ export default function Studio() {
           if (live.manual) player.rig.update(dt);
           else player.update(dt, c);
         }
-        if (!live.first) for (const n of ['Head', 'Neck']) player.rig.bone(n)?.scale.setScalar(1); // (en primera persona encoge su cabeza; en tercera se ve entera)
+        if (!live.first || live.piece) for (const n of ['Head', 'Neck']) player.rig.bone(n)?.scale.setScalar(1); // (en primera persona encoge su cabeza; en tercera se ve entera)
+        const pc = PIECES[live.piece];
+        cos.set({ ...DEFAULT_LOOK, head: pc?.slot === 'head' ? live.piece : '', back: pc?.slot === 'back' ? live.piece : '' });
+        cos.update(0, true);
         marks.forEach((m, i) => ((m.visible = ik[i ? 'handR' : 'handL']), m.position.set((i ? -1 : 1) * ik.tx, ik.ty, ik.tz)));
         // cinta andadora: el personaje se queda en el centro y el suelo se desliza; si no, la cámara lo sigue
         const d = player.pos.clone().sub(lastPos);
@@ -304,7 +318,7 @@ export default function Studio() {
     setTick((n) => n + 1);
   };
   const save = async () => {
-    const res = await Promise.all([post('tree', TREE), post('variants', VARIANTS), post('dances', DANCES), post('manifest', MANIFEST), post('grips', grips), post('worn', worn)]);
+    const res = await Promise.all([post('tree', TREE), post('variants', VARIANTS), post('dances', DANCES), post('manifest', MANIFEST), post('grips', grips), post('worn', worn), post('pieces', PIECES)]);
     if (res.every(Boolean)) (hist.current.saved = snapshot()), setMsg('saved ✓');
     else setMsg('ERROR saving');
     setTimeout(() => setMsg(''), 2500);
@@ -314,7 +328,7 @@ export default function Studio() {
   useEffect(() => {
     const L = sRef.current;
     if (!L) return;
-    if (mode !== 'ik') (L.gear = ''), (L.gripAim = false), (L.first = false), (L.tank = false);
+    if (mode !== 'ik') (L.gear = ''), (L.gripAim = false), (L.first = false), (L.tank = false), (L.piece = '');
     applyCarry(L);
   }, [mode, S]);
   const preview = useCallback((clip: string | null, rate = 1) => {
@@ -344,7 +358,7 @@ export default function Studio() {
           <button onClick={api.redo} title="Ctrl+Y">↷</button>
           <button className="st-save" data-dirty={dirty || undefined} onClick={save} title="Ctrl+S">{dirty ? 'SAVE ●' : 'SAVED'}</button>
         </header>
-        <Library />
+        {mode === 'ik' ? <IkPicker /> : <Library />}
         <div className="st-sp v" style={{ gridColumn: 2 }} onPointerDown={split('lib', 1, 'x', 150, 520)} />
         <div className="st-center">
           <div className="st-view" ref={box}>

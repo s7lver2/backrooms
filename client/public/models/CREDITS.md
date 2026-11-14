@@ -64,3 +64,5 @@ Hospital corridor of the "Run for your life" level (`backrooms/hospital/`, all C
 - `pool/tank.glb`: "Simple Oxygen Tank" by Blender3D (https://sketchfab.com/Blender3D), CC-BY-4.0, https://sketchfab.com/3d-models/simple-oxygen-tank-b549fd81fdae40948cfb4c36df8c230e
 
 - `pool/watergun.glb`: "Water gun" by Annelida (https://sketchfab.com/Annelida), CC-BY-4.0, https://sketchfab.com/3d-models/water-gun-5983291058fe418a9623f008b96dec27
+
+| `backrooms/suites/trolley.glb` | [Gold Hotel Luggage Trolley (Fallout: Miami)](https://sketchfab.com/3d-models/gold-hotel-luggage-trolley-fallout-miami-d89f1bba5e62451d9d11eaf599a6542b) | Damian Tkaczyk | CC-BY-4.0 |

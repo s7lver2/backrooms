@@ -2,6 +2,7 @@
    sombra negra dura abajo a la derecha, en mayúsculas, y la opción marcada con ▶. Sin ventanas ni cajas:
    el texto va encima de la imagen, como en la cinta. Por encima de todo el ordenador, cursor incluido */
 .br {
+  zoom: var(--br-ui, 1);
   --br-ink: #f2f1ea;
   --br-dim: #8d8b80;
   --br-rec: #ff3a2e;
@@ -720,3 +721,23 @@
 @keyframes br-blackout { 0%, 18% { opacity: 0; } 22% { opacity: 1; } 30% { opacity: 0.2; } 36%, 52% { opacity: 1; } 58% { opacity: 0.5; } 100% { opacity: 1; } }
 .br[data-fell] > nav { animation: br-blackout 2.6s steps(1, end) both; }
 @media (prefers-reduced-motion: reduce) { .br[data-fell] > nav { animation: none; } }
+
+/* Me han dado con una pistola de agua: el chorro salpica la pantalla (Game.wetFx) */
+.br-wetfx { position: fixed; inset: 0; z-index: 7; pointer-events: none; opacity: 0; background:
+  radial-gradient(circle at 18% 30%, #bfe6ffcc 0 2.2%, transparent 2.6%), radial-gradient(circle at 78% 22%, #bfe6ffcc 0 1.6%, transparent 2%),
+  radial-gradient(circle at 64% 70%, #bfe6ffcc 0 2.6%, transparent 3%), radial-gradient(circle at 30% 78%, #bfe6ffcc 0 1.3%, transparent 1.7%),
+  radial-gradient(circle at 88% 58%, #bfe6ffcc 0 1.1%, transparent 1.5%), radial-gradient(circle at 46% 44%, #bfe6ff99 0 1.8%, transparent 2.2%),
+  radial-gradient(ellipse at center, transparent 35%, #3a8fe066 100%); }
+.br-wetfx[data-k="wet"] { animation: br-wetfx 1.6s ease-out; }
+.br-wetfx[data-k="stun"] { animation: br-stunfx 2.4s ease-out; filter: saturate(1.4); }
+@keyframes br-wetfx { 0% { opacity: 1; transform: scale(1.06); } 60% { opacity: 0.8; transform: translateY(14px); } 100% { opacity: 0; transform: translateY(46px); } }
+@keyframes br-stunfx { 0% { opacity: 1; transform: scale(1.12); background-color: #ffffff55; } 25% { background-color: transparent; } 70% { opacity: 0.85; transform: translateY(20px); } 100% { opacity: 0; transform: translateY(60px); } }
+@media (prefers-reduced-motion: reduce) { .br-wetfx[data-k] { animation-duration: 0.6s; transform: none; } }
+
+/* Efectos del personaje (Effects.tsx) */
+.br-fxs { position: absolute; left: var(--br-gut); bottom: 96px; z-index: 3; pointer-events: none; display: flex; gap: 6px; flex-wrap: wrap; max-width: 46vw; }
+.br-fx { position: relative; width: 44px; height: 44px; display: grid; place-items: center; border: 1px solid; background: #000000a8; overflow: hidden; }
+.br-fx[data-kind="good"] { color: #7be08a; border-color: #4aa65a; box-shadow: inset 0 0 10px #4aa65a55; }
+.br-fx[data-kind="bad"] { color: #ff6b5e; border-color: #b04a42; box-shadow: inset 0 0 10px #b04a4255; }
+.br-fx i { position: absolute; left: 0; right: 0; bottom: 0; height: 3px; background: currentColor; transform-origin: left; }
+.br-fx small { position: absolute; left: 50%; bottom: 100%; transform: translateX(-50%); white-space: nowrap; font-size: 10px; opacity: 0; transition: opacity 0.12s; }

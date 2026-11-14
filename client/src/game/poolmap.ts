@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { glow, lootModel, pulse } from './rarityFx';
-import { LEVELS, boostOf, lootSpots, spotRarity, type Drop, type ItemId } from '@backrooms/shared';
+import { LEVELS, boostOf, itemSpots, spotRarity, type Drop, type ItemId } from '@backrooms/shared';
 import { perks } from './perks';
 import { ElevatorCab } from './elevator';
 import { Reflector } from 'three/examples/jsm/objects/Reflector.js';
@@ -1170,7 +1170,7 @@ export class PoolLevel implements Terrain {
     if (pm.camera) put('c', 'camera', kit.camera, pm.camera, 0.22); // la cámara de fotos (servidor: id 'c')
     if (pm.tank) put('k0', 'tank', kit.tank, pm.tank, 0.6);
     if (pm.watergun) put('p0', 'watergun', kit.watergun, pm.watergun, 0.4);
-    lootSpots(pm).forEach((c, i) => put('v' + i, 'loot', lootModel(spotRarity('v' + i, c, LEVELS.poolrooms?.luck)), c, 0.24, spotRarity('v' + i, c, LEVELS.poolrooms?.luck))); // el botín: solo para vender
+    itemSpots(pm).filter((o) => o.kind === 'loot').forEach(({ id, cell: c }) => put(id, 'loot', lootModel(spotRarity(id, c, LEVELS.poolrooms?.luck)), c, 0.24, spotRarity(id, c, LEVELS.poolrooms?.luck))); // el botín: solo para vender (los ids, los del servidor)
     // bebederos: los puntos de recarga del mapa (`refills`, cuando shared los trae)
     for (const [c, l] of [...m.refills.map((c) => [c, 0] as const), ...m.refillsUp.map((c) => [c, 1] as const)]) {
       const x = (c.x + 0.5) * C, z = (c.y + 0.5) * C, gy = poolCellY(m, c.x, c.y, l);
@@ -1367,6 +1367,7 @@ export class PoolLevel implements Terrain {
   /** El cuerpo en el mundo: mirar, tubos, nadar, tobogán, andar con choques por ejes, saltar y las plantas (ver locomotion.ts para lo común a todos los niveles). */
   private move(dt: number, c: Controls) {
     const m = this.map;
+    dt = Math.min(dt, 0.05); // (un tirón largo no da un paso enorme: atravesaría paredes y suelos)
     this.yaw -= c.look.x;
     this.pitch = Math.max(-1.45, Math.min(1.45, this.pitch - c.look.y));
     const cy = Math.cos(this.yaw), sy = Math.sin(this.yaw);
@@ -1415,7 +1416,7 @@ export class PoolLevel implements Terrain {
       mz = sz * 5.2 * dt + (sz === 0 ? (cj - this.pz) * Math.min(1, dt * 6) : 0);
       (this.fx = sx * 4.5), (this.fz = sz * 4.5);
     } else {
-      const sp = (c.run ? RUN : WALK) * this.speedK * (ducking(c.crouch, c.run) ? CROUCH_SLOW : 1) * (i0 >= 0 && this.wat(i0) ? 0.7 : 1), pm = planar(this.yaw, c.move, sp, dt);
+      const sp = (c.run ? RUN : WALK) * this.speedK * (ducking(c.crouch, c.run) ? CROUCH_SLOW : 1), pm = planar(this.yaw, c.move, sp, dt);
       mx = pm.x + this.fx * dt;
       mz = pm.y + this.fz * dt;
       const k = Math.max(0, 1 - dt * 2.2); // el impulso del tobogán se apaga
@@ -1436,7 +1437,7 @@ export class PoolLevel implements Terrain {
     }
     const i1 = this.idx(this.px, this.pz);
     if (i1 >= 0) {
-      const f1 = this.flc(this.px, this.pz, this.py);
+      const f1 = this.flc(this.px, this.pz, this.py), lay0 = this.lay;
       if (f1 && !dw) (this.lay = f1.layer), (this.surf = f1.layer ? PY.upSurf : PY.surf); // (en un pozo de la alta se baja por dentro de la losa: sigue siendo la alta)
       if (this.swim) {
         const tn = !this.lay && m.tun[i1] && this.py < PY.surf - 0.6, floor = this.well ? this.well.fy - WELL : tn ? PY.deep : f1 ? f1.y : this.py;
@@ -1454,7 +1455,7 @@ export class PoolLevel implements Terrain {
         }
       } else {
         let g = f1 ? f1.y : this.py;
-        if (this.air && g > this.py + 0.5) g = this.py - 1; // en el aire no se aterriza en un suelo que está muy por encima de los pies (pegado a una pared junto a unas escaleras, se subía de golpe a la otra planta)
+        if (this.air && f1 && f1.layer !== lay0 && g > this.py + 0.5) g = this.py - 1; // (solo el suelo de OTRA planta: con el de la misma, saliendo de una piscina en el aire, el cuerpo caía para siempre por el suelo) en el aire no se aterriza en un suelo que está muy por encima de los pies (pegado a una pared junto a unas escaleras, se subía de golpe a la otra planta)
         this.vy -= G * dt;
         if (c.jump && this.py <= g + 0.05 && !slide && !(i0 >= 0 && m.ramp[i0] !== PR.none)) this.vy = JUMP * this.jumpK; // (no se salta en escaleras ni rampas: en el aire el suelo de la otra planta contaba y se atravesaban las paredes)
         this.py += this.vy * dt;

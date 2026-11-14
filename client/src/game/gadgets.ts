@@ -73,7 +73,7 @@ export class Gadgets {
   private sock?: Sock;
   private serial = 0;
 
-  constructor(private world: World, private player: Player, private camera: THREE.Camera, _assets: Assets, _host: HTMLElement, private peers: () => Iterable<{ pos: THREE.Vector3; dead: boolean }>) {
+  constructor(private world: World, private player: Player, private camera: THREE.Camera, _assets: Assets, _host: HTMLElement, private peers: () => Iterable<{ pos: THREE.Vector3; dead: boolean }>, private exit?: () => THREE.Vector3 | undefined) {
     const tex = tapeTexture();
     const mat = new THREE.MeshStandardMaterial({ map: tex, roughness: 0.3, metalness: 0.1, side: THREE.DoubleSide, emissive: 0xffffff, emissiveMap: tex, emissiveIntensity: 0.3, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 });
     const g = new THREE.BufferGeometry();
@@ -193,7 +193,7 @@ export class Gadgets {
     // el holograma sigue al radar de la mano (Player lo coloca con grips.json); solo con él en la mano y a la vista
     const it = p.items.radar;
     const status = this.scanLeft > 0 ? `SCAN ${Math.ceil(this.scanLeft)}` : this.scanCool > 0 ? `WAIT ${Math.ceil(this.scanCool)}` : 'READY';
-    this.holo.update(dt, g === 'radar' && free && it.visible, it.position, p.yaw, p.pos, this.peers(), (this.scanLeft > 0 ? RADAR_SCAN : RADAR_IDLE) * boostOf(perks, 'radar'), status); // (la rareza del radar: más alcance)
+    this.holo.update(dt, g === 'radar' && free && it.visible, it.position, p.yaw, p.pos, this.peers(), (this.scanLeft > 0 ? RADAR_SCAN : RADAR_IDLE) * boostOf(perks, 'radar'), status, this.exit?.()); // (la rareza del radar: más alcance)
     // la recta en marcha: se cancela al guardar la cinta, esconderse, morir o con el clic derecho; si no, el segundo punto sigue a la mira
     if (this.start) {
       if (g !== 'caution' || !free || c.aim) this.finish(false);

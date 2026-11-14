@@ -3,12 +3,12 @@ import { readFileSync } from 'node:fs';
 import { Server } from 'socket.io';
 import {
   SERVER_PORT, MAX_PLAYERS, DEFAULT_PLAYERS, DEFAULT_LOOK, cosmetic, lookAllowed, HP_MAX, NAME_MAX, CHAT_MAX, CHAT_GAP, ROOM_NAME_MAX, DIFFICULTY, START_DELAY, VOTE_TIME, LOAD_GRACE, WAIT_HALF, WAIT_SPAWNS, EMOTES, EMOTE_GAP, STRIP_MAX, STRIP_PTS, STRIP_GAP, REVIVE_IMMUNE, REVIVE_MIN,
-  START_BANK, START_INV, EMPTY_INV, INV_MAX, ASCENT_GRACE, DROP_MAX, DROP_TTL, DROP_GAP, offerMissions, poolMissions, suitesMissions, SUITE_FLOORS, SUITE_FALL, pickLevel, tvCount, generateMaze, cleanInv, addItem, canHold, hasItem, removeItem, purchase, shopItem, penaltyOf, ITEM_IDS, LEVELS, centerOf,
+  START_BANK, AMMO_PACK, HIT_DAMAGE, START_INV, EMPTY_INV, INV_MAX, ASCENT_GRACE, DROP_MAX, DROP_TTL, DROP_GAP, offerMissions, poolMissions, suitesMissions, contractOffers, SUITE_FLOORS, SUITE_FALL, pickLevel, tvCount, generateMaze, cleanInv, addItem, canHold, hasItem, removeItem, purchase, shopItem, penaltyOf, ITEM_IDS, LEVELS, centerOf,
   type ItemId, type Inventory, type Mission, type MissionOffer, type RoundResult, type Fate, type Drop, type ActiveMission,
   type AdminAction, type AdminInfo, type AdminReply, type ClientToServer, type ServerToClient, type Status, type PlayerState, type Room, type RoomView, type RoomInfo, type Look, type Strip,
 } from '@backrooms/shared';
 import { Match, type Player } from './match';
-import { ACHIEVEMENT_KEYS, WATER_HEAL, NOISE_SHOT, NOISE_DROP, levelCaps, solidAt, startOffset } from '@backrooms/shared';
+import { ACHIEVEMENT_KEYS, WATER_HEAL, NOISE_SHOT, NOISE_DROP, NOISE_PHOTO, NOISE_PICK, levelCaps, solidAt, startOffset } from '@backrooms/shared';
 import { lockerContents, facelingStock, type LockerItem, ITEMS, RARITIES, SCALE, UPGRADES, UP_IDS, boostOf, itemOpen, levelsOpen, cleanUps, hasRoom, lootPrice, rarity, rollRarity, sellPrice, spotRarity, statsOf, upCost, upLevel, wearInv, type Qual, type SaveInfo, type Ups } from '@backrooms/shared';
 import { allowedOrigins, handleApi, isAdminName, originOk, userFromCookie } from './auth';
 import { MONEY_LIMIT, parseAdmin } from './admin';
@@ -53,6 +53,12 @@ interface RoomState extends Omit<Room, 'floor' | 'caps' | 'offers' | 'leading' |
   players: Map<string, Player>;
   /** Las Suites: la planta de la ronda que viene (1-5). */
   floor: number;
+  /** Las Suites: encargos del contrato (undefined: aún no votado), cumplidos y extra que se cobra al salir por el -1. */
+  quota?: number;
+  jobs: number;
+  bonus: number;
+  /** Las Suites: la planta que ha elegido quien subió por la escalera de servicio (puede ser cualquiera); manda sobre «la siguiente». */
+  toFloor?: number;
   /** Taquillas abiertas esta ronda: su contenido y qué piezas se han cogido. */
   lockers: Map<string, { items: LockerItem[]; taken: boolean[] }>;
   match?: Match;
@@ -70,8 +76,13 @@ interface RoomState extends Omit<Room, 'floor' | 'caps' | 'offers' | 'leading' |
   /** Fase `starting`: cuándo se cierra la votación (undefined hasta que acaba la entrada) y quiénes han avisado de que tienen el nivel cargado. */
   voteEnd?: number;
   loaded: Set<string>;
+  /** La salida está abierta (alguna misión cumplida); `cur`: la misión actual está cumplida; `earned`: lo que han dado las cumplidas; `doneIds`: cuáles. */
   done: boolean;
+  cur: boolean;
+  earned: number;
+  doneIds: string[];
   boardAt?: number;
+  readyTimer?: ReturnType<typeof setTimeout>;
   lastProgress: number;
   /** Admin: la salida de la cuenta atrás de START_DELAY que vale (si se reinicia la ronda, la anterior no hace nada). */
   tok?: number;
@@ -97,16 +108,16 @@ const sockets = new Map<number, Set<string>>(); // cuenta → sus sockets conect
 const guestColor = new Map<string, string>(); // socket de invitado → su color (uno gratis)
 /** Las misiones de la pizarra con sus votos (solo los de quienes siguen en la sala) y la que va ganando (la más votada; sin votos, la primera). */
 function offers(r: RoomState): { offers: MissionOffer[]; leading: string } {
-  const out = r.pool.map((m) => ({ ...m, votes: [...r.votes].filter(([s, id]) => id === m.id && r.players.has(s)).map(([s]) => s) }));
+  const out = (r.levelId === 'suites' && !r.quota ? contractOffers() : r.pool).map((m) => ({ ...m, votes: [...r.votes].filter(([s, id]) => id === m.id && r.players.has(s)).map(([s]) => s) }));
   const top = out.reduce((a, o) => (o.votes.length > a.votes.length ? o : a), out[0]);
   return { offers: out, leading: top?.id ?? '' };
 }
-const active = (r: RoomState): ActiveMission | null => (r.chosen ? { ...r.chosen, progress: r.done ? r.chosen.goal : (r.match?.progress ?? 0), done: r.done } : null);
+const active = (r: RoomState): ActiveMission | null => (r.chosen ? { ...r.chosen, progress: r.cur ? r.chosen.goal : (r.match?.progress ?? 0), done: r.cur, exit: r.done } : null);
 const view = (r: RoomState): RoomView => {
   const lobby = r.phase === 'lobby', boarded = [...r.players.values()].filter((p) => p.boarded).map((p) => p.id);
   return {
     code: r.code, tape: r.tape, name: r.name, public: r.public, ownerId: r.ownerId, max: r.max, difficulty: r.difficulty, fixedSeed: r.fixedSeed, phase: r.phase, seed: r.seed,
-    bank: r.bank, round: r.round, levelId: r.levelId, floor: r.floor, caps: levelCaps(r.levelId), ...(r.phase === 'starting' ? offers(r) : { offers: [], leading: '' }), mission: lobby ? null : active(r),
+    bank: r.bank, round: r.round, levelId: r.levelId, floor: r.floor, quota: r.quota ?? 0, jobs: r.jobs, caps: levelCaps(r.levelId), ...(r.phase === 'starting' ? offers(r) : { offers: [], leading: '' }), mission: lobby ? null : active(r),
     vote: r.phase === 'starting' && r.voteEnd ? { left: r.chosen ? 0 : Math.max(0, r.voteEnd - Date.now()), loaded: [...r.loaded].filter((s) => r.players.has(s)) } : null,
     ascent: r.boardAt ? { left: Math.max(0, Math.round(ASCENT_GRACE - (Date.now() - r.boardAt) / 1000)), boarded } : null,
     players: [...r.players.values()].map((p) => ({ id: p.id, name: p.name, dead: p.dead, look: p.look, avatar: avatarRef(p.uid), ready: !!p.ready, boarded: !!p.boarded, ups: p.ups })),
@@ -150,6 +161,16 @@ function addPlayer(r: RoomState, id: string, name: string, uid: number) {
   where.set(id, r.code);
 }
 
+/** Todos listos en el lobby: a los 10 s empieza la partida aunque el propietario no pulse; si alguien se desmarca o se va, se cancela. */
+function autoStart(r: RoomState) {
+  const all = r.phase === 'lobby' && r.players.size > 0 && [...r.players.values()].every((p) => p.ready);
+  if (!all) return void (clearTimeout(r.readyTimer), (r.readyTimer = undefined));
+  r.readyTimer ??= setTimeout(() => {
+    r.readyTimer = undefined;
+    if (rooms.get(r.code) === r && r.phase === 'lobby' && r.players.size && [...r.players.values()].every((p) => p.ready)) begin(r);
+  }, 10_000);
+}
+
 function leave(id: string) {
   const code = where.get(id);
   where.delete(id);
@@ -162,6 +183,7 @@ function leave(id: string) {
   r.players.delete(id);
   r.votes.delete(id);
   r.loaded.delete(id);
+  autoStart(r);
   for (const k of r.strips.filter((k) => k.owner === id)) io.to(code!).emit('unstrip', k.id);
   r.strips = r.strips.filter((k) => k.owner !== id);
   if (!r.players.size) return void rooms.delete(code!);
@@ -184,7 +206,7 @@ function checkOver(r: RoomState) {
 /** Prepara la ronda que viene (en el lobby): su semilla, el nivel y las tres misiones de la pizarra, sin votos. */
 function prepare(r: RoomState, seed = 0, level?: string) {
   r.nextSeed = seed || r.fixedSeed || 1 + ((Math.random() * 2 ** 31) | 0);
-  r.levelId = level ?? (r.floor > 1 ? 'suites' : pickLevel(r.nextSeed, openOf(r))); // (a medio hotel, la ronda es la planta siguiente)
+  r.levelId = level ?? (r.floor > 1 || r.quota ? 'suites' : pickLevel(r.nextSeed, openOf(r))); // (a medio hotel, la ronda es la planta siguiente)
   const lc = levelCaps(r.levelId), pool = lc.hotel ? suitesMissions(r.nextSeed, r.round, r.floor) : lc.pool ? poolMissions(r.nextSeed, r.round) : offerMissions(r.nextSeed, r.round, tvCount(generateMaze(r.nextSeed))); // (el mapa dice cuántas televisiones hay)
   r.pool = pool.map((m) => ({ ...m, reward: Math.round((m.reward * DIFFICULTY[r.difficulty].money) / 5) * 5 })); // la dificultad escala el dinero que da cada misión
   r.votes.clear();
@@ -200,7 +222,9 @@ function backToLobby(r: RoomState, ps: Player[]) {
   r.startedAt = undefined;
   r.round++;
   r.chosen = undefined;
-  r.done = false;
+  r.done = r.cur = false;
+  r.earned = 0;
+  r.doneIds = [];
   r.boardAt = undefined;
   r.drops.clear();
   r.lockers.clear();
@@ -222,30 +246,35 @@ function finish(r: RoomState) {
     if (rooms.get(r.code) !== r) return;
     const ps = [...r.players.values()], back = ps.filter((p) => p.boarded && !p.dead);
     const won = r.done && back.length > 0;
-    const reward = won ? (r.chosen?.reward ?? 0) : 0, penalty = won ? 0 : penaltyOf(r.bank);
+    const hotel = r.levelId === 'suites', exit = hotel && won && !r.toFloor, carry = hotel && won && !!r.toFloor;
+    const reward = won ? r.earned + (exit ? r.bonus : 0) : 0, penalty = won ? 0 : penaltyOf(r.bank);
     r.bank = Math.max(0, r.bank + reward - penalty);
     const fates: Record<string, Fate> = {};
     for (const p of ps) fates[p.id] = back.includes(p) ? 'back' : p.dead ? 'dead' : 'stranded';
     if (won) creditEscape(r);
     for (const p of ps) if (fates[p.id] !== 'back') p.inv = { ...EMPTY_INV }; // lo que llevaban se pierde
     // Las Suites: ganar sube una planta (al 10 % el ascensor falla y cae a la 1); perder, o pasar de la última, vuelve a la 1
-    const hotel = r.levelId === 'suites', fell = hotel && won && r.floor < SUITE_FLOORS && Math.random() < SUITE_FALL;
-    if (hotel) r.floor = won && !fell && r.floor < SUITE_FLOORS ? r.floor + 1 : 1;
+    // Las Suites: el ascensor lleva a la planta que se pulse (el contrato sigue); salir por el -1, o perder, lo cierra y vuelve a la 1
+    const fell = false;
+    if (hotel) r.floor = carry ? r.toFloor! : 1;
+    if (hotel && !carry) (r.quota = undefined), (r.jobs = 0), (r.bonus = 0);
+    r.toFloor = undefined;
     const result: RoundResult = { won, completed: r.done, mission: r.chosen ?? null, reward, penalty, bank: r.bank, fates, ...(hotel && { floor: r.floor, fell }) };
     io.to(r.code).emit('over', result);
     backToLobby(r, ps);
+    if (carry) setTimeout(() => rooms.get(r.code) === r && r.phase === 'lobby' && begin(r), 4000); // (siguiente planta del contrato: entra sola)
   };
   if ([...r.players.values()].some((p) => p.boarded)) done();
   else setTimeout(done, 5000);
 }
 
 /** Lo que se gana al recoger algo del mapa (por la primera letra de su id): sube lo que puede llevar. */
-const GAIN: Record<string, ItemId> = { f: 'flashlight', w: 'water', m: 'totem', r: 'radar', c: 'camera', g: 'gun', k: 'tank', p: 'watergun' };
+const GAIN: Record<string, ItemId> = { f: 'flashlight', w: 'water', m: 'totem', r: 'radar', c: 'camera', g: 'gun', k: 'tank', p: 'watergun', a: 'ammo' };
 function gain(p: Player, id: string, r: number) {
   const k = GAIN[id[0]];
   if (id[0] === 'v') p.cap = { ...p.cap, loot: [...(p.cap.loot ?? []), { r, w: 0 }] }; // botín: una pieza más
   if (k) p.cap = addItem(p.cap, k, r);
-  if (k === 'gun') p.cap.ammo += 6; // el rifle del mapa trae dos cargadores
+  if (k === 'gun') p.cap.ammo = Math.min(INV_MAX.ammo, p.cap.ammo + AMMO_PACK); // el rifle del mapa trae un cargador
   bag(p);
 }
 /** Con lo soltado `d` de vuelta en el inventario. */
@@ -270,13 +299,22 @@ function takeDrop(r: RoomState, p: Player, id: string) {
 }
 let dropNo = 0;
 
+/** La misión actual se cumple: su pago se suma, la salida se abre. */
+function complete(r: RoomState) {
+  r.cur = r.done = true;
+  if (r.levelId === 'suites') r.jobs++;
+  if (r.chosen?.kind === 'eeh') r.match?.calmStaff();
+  r.earned += r.chosen!.reward;
+  r.doneIds.push(r.chosen!.id);
+}
+
 /** Cada tick de la partida: progreso de la misión (al cumplirse se abre el ascensor) y caducidad de lo soltado. Avisa a la sala si algo cambia. */
 function roundTick(r: RoomState) {
   const m = r.match!, now = Date.now();
   let changed = false;
   if (r.chosen) {
     const v = m.progress;
-    if (!r.done && v >= r.chosen.goal) (r.done = true), (changed = true);
+    if (!r.cur && v >= r.chosen.goal) complete(r), (changed = true);
     if (v !== r.lastProgress) (r.lastProgress = v), (changed = true);
   }
   for (const [id, d] of r.drops) if (now - d.at > DROP_TTL * 1000) r.drops.delete(id);
@@ -307,9 +345,12 @@ function begin(r: RoomState) {
   r.voteEnd = undefined;
   r.votes.clear();
   r.loaded.clear();
-  r.done = false;
+  r.done = r.cur = false;
+  r.earned = 0;
+  r.doneIds = [];
   r.boardAt = undefined;
   r.lastProgress = -1;
+  if (r.quota) r.chosen = firstJob(r); // contrato en marcha (otra planta): sin votación
   for (const d of r.drops.values()) {
     const o = r.players.get(d.by); // lo soltado en la sala de espera vuelve a quien lo soltó (si cabe)
     if (o && fitsDrop(o.inv, d, o)) o.inv = withDrop(o.inv, d);
@@ -332,12 +373,22 @@ function begin(r: RoomState) {
       if (!r.chosen) {
         // todos han votado: la cuenta atrás se acorta para que se vea el resultado
         if (!fast && ids.every((id) => r.votes.has(id))) (fast = true), (r.voteEnd = Math.min(r.voteEnd!, now + 1500)), push(r);
-        if (now >= r.voteEnd!) (r.chosen = closeVote(r)), push(r);
+        if (now >= r.voteEnd!) {
+          const v = closeVote(r);
+          if (v.kind === 'contract') (r.quota = v.goal), (r.bonus = v.reward), (r.jobs = 0); // el hotel: lo votado es el contrato; el primer encargo, al azar
+          r.chosen = v.kind === 'contract' ? firstJob(r) : v;
+          push(r);
+        }
       } else if (ids.every((id) => r.loaded.has(id)) || now >= r.voteEnd! + LOAD_GRACE) (clearInterval(iv), play(r));
     }, 200);
   }, START_DELAY);
 }
 
+/** Un encargo al azar de los que quedan en la pizarra de esta planta. */
+const firstJob = (r: RoomState) => {
+  const left = r.pool.filter((m) => !r.doneIds.includes(m.id));
+  return left[(Math.random() * left.length) | 0] ?? r.pool[0];
+};
 /** La misión más votada (empate: al azar entre las empatadas; sin votos, la primera de la pizarra). */
 function closeVote(r: RoomState): Mission {
   const o = offers(r).offers, top = Math.max(...o.map((m) => m.votes.length)), tied = o.filter((m) => m.votes.length === top);
@@ -416,7 +467,7 @@ io.on('connection', (sock) => {
     const r: RoomState = {
       lockers: new Map(), code: code || newCode(), tape: ++tapeNo, name: typeof d.name === 'string' ? d.name.slice(0, ROOM_NAME_MAX) : `SALA ${tapeNo}`, public: sv ? !!d.public : !!a?.public, ownerId: sock.id, max: num(d.max, DEFAULT_PLAYERS, 2, MAX_PLAYERS),
       difficulty: diff && diff in DIFFICULTY ? diff : 'normal', fixedSeed: num(d.fixedSeed, 0, 0, 2 ** 31 - 1), phase: 'lobby', seed: 0, players: new Map(), size0: 0, deaths: 0, strips: [],
-      bank: num(d.bank, START_BANK, 0, MONEY_LIMIT), round: num(d.round, 1, 1, 1e6), levelId: 'level0', floor: 1, nextSeed: 0, pool: [], votes: new Map(), loaded: new Set(), done: false, lastProgress: -1, drops: new Map(),
+      bank: num(d.bank, START_BANK, 0, MONEY_LIMIT), round: num(d.round, 1, 1, 1e6), levelId: 'level0', floor: 1, jobs: 0, bonus: 0, nextSeed: 0, pool: [], cur: false, earned: 0, doneIds: [], votes: new Map(), loaded: new Set(), done: false, lastProgress: -1, drops: new Map(),
       ownerUid: uid, // (las salas de invitado, uid 0, no se guardan)
       members: new Map(Object.entries(d.members ?? {}).map(([k, m]) => [Number(k), { ups: cleanUps(m?.ups), inv: { ...cleanInv(m?.inv), q: (m?.inv as Inventory | undefined)?.q ?? {}, loot: ((m?.inv as Inventory | undefined)?.loot ?? []).slice(0, 20) } }])),
     };
@@ -485,6 +536,7 @@ io.on('connection', (sock) => {
     if (r.phase !== 'lobby') return;
     p.ready = !!on;
     push(r);
+    autoStart(r);
   });
 
   sock.on('start', () => {
@@ -672,13 +724,14 @@ io.on('connection', (sock) => {
       }
       case 'mission':
         if (!need(playing && !!r.chosen)) return;
-        r.done = true;
+        if (!r.cur) complete(r);
         push(r);
         return reply({ ok: true });
       case 'end': {
         if (!need(playing)) return;
         for (const p of r.players.values()) p.boarded = a.ok && !p.dead;
         r.done = a.ok && [...r.players.values()].some((p) => p.boarded); // sin nadie vivo a quien subir, es un fracaso
+        if (r.done && !r.cur && r.chosen) complete(r);
         finish(r);
         return reply({ ok: true });
       }
@@ -716,6 +769,7 @@ io.on('connection', (sock) => {
     const room = !p || (k[0] === 'v' ? hasRoom(p.cap, st(p), 'loot') : !kind || canHold(p.cap, kind, st(p)));
     const ok = !!r?.match && !!p && r.phase === 'playing' && !p.boarded && (k[0] === 'd' ? takeDrop(r, p, k) : room && r.match.pickup(p, k));
     if (ok && p!.uid && k[0] === 't') count(p!.uid, 'tapes'); // las cintas (ids t...)
+    if (ok) r!.match!.noise(p!.st.x, p!.st.z, NOISE_PICK);
     if (ok && k[0] !== 'd') gain(p!, k, rar); // lo que se lleva: hay que tenerlo para soltarlo, beberlo o declararlo al subir
     if (typeof cb === 'function') cb(ok);
   });
@@ -775,9 +829,35 @@ io.on('connection', (sock) => {
   });
 
   // el estampido de un tiro (también los que fallan): atrae a las entidades
+  // el rifle explota: muere quien lo disparaba y el estallido (5 m) daña a compañeros (más cerca, más) y a entidades
+  sock.on('blast', () => {
+    const r = roomOf(sock.id), p = r?.players.get(sock.id);
+    if (!r?.match || !p || r.phase !== 'playing' || p.dead || p.boarded || p.st.held !== 'gun') return;
+    const hurt = (q: Player, dmg: number) => {
+      q.hp = Math.max(0, q.hp - dmg);
+      if (q.hp > 0 || q.dead) return;
+      q.dead = true;
+      r.deaths++;
+      io.to(r.code).emit('dead', q.id);
+    };
+    hurt(p, 1e9);
+    io.to(r.code).emit('blastFx', { id: p.id, x: p.st.x, y: p.st.y, z: p.st.z });
+    for (const q of r.players.values()) if (q !== p && !q.dead && !q.boarded && (q.immuneUntil ?? 0) <= Date.now()) hurt(q, Math.max(0, 2 * HIT_DAMAGE * (1 - Math.hypot(q.st.x - p.st.x, q.st.z - p.st.z) / 5)));
+    r.match.blast(p.st.x, p.st.z, 5, p);
+    r.match.noise(p.st.x, p.st.z, NOISE_SHOT);
+    push(r);
+    checkOver(r);
+  });
+
   sock.on('bang', () => {
     const r = roomOf(sock.id), p = r?.players.get(sock.id);
     if (r?.match && p && r.phase === 'playing' && !p.dead && !p.boarded && p.st.held === 'gun') (r.match.noise(p.st.x, p.st.z, NOISE_SHOT), (p.cap = wearInv(p.cap, 0, 'gun')));
+  });
+
+  // cada foto (con o sin entidad delante) suena: el flash y el obturador atraen
+  sock.on('snap', () => {
+    const r = roomOf(sock.id), p = r?.players.get(sock.id);
+    if (r?.match && p && r.phase === 'playing' && !p.dead && !p.boarded && p.st.held === 'camera' && Date.now() - (p.lastSnap ?? 0) > 700) ((p.lastSnap = Date.now()), r.match.noise(p.st.x, p.st.z, NOISE_PHOTO));
   });
 
   sock.on('photo', () => {
@@ -852,9 +932,41 @@ io.on('connection', (sock) => {
   });
 
   // sube al ascensor (abierto con la misión cumplida): conserva lo que lleva, acotado a lo que podía tener; ya no juega
-  sock.on('ascend', (inv) => {
+  sock.on('deliver', (cb) => {
+    const r = roomOf(sock.id), p = r?.players.get(sock.id);
+    const ok = !!r?.match && !!p && r.phase === 'playing' && !p.dead && !p.boarded && r.chosen?.kind === 'order' && !r.cur && (p.cap.loot?.length ?? 0) > 0;
+    if (ok) {
+      p!.cap = { ...p!.cap, loot: p!.cap.loot!.slice(1) }; // (la pieza que entrega no se cobra: es el encargo)
+      r!.match!.delivered++;
+      bag(p!);
+    }
+    if (typeof cb === 'function') cb(ok);
+  });
+
+  // un Faceling da otra misión (Suites): la primera de la pizarra sin cumplir, y la de subir a la planta 5 al final; no si ya hay quien ha subido
+  sock.on('nextMission', (pick, cb) => {
+    const r = roomOf(sock.id), p = r?.players.get(sock.id);
+    const left = r?.match && p && !p.dead && !p.boarded && r.phase === 'playing' && r.levelId === 'suites' && r.cur && !r.boardAt ? r.pool.filter((m) => !r.doneIds.includes(m.id)) : [];
+    const next = Number.isInteger(pick) && pick >= 0 ? left[pick % left.length] : undefined; // (el jugador elige a ciegas: sin saber qué misión es cada opción)
+    if (next) {
+      r!.chosen = next;
+      r!.cur = false;
+      r!.lastProgress = -1;
+      r!.match!.setMission(next);
+      push(r!);
+    }
+    if (typeof cb === 'function') cb(left.length);
+  });
+
+  sock.on('ascend', (inv, floor) => {
     const r = roomOf(sock.id), p = r?.players.get(sock.id);
     if (!r?.match || !p || r.phase !== 'playing' || !r.done || !r.match.canBoard(p)) return;
+    if (r.levelId === 'suites') {
+      // el ascensor y la escalera llevan a una planta (1-5); el 0 es el -1: salir del nivel, solo con el contrato cumplido
+      const to = Number.isInteger(floor) ? floor! : 0;
+      if (to === 0 ? (r.quota ?? 0) > r.jobs : !(to >= 1 && to <= SUITE_FLOORS && to !== r.floor)) return;
+      if (to) r.toFloor ??= to;
+    }
     p.boarded = true;
     p.inv = cleanInv(inv, p.cap);
     r.boardAt ??= Date.now();
@@ -867,7 +979,7 @@ io.on('connection', (sock) => {
     const r = roomOf(sock.id);
     if (!r || r.phase !== 'starting' || !r.voteEnd || r.chosen) return;
     if (id === '') r.votes.delete(sock.id);
-    else if (typeof id === 'string' && r.pool.some((m) => m.id === id)) r.votes.set(sock.id, id);
+    else if (typeof id === 'string' && (r.levelId === 'suites' && !r.quota ? contractOffers() : r.pool).some((m) => m.id === id)) r.votes.set(sock.id, id);
     else return;
     push(r);
   });

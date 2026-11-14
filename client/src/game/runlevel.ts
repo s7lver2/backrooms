@@ -203,7 +203,7 @@ export class RunLevel {
 
     // los monstruos: los modelos de las entidades del juego, corriendo hacia delante (+z)
     for (const c of PACK) {
-      const rig = new Rig(assets.gltf[c.kind]);
+      const rig = new Rig(assets.gltf[c.kind as 'bacteria' | 'partygoer']);
       if (c.kind === 'bacteria')
         rig.root.traverse((o) => {
           const m = (o as THREE.Mesh).material as THREE.MeshStandardMaterial | undefined;

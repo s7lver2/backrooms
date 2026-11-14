@@ -57,7 +57,7 @@ export default function AdminConsole({ game, sock, room, me }: Props) {
   const [t, setT] = useState('me'); // el objetivo: 'me', 'all' o el id de un jugador
   const [msg, setMsg] = useState('');
   const [info, setInfo] = useState<AdminInfo | null>(null);
-  const [tog, setTog] = useState({ noclip: false, light: true, god: false, ammo: false, stamina: false, sanity: false, bright: false, speed: 1, jump: 1, slow: 1 });
+  const [tog, setTog] = useState({ noclip: false, light: true, god: false, ammo: false, stamina: false, sanity: false, bright: false, minimap: false, speed: 1, jump: 1, slow: 1 });
   const [marks, setMarks] = useState<({ x: number; z: number; yaw: number } | null)[]>([null, null, null]);
   const [shot, setShot] = useState('');
   const [fx, setFx] = useState({ ao: false, smaa: false, sun: false });
@@ -185,7 +185,7 @@ export default function AdminConsole({ game, sock, room, me }: Props) {
     setTog({ ...tog, [k]: on });
     g?.adminToggle(k, on);
   };
-  const flipCheat = (k: 'stamina' | 'sanity' | 'bright' | 'ammo') => {
+  const flipCheat = (k: 'stamina' | 'sanity' | 'bright' | 'ammo' | 'minimap') => {
     const on = !tog[k];
     setTog({ ...tog, [k]: on });
     g?.adminCheat(k, on);
@@ -285,6 +285,7 @@ export default function AdminConsole({ game, sock, room, me }: Props) {
               <B on={tog.stamina} run={() => flipCheat('stamina')}>INF STAMINA</B>
               <B on={tog.sanity} run={() => flipCheat('sanity')}>INF SANITY</B>
               <B on={tog.bright} run={() => flipCheat('bright')}>FULLBRIGHT</B>
+              <B on={tog.minimap} run={() => flipCheat('minimap')}>MINIMAP</B>
               <B on={!tog.light} run={() => flipLocal('light')}>LIGHTS OFF</B>
             </div>
             <Slider label="SPEED" v={tog.speed} min={0.5} max={6} step={0.5} set={(n) => val('speed', n)} fmt={(n) => `x${n}`} />

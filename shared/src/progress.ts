@@ -149,7 +149,7 @@ export const COSMETICS: CosmeticDef[] = [
   { slot: 'head', id: 'doge_hat', name: 'DOGE HAT', need: 'idiot' },
   { slot: 'head', id: 'bucket_hat', name: 'BUCKET HAT', need: 'escape_5' },
   { slot: 'head', id: 'teto_pear', name: 'TETO PEAR', need: 'first_tape' },
-  { slot: 'head', id: 'sukonbu', name: 'SUKONBU', need: 'paparazzi' },
+  { slot: 'back', id: 'sukonbu', name: 'SUKONBU', need: 'paparazzi' },
   { slot: 'back', id: 'battery', name: 'BATTERY PACK', need: 'trigger_happy' },
   { slot: 'back', id: 'teto_plush', name: 'TETO PLUSH', need: 'archivist' },
   { slot: 'back', id: 'scythe', name: 'SCYTHE', need: 'exterminator' },

@@ -84,6 +84,13 @@ export class Remote {
   private labelCtx: CanvasRenderingContext2D;
   private bones: Record<'LeftHand' | 'RightHand' | 'Head', THREE.Bone | undefined>;
   readonly pos = new THREE.Vector3();
+  /** Las Suites: dónde estoy yo y lo que mide una copia del pasillo; el compañero se dibuja en la copia más cercana a mí (los dos envían el pasillo envuelto, pero quien acaba de entrar del vestíbulo recorre la última copia). */
+  hall?: { x: number; span: number };
+  /** Salió volando por una explosión (ragdoll simple): velocidad, giro y ángulos del cuerpo; solo vale con él caído. */
+  fling?: { v: THREE.Vector3; spin: THREE.Vector3; rot: THREE.Vector3; floor: number };
+  launch(dx: number, dz: number) {
+    this.fling = { v: new THREE.Vector3(dx * 6, 7, dz * 6), spin: new THREE.Vector3(9 + Math.random() * 6, 0, 8 + Math.random() * 6), rot: new THREE.Vector3(), floor: this.pos.y };
+  }
   yaw = 0;
   pitch = 0;
   light = true;
@@ -248,6 +255,10 @@ export class Remote {
       }
       if (this.fresh) (this.fresh = false), this.pos.copy(this.goal), (this.yaw = this.goalYaw), (this.pitch = this.goalPitch);
     }
+    if (this.hall) {
+      const d = Math.round((this.hall.x - this.goal.x) / this.hall.span) * this.hall.span;
+      if (d) (this.goal.x += d), (this.pos.x += d);
+    }
     // ya viene suave: solo un pulido corto (y, si de verdad se ha ido lejos, se corta)
     const k = 1 - Math.exp(-dt * 30), prev = _v.copy(this.pos);
     Timeline.follow(this.pos, this.goal, dt, k); // con tope de velocidad: tras un atasco se recupera corriendo, no a saltos
@@ -269,6 +280,15 @@ export class Remote {
       A.p.vy = this.goal.y - this.pos.y;
       A.p.hold += ((this.held !== 'none' || this.light) && !this.dancing ? 1 - A.p.hold : -A.p.hold) * Math.min(1, dt * 12);
     }
+    const fl = this.fling;
+    if (fl && this.dead) {
+      fl.v.y -= 9.8 * dt;
+      this.pos.addScaledVector(fl.v, dt);
+      if (this.pos.y <= fl.floor) (this.pos.y = fl.floor), (fl.v.y = Math.abs(fl.v.y) * 0.3), fl.v.x *= 0.5, fl.v.z *= 0.5, fl.spin.multiplyScalar(0.45);
+      fl.rot.x += fl.spin.x * dt;
+      fl.rot.z += fl.spin.z * dt;
+      this.goal.copy(this.pos);
+    }
     const body = this.rig.root;
     body.position.copy(this.pos);
     this.crouch += ((this.hiding && !this.dead ? 1 : 0) - this.crouch) * Math.min(1, dt * 8);
@@ -277,7 +297,7 @@ export class Remote {
     body.position.z += Math.cos(this.yaw) * 0.3 * this.crouch;
     if (this.dead) {
       this.deadT += dt;
-      body.rotation.set(0, this.yaw + Math.PI, 0);
+      body.rotation.set(fl ? fl.rot.x : 0, this.yaw + Math.PI, fl ? fl.rot.z : 0);
     } else body.rotation.set(0, this.yaw + Math.PI, 0);
     this.rig.update(dt);
     // la cabeza sigue a la mirada (hacia arriba o abajo)

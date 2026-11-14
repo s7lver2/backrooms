@@ -2,7 +2,6 @@ import { TREE, VARIANTS, type Variant } from '../../game/anim/animator';
 import { useStudio } from './store';
 import { Slots } from './Studio';
 import { GripsPanel } from './Grips';
-import { useState } from 'react';
 
 /** Variantes (cosméticos de movimiento): cada una cambia qué clip usa un hueco del árbol. */
 export function VariantsPanel() {
@@ -43,16 +42,8 @@ export function VariantsPanel() {
 
 /** Pruebas del IK: pies sobre un terreno con desniveles, torso hacia una dirección y manos a un punto. */
 export function IkPanel() {
-  const [tab, setTab] = useState<'grips' | 'tests'>('grips');
-  return (
-    <div>
-      <div className="st-chips big">
-        <button data-on={tab === 'grips' || undefined} onClick={() => setTab('grips')}>grips</button>
-        <button data-on={tab === 'tests' || undefined} onClick={() => setTab('tests')}>ik tests</button>
-      </div>
-      {tab === 'grips' ? <GripsPanel /> : <IkTests />}
-    </div>
-  );
+  const { S } = useStudio();
+  return S!.gear || S!.tank || S!.piece ? <GripsPanel /> : <IkTests />;
 }
 
 function IkTests() {

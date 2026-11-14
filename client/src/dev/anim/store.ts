@@ -6,6 +6,7 @@ import type { Pack } from '../../game/anim/core';
 import type { Player } from '../../game/player';
 import { grips, type GripId, type GripSet } from '../../game/grips';
 import { worn, type WornItem } from '../../game/worn';
+import { PIECES, type Piece } from '../../game/cosmetics';
 
 /** Lo que comparten el visor y los paneles: el jugador de verdad, su Animator y el paquete. */
 export interface Live {
@@ -25,6 +26,8 @@ export interface Live {
   gripAim: boolean;
   /** Se ve la bombona a la espalda (para colocarla). */
   tank: boolean;
+  /** El sombrero o la mochila (de pieces.json) que lleva puesto para colocarlo ('' = ninguno). */
+  piece: string;
   /** El mando de pruebas: velocidad, caminar solo, cinta andadora, cámara lenta, pausa… */
   ctl: Mando;
   /** Pone la cámara en un ángulo predefinido (relativo a hacia dónde mira el personaje). */
@@ -82,9 +85,10 @@ export const useStudio = () => useContext(StudioCtx);
 
 // ── deshacer / rehacer ────────────────────────────────────────────────────
 
-export const snapshot = () => JSON.stringify({ tree: TREE, variants: VARIANTS, dances: DANCES, manifest: MANIFEST, grips, worn });
+export const snapshot = () => JSON.stringify({ tree: TREE, variants: VARIANTS, dances: DANCES, manifest: MANIFEST, grips, worn, pieces: PIECES });
 export function restore(s: string) {
-  const d = JSON.parse(s) as { tree: typeof TREE; variants: Variant[]; dances: Record<string, DanceDef>; manifest: typeof MANIFEST; grips: GripSet; worn: Record<'tank', WornItem> };
+  const d = JSON.parse(s) as { tree: typeof TREE; variants: Variant[]; dances: Record<string, DanceDef>; manifest: typeof MANIFEST; grips: GripSet; worn: Record<'tank', WornItem>; pieces: Record<string, Piece> };
+  for (const [id, p] of Object.entries(d.pieces)) Object.assign(PIECES[id] ?? (PIECES[id] = p), p);
   Object.assign(TREE, d.tree);
   VARIANTS.splice(0, VARIANTS.length, ...d.variants);
   for (const k of Object.keys(DANCES)) delete DANCES[k];
@@ -108,7 +112,9 @@ export function applyCarry(S: Live) {
     p.left = 'flashlight';
     p.hold(g === 'camera' || g === 'gun' || g === 'watergun' ? g : 'none');
     p.gadget = g === 'caution' || g === 'radar' || g === 'totem' ? g : 'none';
-    p.prop = g === 'water' || g === 'soap' || g === 'tape' || g === 'ammo' ? g : 'none';
+    if (g === 'monster') (p.monster = Math.max(p.monster, 1)), p.equipMonster(); // (su modelo se pone al sacarla)
+    if (g === 'uno') (p.uno = true), p.equipUno();
+    p.prop = g === 'water' || g === 'monster' || g === 'uno' || g === 'soap' || g === 'tape' || g === 'ammo' ? g : 'none';
   } else {
     p.gadget = 'none';
     p.prop = 'none';

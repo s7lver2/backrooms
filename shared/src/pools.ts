@@ -1137,7 +1137,7 @@ export function poolMaze(seed: number): Maze {
   }
   // la cámara y los arranques de entidades: celdas llanas de la planta baja, lejos del inicio y entre sí
   const spawns: Cell[] = [];
-  for (const c of [...cand].sort((a, b) => far(b, m.start) - far(a, m.start))) if (spawns.length < 4 && far(c, m.start) > 30 && spawns.every((o) => far(c, o) > 20)) spawns.push({ x: c.x, y: c.y });
+  for (const c of [...cand].sort((a, b) => far(b, m.start) - far(a, m.start))) if (spawns.length < 4 && far(c, m.start) > 30 && far(c, m.exit) > 8 && spawns.every((o) => far(c, o) > 20)) spawns.push({ x: c.x, y: c.y });
   const tapes = soapSpots(m, seed, open);
   const camera = cand.find((c) => far(c, m.start) > 6 && far(c, m.start) < 20 && !tapes.some((t) => t.x === c.x && t.y === c.y)) ?? { ...m.start, l: 0 as const };
   // objetos del mapa: celdas secas y llanas (de las dos plantas), lejos del inicio y entre sí; la mitad de linternas/latas en salas a oscuras (premio por arriesgarse)

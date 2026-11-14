@@ -142,8 +142,11 @@ class Voice {
     audio.autoplay = true;
     const p: Peer = { pc, audio, pending: [] };
     this.peers.set(id, p);
-    const tr = pc.addTransceiver('audio', { direction: 'sendrecv' });
-    if (this.mic) void tr.sender.replaceTrack(this.mic.getAudioTracks()[0] ?? null);
+    if (this.me < id) {
+      // solo quien ofrece crea el transceptor: el que responde usa el que trae la oferta (uno creado antes con addTransceiver no se asocia a ella y su micrófono no sonaba: voz en un solo sentido)
+      const tr = pc.addTransceiver('audio', { direction: 'sendrecv' });
+      if (this.mic) void tr.sender.replaceTrack(this.mic.getAudioTracks()[0] ?? null);
+    }
     pc.onicecandidate = (e) => e.candidate && this.send(id, { ice: e.candidate.toJSON() });
     pc.ontrack = (e) => {
       const ms = e.streams[0] ?? new MediaStream([e.track]);
@@ -191,6 +194,8 @@ class Voice {
       if (d.sdp) {
         await p.pc.setRemoteDescription(d.sdp);
         if (d.sdp.type === 'offer') {
+          const tr = p.pc.getTransceivers()[0];
+          if (tr) (tr.direction = 'sendrecv'), void tr.sender.replaceTrack(this.mic?.getAudioTracks()[0] ?? null);
           await p.pc.setLocalDescription(await p.pc.createAnswer());
           this.send(from, { sdp: p.pc.localDescription!.toJSON() });
         }

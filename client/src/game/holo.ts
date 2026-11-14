@@ -153,7 +153,7 @@ export class Holo {
   }
 
   /** `at`: el aparato (espacio de cámara); `yaw`: hacia dónde se mira; `me`: donde estoy; `peers`: los compañeros vivos. */
-  update(dt: number, on: boolean, at: THREE.Vector3, yaw: number, me: THREE.Vector3, peers: Iterable<{ pos: THREE.Vector3; dead: boolean }>, range = RADAR_IDLE, status = 'RADAR') {
+  update(dt: number, on: boolean, at: THREE.Vector3, yaw: number, me: THREE.Vector3, peers: Iterable<{ pos: THREE.Vector3; dead: boolean }>, range = RADAR_IDLE, status = 'RADAR', exit?: THREE.Vector3) {
     this.root.visible = on;
     if (!on) return;
     this.t += dt;
@@ -175,13 +175,12 @@ export class Holo {
     // las balizas: a la derecha y al frente respecto a la mirada
     const f0 = -Math.sin(yaw), f1 = -Math.cos(yaw);
     let n = 0;
-    for (const r of peers) {
-      if (r.dead || n >= this.beacons.length) continue;
-      const dx = r.pos.x - me.x, dz = r.pos.z - me.z, d = Math.hypot(dx, dz);
-      if (d > range) continue; // fuera de alcance no se ve
+    const put = (pos: THREE.Vector3, tag: string, clamp: boolean) => {
+      const dx = pos.x - me.x, dz = pos.z - me.z, d = Math.hypot(dx, dz);
+      if (n >= this.beacons.length || (!clamp && d > range)) return; // fuera de alcance no se ve (la salida sí: su dirección siempre)
       const b = this.beacons[n++];
-      const right = (dx * -f1 + dz * f0) / (d || 1), fwd = (dx * f0 + dz * f1) / (d || 1), k = (d / range) * R * 0.94;
-      const dh = THREE.MathUtils.clamp((r.pos.y - me.y) / 6, -1, 1) * H * 0.5; // alto relativo
+      const right = (dx * -f1 + dz * f0) / (d || 1), fwd = (dx * f0 + dz * f1) / (d || 1), k = (Math.min(d, range) / range) * R * 0.94;
+      const dh = THREE.MathUtils.clamp((pos.y - me.y) / 6, -1, 1) * H * 0.5; // alto relativo
       b.g.visible = true;
       b.g.position.set(right * k, 0, -fwd * k);
       b.stem.scale.y = Math.max(0.004, Math.abs(dh));
@@ -191,8 +190,10 @@ export class Holo {
       b.head.rotation.y = this.t * 2;
       b.head.visible = true;
       b.tag.s.position.set(0.03, Math.max(0.01, dh) + 0.018, 0);
-      b.tag.set(`${Math.round(d)}M`);
-    }
+      b.tag.set(tag);
+    };
+    for (const r of peers) if (!r.dead) put(r.pos, `${Math.round(Math.hypot(r.pos.x - me.x, r.pos.z - me.z))}M`, false);
+    if (exit) put(exit, `EXIT ${Math.round(Math.hypot(exit.x - me.x, exit.z - me.z))}M`, true);
     for (let i = n; i < this.beacons.length; i++) this.beacons[i].g.visible = false;
     this.none.s.visible = !n && Math.sin(this.t * 5) > -0.3;
     this.title.s.visible = true;

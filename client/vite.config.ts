@@ -1,14 +1,14 @@
 import { defineConfig, type Plugin } from 'vite';
 import react from '@vitejs/plugin-react';
-import { existsSync, readFileSync, watch, writeFileSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync, watch, writeFileSync } from 'node:fs';
 import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
 const SERVER_PORT = Number(process.env.SERVER_PORT) || 5181; // (SERVER_PORT: otro puerto para pruebas)
 const CLIENT_PORT = 5180; // el mismo que shared/src/index.ts (la config no puede importar .ts del workspace)
 
-// solo en desarrollo: la herramienta de agarres (/?grips) guarda aquí lo que ajusta
-// (POST /__grips?file=grips|pieces: agarres de las manos o medidas de los accesorios)
+// solo en desarrollo: el estudio de animación (/?anim) guarda aquí lo que ajusta
+// (POST /__grips?file=grips|pieces|worn|tree...: agarres, accesorios, bombona, animaciones)
 const SAVEABLE: Record<string, string> = { grips: 'grips.json', pieces: 'pieces.json', worn: 'worn.json', tree: 'anim/tree.json', variants: 'anim/variants.json', dances: 'anim/dances.json', manifest: 'anim/manifest.json' };
 const gripsSaver = (): Plugin => ({
   name: 'grips-saver',
@@ -18,6 +18,8 @@ const gripsSaver = (): Plugin => ({
       // solo desde esta máquina: por un túnel (devtunnels añade x-forwarded-* y el Host es otro) cualquiera podría reescribir estos archivos
       const host = String(req.headers.host ?? '').replace(/:\d+$/, '');
       if (req.headers['x-forwarded-for'] || req.headers['x-forwarded-host'] || !['localhost', '127.0.0.1', '[::1]'].includes(host)) return (res.statusCode = 403), res.end();
+      // GET: los modelos de accesorios que hay en public/models/cosmetics (el estudio añade solo los que aún no tienen entrada en pieces.json)
+      if (req.method === 'GET') return res.end(JSON.stringify(readdirSync(fileURLToPath(new URL('./public/models/cosmetics', import.meta.url))).filter((f) => f.endsWith('.glb')).map((f) => f.slice(0, -4))));
       if (req.method !== 'POST') return (res.statusCode = 405), res.end();
       const file = SAVEABLE[new URL(req.url ?? '', 'http://x').searchParams.get('file') ?? 'grips'];
       if (!file) return (res.statusCode = 400), res.end('unknown file');

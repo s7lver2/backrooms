@@ -52,6 +52,7 @@ const SECTIONS = {
     { id: 'preset', label: 'PRESET', desc: 'One switch for the graphics', long: 'Sets every graphics option at once, from POTATO (anything to make it run) to HIGH. Touch one by hand and it reads CUSTOM.', preset: true },
     { id: 'fullscreen', label: 'FULLSCREEN', desc: 'Fill the whole screen', long: 'Esc leaves fullscreen and pauses the game.', flag: 'fullscreen' },
     { id: 'brightness', label: 'BRIGHTNESS', desc: 'Lift or darken the picture', long: 'The Backrooms are meant to be dim: raise it only if you cannot see.', num: { k: 'brightness', min: 0.6, max: 1.6, step: 0.05, unit: '%', scale: 100 } },
+    { id: 'ui', label: 'UI SIZE', desc: 'Size of menus and HUD', long: 'Scales the whole interface, independent of the browser zoom.', num: { k: 'ui', min: 0.7, max: 1.5, step: 0.05, unit: '%', scale: 100 } },
     { id: 'fov', label: 'FIELD OF VIEW', desc: 'How much you see', long: 'Wider shows more of the room and bends the edges.', num: { k: 'fov', min: 60, max: 110, step: 5, unit: '°', scale: 1 } },
     { id: 'vhs', label: 'VHS EFFECT', desc: 'Tape noise, bleed and tracking', long: 'How much tape shows in the picture. A corrupted tape always shows.', num: pct('vhs') },
     { id: 'crosshair', label: 'CROSSHAIR', desc: 'A dot at the centre', long: 'Shows where you are looking. It hides when you aim.', flag: 'crosshair' },
@@ -172,6 +173,7 @@ function Caption({ row, s, muted }: { row: Row; s: Settings; muted: boolean }): 
         </p>
       );
     case 'resScale':
+    case 'ui':
     case 'brightness':
       return <p className="br-big">{Math.round(s[row.id] * 100)}%</p>;
     case 'quality':

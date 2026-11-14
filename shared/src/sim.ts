@@ -13,7 +13,7 @@ import type { ItemKind } from './index';
  * jugador tiene que contener la respiración (ver Breath); si no la contiene, o se le acaba, lo encuentra.
  */
 
-export type Kind = 'bacteria' | 'partygoer';
+export type Kind = 'bacteria' | 'partygoer' | 'faceling';
 export type EState = 'wander' | 'search' | 'stalk' | 'chase' | 'attack' | 'dance' | 'dead' | 'inspect';
 /** Los comportamientos que hay (ver BRAIN, al final de EntitySim). */
 export type BehaviorId = 'inspect' | 'stalk' | 'chase' | 'search' | 'wander';
@@ -45,6 +45,12 @@ export interface EntDef {
   clips: { idle: string; walk: string; run: string; attack: string; dances: string[]; state?: Partial<Record<EState, string>> };
 }
 export const ENTITIES: Record<Kind, EntDef> = {
+  // el personal del hotel: de pie y en paz hasta que alguien mata a uno; entonces todos van a por quien no esté escondido (y no se rinden)
+  faceling: {
+    height: 1.75, walk: 1.3, run: 3.1, sight: 2, hearing: 3, lose: 90, roam: 'dark', rest: [1, 2],
+    brain: ['inspect', 'chase', 'search', 'wander'],
+    clips: { idle: 'idle', walk: 'walk', run: 'run', attack: 'attack', dances: ['strut'] },
+  },
   // la acechadora: te sigue de lejos, se queda quieta bajo la linterna y embiste por la espalda
   bacteria: {
     height: 3, walk: 1.1, run: 2.9, sight: 1, hearing: 0.8, lose: 5, roam: 'dark', rest: [3, 8],
@@ -65,7 +71,7 @@ export const ENTITIES: Record<Kind, EntDef> = {
  * Altura de cada tipo (m). El cliente la importa (entity.ts); se deriva de ENTITIES para no duplicar datos.
  * (Estaba sin exportar tras empezar la refactorización: no la quites.)
  */
-export const HEIGHT: Record<Kind, number> = { bacteria: ENTITIES.bacteria.height, partygoer: ENTITIES.partygoer.height };
+export const HEIGHT: Record<Kind, number> = { bacteria: ENTITIES.bacteria.height, partygoer: ENTITIES.partygoer.height, faceling: ENTITIES.faceling.height };
 
 /** Un ruido (carrera, disparo, objeto que cae): lo oyen las entidades a `r` m (por su oído). */
 export interface Noise {
@@ -74,7 +80,7 @@ export interface Noise {
   r: number;
 }
 /** Lo que se oye una carrera y un disparo (m). */
-export const NOISE_RUN = 9, NOISE_SHOT = 30, NOISE_DROP = 7;
+export const NOISE_RUN = 9, NOISE_SHOT = 30, NOISE_DROP = 7, NOISE_PHOTO = 16, NOISE_PICK = 8;
 
 /** Lo que percibe una entidad en un paso (y lo que deja dicho: a quién alcanza). */
 export interface Sense {
@@ -168,6 +174,11 @@ export interface HideState {
 }
 export function hideStates(m: Maze): HideState[] {
   return m.hides.map((h, idx) => {
+    if (h.at && h.front) {
+      // un armario: dentro y delante, en metros
+      const ux = h.front[0] - h.at[0], uz = h.front[1] - h.at[1], l = Math.hypot(ux, uz) || 1;
+      return { idx, x: h.at[0], z: h.at[1], fx: h.front[0], fz: h.front[1], yaw: Math.atan2(-ux / l, -uz / l), occ: null, cd: 0, by: null };
+    }
     const n = centerOf(h.cell), [dx, dy] = MAZE_DIRS[h.side];
     return { idx, x: n.x, z: n.z, fx: n.x + dx * CELL, fz: n.z + dy * CELL, yaw: Math.atan2(-dx, -dy), occ: null, cd: 0, by: null };
   });
@@ -207,7 +218,7 @@ export function solidAt(m: Maze, x: number, z: number, elevatorOpen = false) {
 
 /** ¿Se ve (bx,bz) desde (ax,az) sin pared en medio? (pasos de 25 cm por la rejilla) */
 export function seesXZ(solid: (x: number, z: number) => boolean, ax: number, az: number, bx: number, bz: number) {
-  const d = Math.hypot(bx - ax, bz - az), n = Math.ceil(d / 0.25);
+  const d = Math.hypot(bx - ax, bz - az), n = Math.min(Math.ceil(d / 0.25), 800); // (tope: una coordenada disparatada no cuelga el bucle)
   for (let i = 1; i < n; i++) {
     const t = i / n;
     if (solid(ax + (bx - ax) * t, az + (bz - az) * t)) return false;
@@ -253,6 +264,23 @@ export class EntitySim {
   /** Lo último que oyó (o dónde te perdió acechando) y los segundos que le quedan de ir a mirar. */
   heard?: { x: number; z: number; t: number };
   loot: Cell[];
+  /** En paz: no hace nada (el personal del hotel) hasta `rage()`; ya furioso, siempre sabe dónde está el jugador más cercano que no esté escondido. */
+  passive = false;
+  enraged = false;
+  /** Pasea en línea recta por el eje x (con la ficha en paz), por el carril `z` y a `v` m/s. */
+  patrol?: { z: number; dir: number; v: number };
+  /** Despertada por un ruido (un cuadro de luz): va a mirar; si te ve, te mata; si no, vuelve a su sitio en paz. */
+  roused = false;
+  rouse(x: number, z: number) {
+    if (this.enraged || !this.alive) return;
+    this.passive = false;
+    this.roused = true;
+    this.heard = { x, z, t: 40 };
+  }
+  rage() {
+    this.passive = false;
+    this.enraged = true;
+  }
 
   /** `recover`: tras atacar, baila un rato y vuelve a lo suyo (en las salas; en solitario la partida acaba). */
   constructor(
@@ -261,13 +289,13 @@ export class EntitySim {
     readonly solid: (x: number, z: number) => boolean,
     at: Cell,
     readonly speed = 1,
-    public hp = 1,
+    public hp = 3, // (el rifle hace 1 de daño por tiro)
     readonly recover = false,
   ) {
     this.hp0 = hp;
     this.def = ENTITIES[kind];
     this.height = this.def.height;
-    this.loot = itemSpots(maze).map((i) => i.cell);
+    this.loot = itemSpots(maze).map((i) => i.cell).filter((c) => maze.open[c.y * maze.w + c.x]); // (solo los que pisa: los de la planta alta de las Poolrooms no)
     const c = centerOf(at);
     this.x = c.x;
     this.z = c.z;
@@ -301,7 +329,7 @@ export class EntitySim {
   clear(ax: number, az: number, bx: number, bz: number) {
     const dx = bx - ax, dz = bz - az, d = Math.hypot(dx, dz);
     if (d < 1e-6) return true;
-    const nx = (-dz / d) * 0.3, nz = (dx / d) * 0.3, n = Math.ceil(d / 0.3);
+    const nx = (-dz / d) * 0.3, nz = (dx / d) * 0.3, n = Math.min(Math.ceil(d / 0.3), 400);
     for (let i = 1; i <= n; i++)
       for (const k of [-1, 0, 1]) {
         const x = ax + (dx * i) / n + nx * k, z = az + (dz * i) / n + nz * k;
@@ -349,6 +377,13 @@ export class EntitySim {
 
   /** Adónde ir a pasar el rato, según la ficha: a oscuras, o (dos de cada tres veces) a 1–3 celdas de un objeto no muy lejano. */
   spot(): Cell {
+    const m = this.maze;
+    // Poolrooms (mapa abierto y grande): a veces, a cualquier celda abierta del nivel, para que lo recorra entero
+    if (m.lay && Math.random() < 0.3)
+      for (let i = 0; i < 40; i++) {
+        const k = (Math.random() * m.w * m.h) | 0;
+        if (m.open[k] && !this.blocked.has(k)) return { x: k % m.w, y: (k / m.w) | 0 };
+      }
     const me = this.cellOf(this.x, this.z), near = this.loot.filter((c) => Math.abs(c.x - me.x) + Math.abs(c.y - me.y) < 30);
     if (this.def.roam !== 'loot' || !near.length || Math.random() < 0.33) return this.darkSpot();
     return this.darkSpot(near[(Math.random() * near.length) | 0], 1, 3);
@@ -461,6 +496,11 @@ export class EntitySim {
       if (this.recover && this.alive && (this.phase += dt) > 1.3) this.calm(2);
       return undefined;
     }
+    if (this.passive) {
+      const P = this.patrol;
+      if (P) (this.x += P.dir * P.v * dt), (this.z = P.z), (this.facing = P.dir > 0 ? Math.PI / 2 : -Math.PI / 2), (this.moving = true);
+      return undefined;
+    }
     // los sentidos: al que más se da cuenta (el más cerca que ve) le hace caso; y lo que oye
     const s: Sense = { dt, targets, hides, god, rate: 0 };
     for (const t of targets) {
@@ -475,10 +515,15 @@ export class EntitySim {
         if (d > 1.5 && d < n.r * this.def.hearing) this.heard = { x: n.x, z: n.z, t: 25 };
       }
     }
+    if (this.enraged && this.state !== 'chase' && this.state !== 'inspect') {
+      const t = targets.reduce<SimTarget | undefined>((b, q) => (!b || Math.hypot(q.x - this.x, q.z - this.z) < Math.hypot(b.x - this.x, b.z - this.z) ? q : b), undefined);
+      if (t) (this.seen = { x: t.x, z: t.z }), (this.alert = 1);
+    }
     this.repath -= dt;
     this.routeAge += dt;
     // el cerebro: manda el primer comportamiento de la ficha que quiere
     for (const b of this.def.brain) if (BRAIN[b](this, s)) break;
+    if (this.roused && !this.enraged && this.state === 'wander' && !this.heard) (this.roused = false), (this.passive = true), (this.path = []); // (no encontró nada: vuelve a lo suyo)
     // atasco: yendo a un sitio y sin avanzar 1,5 s, se descarta el camino y se traza otro
     if (this.moving) {
       if ((this.stuckT += dt) > 1.5) {
@@ -675,7 +720,7 @@ export interface ItemSpot {
  * Dónde hay latas de Almond Water: 8 celdas abiertas (antes 5: +50 %), lejos del inicio, del ascensor, de lo demás y unas de otras.
  * Solo depende del mapa (no consume su azar): cliente y servidor sacan las mismas.
  */
-export function waterSpots(m: Maze, n = 8): Cell[] {
+export function waterSpots(m: Maze, n = 6): Cell[] {
   if (m.waters) return m.waters; // Poolrooms: ya vienen puestas
   const used = new Set<number>(), key = (c: Cell) => c.y * m.w + c.x;
   [m.start, m.elevator, m.camera, ...(m.pistol ? [m.pistol] : []), ...m.extraGuns, ...m.tapes, ...m.flashlights, ...m.voids, ...m.props.map((p) => p.cell)].forEach((c) => used.add(key(c)));
@@ -731,7 +776,7 @@ export function radarSpot(m: Maze): Cell | null {
  * El botín de valor (ids v…): piezas repartidas por el mapa que solo sirven para venderse en la báscula. Celdas abiertas lejos del inicio,
  * del ascensor y unas de otras. Solo depende del mapa: cliente y servidor sacan las mismas.
  */
-export function lootSpots(m: Maze, n = 9): Cell[] {
+export function lootSpots(m: Maze, n = m.lay ? 14 : 7): Cell[] { // (las Poolrooms: el doble)
   const used = new Set<number>(), key = (c: Cell) => c.y * m.w + c.x, rd = radarSpot(m);
   [m.start, m.elevator, m.camera, ...(m.pistol ? [m.pistol] : []), ...m.extraGuns, ...m.tapes, ...m.flashlights, ...waterSpots(m), ...(rd ? [rd] : []), ...(m.tank ? [m.tank] : []), ...(m.watergun ? [m.watergun] : []), ...m.voids, ...m.props.map((p) => p.cell)].forEach((c) => c && used.add(key(c)));
   const free: Cell[] = [];
@@ -761,6 +806,7 @@ export function itemSpots(m: Maze): ItemSpot[] {
   add('c', 'camera', m.camera);
   if (m.pistol) add('g', 'gun', m.pistol);
   m.extraGuns.forEach((cell, i) => add('g' + (i + 1), 'gun', cell));
-  lootSpots(m).forEach((cell, i) => (i % 8 === 7 ? add('l' + i, 'locker', cell) : add('v' + i, 'loot', cell))); // una de cada ocho es una taquilla
+  // una de cada ocho es una taquilla; el 4 % (por celda, fijo para la semilla) es un cargador suelto
+  lootSpots(m).forEach((cell, i) => (i % 8 === 7 ? add('l' + i, 'locker', cell) : (cell.x * 7 + cell.y * 13 + m.h * 31) % 25 === 0 ? add('a' + i, 'ammo', cell) : add('v' + i, 'loot', cell)));
   return out;
 }

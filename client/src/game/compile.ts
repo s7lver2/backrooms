@@ -39,8 +39,23 @@ const warmup = [0, 1, 2].includes(settings.warmup) ? settings.warmup : 2;
  * `around` envuelve cada paso (no lo que pasa entre uno y otro, cuando otra escena puede estar
  * pintando con el mismo renderer): para el estado que la escena necesita al compilar.
  */
+/** Sube a la GPU las texturas de la escena (la primera vez que se pintan cuestan un tirón: al girar la cámara hacia algo nuevo), soltando el hilo cada ~30 ms. */
+async function uploadTextures(r: THREE.WebGLRenderer, scene: THREE.Scene) {
+  const seen = new Set<THREE.Texture>();
+  scene.traverse((o) => {
+    const m = (o as THREE.Mesh).material as THREE.Material | THREE.Material[] | undefined;
+    for (const mat of Array.isArray(m) ? m : m ? [m] : []) for (const v of Object.values(mat)) if ((v as THREE.Texture)?.isTexture && (v as THREE.Texture).image) seen.add(v as THREE.Texture);
+  });
+  let t = performance.now();
+  for (const tex of seen) {
+    r.initTexture(tex);
+    if (performance.now() - t > 30) (await new Promise((res) => setTimeout(res))), (t = performance.now());
+  }
+}
+
 export async function compileGently(r: THREE.WebGLRenderer, scene: THREE.Scene, cam: THREE.Camera, around = <T>(fn: () => T) => fn(), progress?: (f: number) => void) {
   if (warmup === 0) {
+    await uploadTextures(r, scene);
     progress?.(1);
     if (DEV_LOCAL) console.info('[compile] perezoso: nada precompilado');
     return;
@@ -89,6 +104,7 @@ export async function compileGently(r: THREE.WebGLRenderer, scene: THREE.Scene, 
     while (!(r.info.programs ?? []).every(ready)) await new Promise((res) => setTimeout(res, 10));
   } else await step(() => r.compileAsync(scene, cam));
   rt.dispose();
+  await uploadTextures(r, scene);
   // desarrollo: cuánto ha costado (en Firefox, sin compilación en paralelo, es casi todo bloqueo)
   if (DEV_LOCAL)
     console.info(`[compile] ${(r.info.programs?.length ?? 0) - stat.from} programas, ${Math.round(stat.busy)} ms bloqueando, ${Math.round(performance.now() - stat.at)} ms en total (${sync ? 'sin' : 'con'} paralelo, ${quick ? 'rápido' : 'completo'})`);

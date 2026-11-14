@@ -47,13 +47,13 @@ Mission done -> `room.mission.done` -> elevator opens. Boarding needs `canBoard`
 
 | Const | Value | File |
 |---|---|---|
-| `START_BANK` | 300 (shared team money) | missions.ts |
+| `START_BANK` | 250 per player who joins a fresh room (shared team money) | missions.ts |
 | `PENALTY` | 25 % of bank on failed round (`penaltyOf`) | missions.ts |
 | Win condition | mission done AND >= 1 player boarded alive -> +reward; else penalty | server `finish` |
 | Fates | `back` (boarded alive: keeps inventory), `dead` / `stranded` (inventory reset to `EMPTY_INV`) | server `finish` |
 | `START_INV` | 1 spare flashlight | missions.ts |
-| `INV_MAX` | spares 6, water 5, totem 2, ammo 15, others boolean | missions.ts |
-| `AMMO_PACK` | 3 rounds per ammo pack (gun purchase includes 1 pack; map rifle gives +6 cap) | missions.ts, server `gain` |
+| `INV_MAX` | spares 6, water 5, totem 2, ammo 8 (2 packs), others boolean | missions.ts |
+| `AMMO_PACK` | 4 rounds per ammo pack; the rifle holds `RIFLE_MAG` = 2 (reload every 2 shots); gun purchase / map rifle gives 1 pack; ~4 % of loot spots are loose ammo (`a`). Entities have 3 hp, 1 per shot; misfire `blast` event: shooter dies, 5 m area damage | missions.ts, server `gain` |
 | Drops | `DROP_MAX` 6 per player, `DROP_TTL` 300 s, `DROP_GAP` 250 ms, ids `d<n>`; key Y | missions.ts |
 
 Shop (`SHOP`, bought in lobby at the waiting-room computer, money is team-wide, item goes to buyer; 150 ms anti-spam): flashlight 40, camera 250, gun 450, ammo 70, water 90, caution 40, radar 300, tank 250, watergun 150, totem 400. Errors (English strings): `NOT AVAILABLE`, `TOO FAST`, `CANNOT CARRY MORE`, `NOT ENOUGH MONEY`.
@@ -164,3 +164,7 @@ Transport: socket.io, websocket first then polling, `withCredentials` (session c
 ## 13. Where numbers live (quick index)
 
 `shared/src/index.ts` (timings, HP, strips, difficulty, wait room), `missions.ts` (money, items, shop, missions), `sim.ts` (entity AI), `caps.ts`, `progress.ts` (accounts/achievements/cosmetics), `server/src/match.ts` (reach limits, wet/stun), `client/src/game/player.ts`, `poolmap.ts` (oxygen etc.).
+
+Noise radii (m, `sim.ts`; entities hear x`hearing`): `NOISE_RUN` 9, `NOISE_SHOT` 30, `NOISE_DROP` 7, `NOISE_PHOTO` 16 (client `snap` event, camera in hand), `NOISE_PICK` 8 (accepted pickup).
+
+- Rifle misfire: client `Items.onMisfire` → `Game.misfire()` (fireball `explosion.ts`, flash, camera ragdoll via `fly`) + socket `blast`; the server kills the shooter, hurts players/entities within 5 m and broadcasts `blastFx` so everyone sees the explosion and the body tumbling (`Remote.launch`).

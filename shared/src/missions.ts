@@ -3,12 +3,14 @@
  * Todo puro: lo comparten el servidor (que decide) y el cliente (que pinta). El estado vive en la memoria del servidor mientras la sala exista.
  */
 import { CELL, DIRS, type Cell, type Maze } from './maze';
+import { suitesMaze } from './suites';
 import type { Stats } from './upgrades';
 
 // ── dinero ───────────────────────────────────────────────────────────────
 
 /** Saldo común con el que empieza una sala. */
-export const START_BANK = 300;
+/** Dinero inicial de una sala nueva: por cada jugador que entra. */
+export const START_BANK = 250;
 /** Si la ronda sale mal (misión sin cumplir o nadie vuelve vivo) el equipo pierde esta fracción del saldo (redondeada, nunca negativo). */
 export const PENALTY = 0.25;
 /** Segundos que quedan para cerrar la ronda desde que sube el primero al ascensor. */
@@ -42,15 +44,25 @@ export const poolMissions = (seed: number, round: number): Mission[] => {
   const r = rng(seed ^ Math.imul(round + 1, 0x9e3779b1));
   return [makeMission('survive', r, `m${round}-0`, 0), makeMission('soaps', r, `m${round}-1`, 0)];
 };
-/** Las misiones de las Suites: aguantar o recoger objetos del hotel (el resto, cuadros y recepción, llegará con el nivel entero). */
+/**
+ * Las misiones de las Suites: siempre SURVIVE y dos más de estas, al azar (semilla): encender los cuadros eléctricos, objetos del hotel (cintas),
+ * el encargo de recepción (llevar artefactos al mostrador) y sobrevivir al fallo del EEH. Cada planta pide más y paga más (+25 % por planta).
+ */
 export const suitesMissions = (seed: number, round: number, floor = 1): Mission[] => {
-  const r = rng(seed ^ Math.imul(round + 1, 0x9e3779b1));
-  // cada planta pide más (un minuto o una cinta cada dos plantas, hasta las 8 que hay) y paga más (+25 % por planta)
-  return [makeMission('survive', r, `m${round}-0`, 0), makeMission('tapes', r, `m${round}-1`, 0)].map((m) => {
-    const goal = m.kind === 'tapes' ? Math.min(8, m.goal + (floor >> 1)) : m.goal + 60 * (floor - 1);
-    return { ...m, goal, text: missionText(m.kind, goal), reward: round10((m.reward * goal * (1 + 0.25 * (floor - 1))) / m.goal) };
+  const r = rng(seed ^ Math.imul(round + 1, 0x9e3779b1)), f = floor - 1;
+  const pool: MissionKind[] = ['power', 'order', 'tapes', 'eeh'];
+  for (let i = pool.length - 1; i > 0; i--) { const j = Math.floor(r() * (i + 1)); [pool[i], pool[j]] = [pool[j], pool[i]]; }
+  const panels = suitesMaze(seed, floor).gens?.length || 3;
+  return (['survive', pool[0], pool[1]] as MissionKind[]).map((k, i) => {
+    const m = makeMission(k, r, `m${round}-${i}`, 0);
+    const goal = k === 'tapes' ? Math.min(8, m.goal + (f >> 1)) : k === 'survive' ? m.goal + 60 * f : k === 'power' ? panels : k === 'order' ? 2 + (f >> 1) : m.goal + 15 * f;
+    return { ...m, goal, text: missionText(k, goal), reward: round10((m.reward * goal * (1 + 0.25 * f)) / m.goal) };
   });
 };
+/** Las Suites: lo que se vota al principio son los encargos del contrato (1, 3 o 5), no una misión; el extra se cobra al salir por el -1. */
+export const contractOffers = (): Mission[] => [[1, 'SHORT CONTRACT · 1 JOB', 100], [3, 'STANDARD CONTRACT · 3 JOBS', 400], [5, 'LONG CONTRACT · 5 JOBS', 900]].map(([n, text, reward]) => ({ id: `c${n}`, kind: 'contract' as const, text: text as string, goal: n as number, reward: reward as number }));
+/** Las Suites: la misión «llegar a la planta 5» (no está en la pizarra: un Faceling la ofrece al acabar otra, en plantas < 5). */
+export const climbMission = (): Mission => makeMission('climb', () => 0, 'climb', 0);
 /** Niveles especiales: no entran en el sorteo (los lleva el cliente aparte). */
 export const SPECIAL_LEVELS = ['runforyourlife'] as const;
 /** Un nivel del sorteo, según la semilla, entre los desbloqueados (`open`: ids de nivel; sin él, los que no piden desbloqueo). */
@@ -66,7 +78,9 @@ export type ItemId = 'flashlight' | 'camera' | 'gun' | 'ammo' | 'water' | 'cauti
 export const ITEM_IDS: ItemId[] = ['flashlight', 'camera', 'gun', 'ammo', 'water', 'caution', 'radar', 'totem', 'tank', 'watergun', 'uno', 'monster'];
 /** Monster: segundos que se tarda en beberla, lo que dura el efecto, y lo que acelera. Uno Reverse: ver ITEMS.uno. */
 export const MONSTER = { drink: 3, time: 5, speed: 1.4 } as const;
-export const AMMO_PACK = 3;
+/** Un cargador suelto: 4 balas. El rifle monta 2 a la vez (`RIFLE_MAG`) y se pueden llevar 2 cargadores como mucho. */
+export const AMMO_PACK = 4;
+export const RIFLE_MAG = 2;
 
 /** Lo que un jugador lleva (y conserva entre rondas). La linterna principal no cuenta: nunca se pierde. */
 export interface Inventory {
@@ -103,7 +117,7 @@ export const EMPTY_INV: Inventory = { spares: 0, water: 0, totem: 0, ammo: 0, ra
 /** Con lo que entra quien llega a una sala: una linterna de repuesto. */
 export const START_INV: Inventory = { ...EMPTY_INV, spares: 1 };
 /** Lo máximo que se puede llevar de cada cosa. */
-export const INV_MAX: Inventory = { spares: 6, water: 5, totem: 2, ammo: 15, radar: true, camera: true, gun: true, tank: true, watergun: true, caution: true, uno: true, monster: 3 };
+export const INV_MAX: Inventory = { spares: 6, water: 5, totem: 2, ammo: AMMO_PACK * 2, radar: true, camera: true, gun: true, tank: true, watergun: true, caution: true, uno: true, monster: 3 };
 
 /** Un inventario saneado: lo que no es número o booleano, a cero; nada por encima de `cap` (por defecto, el máximo de INV_MAX). */
 export function cleanInv(x: unknown, cap: Inventory = INV_MAX): Inventory {
@@ -266,7 +280,9 @@ export const DROP_GAP = 250;
 
 // ── misiones ─────────────────────────────────────────────────────────────
 
-export type MissionKind = 'photos' | 'tapes' | 'soaps' | 'survive' | 'tvs';
+export type MissionKind = 'photos' | 'tapes' | 'soaps' | 'survive' | 'tvs' | 'power' | 'order' | 'eeh' | 'climb' | 'contract';
+/** Las Suites, misión EEH: segundos que hay que aguantar con el Evaporador de Entidades Hostiles roto (falla a los `goal - EEH_HOLD` s de partida). */
+export const EEH_HOLD = 90;
 export interface Mission {
   id: string;
   kind: MissionKind;
@@ -280,7 +296,10 @@ export interface Mission {
 /** La misión elegida, con su progreso (0 → goal; en `survive`, segundos). `done` abre el ascensor. */
 export interface ActiveMission extends Mission {
   progress: number;
+  /** Esta misión ya está cumplida (en las Suites, un Faceling da otra). */
   done: boolean;
+  /** La salida está abierta (se ha cumplido alguna misión de la ronda). */
+  exit: boolean;
 }
 /** Una de las ofrecidas en la pizarra, con los ids de quienes la votan. */
 export interface MissionOffer extends Mission {
@@ -292,7 +311,27 @@ export function missionText(kind: MissionKind, goal: number) {
   if (kind === 'tapes') return `FIND ${goal} TAPES`;
   if (kind === 'soaps') return `FIND ${goal} SOAPS`;
   if (kind === 'survive') return `SURVIVE ${Math.round(goal / 60)} MINUTES`;
+  if (kind === 'power') return `SWITCH ON ${goal} POWER PANELS`;
+  if (kind === 'order') return `HAND ${goal} ARTIFACTS TO RECEPTION`;
+  if (kind === 'eeh') return 'SURVIVE THE EVAPORATOR FAILURE';
+  if (kind === 'climb') return 'CLIMB TO FLOOR 5 BY THE SERVICE STAIRS';
+  if (kind === 'contract') return `${goal} JOBS`;
   return `TURN OFF ${goal} TVS`;
+}
+/** Cómo se cumple cada misión, en una frase (el HUD la pone bajo el objetivo). */
+export function missionHint(kind: MissionKind) {
+  return {
+    photos: 'TAKE PHOTOS OF ENTITIES WITH THE CAMCORDER (RIGHT CLICK TO AIM, LEFT CLICK TO SHOOT)',
+    tapes: 'PICK UP THE VHS TAPES LYING AROUND THE LEVEL',
+    soaps: 'PICK UP THE SOAP BARS LYING AROUND THE LEVEL',
+    survive: 'STAY ALIVE UNTIL THE TIMER ENDS',
+    tvs: 'WALK UP TO THE TVS AND TURN THEM OFF (G)',
+    power: 'FIND THE ELECTRIC PANELS ON THE WALLS AND SWITCH THEM ON (G)',
+    order: 'FIND ARTIFACTS AND HAND THEM IN AT A RECEPTION DESK (G)',
+    eeh: 'THE ENTITY EVAPORATOR (EEH) KEEPS THE STAFF CALM. WHEN THE FIRST TIMER ENDS IT FAILS: ALARM, RED LIGHTS, AND THE STAFF HUNTS YOU. HIDE IN A WARDROBE (E) UNTIL THE SECOND TIMER ENDS',
+    contract: 'COMPLETE JOBS ON ANY FLOOR, THEN TAKE THE ELEVATOR TO -1',
+    climb: 'USE THE BACK STAIRS TO REACH FLOOR 5. STAIR DOORS OPEN ONLY ONCE A MISSION IS DONE',
+  }[kind];
 }
 /** La línea del HUD: «PHOTOS 1/3», «TAPES 2/4», «TVS 2/4», «SURVIVE 3:20» (lo que falta). */
 export function missionLine(m: Pick<ActiveMission, 'kind' | 'goal' | 'progress'>) {
@@ -300,7 +339,12 @@ export function missionLine(m: Pick<ActiveMission, 'kind' | 'goal' | 'progress'>
     const left = Math.max(0, m.goal - m.progress);
     return `SURVIVE ${Math.floor(left / 60)}:${String(Math.floor(left % 60)).padStart(2, '0')}`;
   }
-  return `${{ photos: 'PHOTOS', tapes: 'TAPES', soaps: 'SOAPS', tvs: 'TVS' }[m.kind]} ${Math.min(m.progress, m.goal)}/${m.goal}`;
+  if (m.kind === 'eeh') {
+    // antes del fallo, la cuenta atrás; después, lo que falta por aguantar (el progreso son los segundos de partida)
+    const fail = m.goal - EEH_HOLD, t = m.progress < fail ? fail - m.progress : Math.max(0, m.goal - m.progress);
+    return `${m.progress < fail ? 'EVAPORATOR FAILS IN' : 'STAFF LOOSE · SURVIVE'} ${Math.floor(t / 60)}:${String(Math.floor(t % 60)).padStart(2, '0')}`;
+  }
+  return `${{ photos: 'PHOTOS', tapes: 'TAPES', soaps: 'SOAPS', tvs: 'TVS', power: 'PANELS', order: 'ORDER', climb: 'CLIMB', contract: 'JOBS' }[m.kind]} ${Math.min(m.progress, m.goal)}/${m.goal}`;
 }
 
 function rng(seed: number) {
@@ -324,6 +368,10 @@ export function makeMission(kind: MissionKind, r: () => number, id: string, tvs:
   else if (kind === 'tapes') (goal = between(r, 3, 6)), (reward = 50 + 60 * goal);
   else if (kind === 'soaps') (goal = between(r, 3, 5)), (reward = 60 + 60 * goal);
   else if (kind === 'survive') (goal = between(r, 4, 8) * 60), (reward = 40 + 55 * (goal / 60));
+  else if (kind === 'power') (goal = 3), (reward = 90 + 40 * goal);
+  else if (kind === 'order') (goal = 2), (reward = 70 + 70 * goal);
+  else if (kind === 'eeh') (goal = 60 + EEH_HOLD), (reward = 400);
+  else if (kind === 'climb') (goal = 1), (reward = 600);
   else (goal = Math.min(between(r, 3, 5), tvs)), (reward = 70 + 80 * goal);
   return { id, kind, text: missionText(kind, goal), goal, reward: round10(reward * MISSION_PAY) };
 }

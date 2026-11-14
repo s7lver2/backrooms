@@ -1,6 +1,6 @@
 'use client';
 import { memo, useEffect, useMemo, useRef, useState, type MutableRefObject } from 'react';
-import { DEFAULT_LOOK, ITEMS, SHOP, lootPrice, rarity, sellPrice, type ItemId, type Look, type Qual } from '@backrooms/shared';
+import { DEFAULT_LOOK, RIFLE_MAG, ITEMS, SHOP, lootPrice, rarity, sellPrice, type ItemId, type Look, type Qual } from '@backrooms/shared';
 import { perks } from './perks';
 import { lootIcon } from './rarityFx';
 import type { Assets, Inv } from './game';
@@ -418,7 +418,7 @@ function Inventory({
         ? [`BATTERY ${Math.round(inv.charge * 100)}%`, inv.flashOn ? 'ON' : 'OFF', 'Lights the way. [F] switches it.']
         : g === 'camera'
           ? [`BATTERY ${Math.round(inv.battery * 100)}%`, `PHOTOS ${inv.photos}/2`, 'Hold it, right click, click.']
-          : [`AMMO ${inv.ammo}/3 +${inv.spare}`, 'Right click to aim, click to fire.'];
+          : [`AMMO ${inv.ammo}/${RIFLE_MAG} +${inv.spare}`, 'Right click to aim, click to fire.'];
     return { title: label(g), lines, icon: icons[g] };
   })();
 

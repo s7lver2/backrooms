@@ -141,6 +141,9 @@ export interface Room extends RoomSettings {
   levelId: string;
   /** Las Suites: la planta de la ronda (1-5). */
   floor?: number;
+  /** Las Suites: encargos del contrato votado (1, 3 o 5; 0 = aún sin contrato) y los ya cumplidos. El -1 del ascensor solo sale con `jobs >= quota`. */
+  quota?: number;
+  jobs?: number;
   /** Capacidades del nivel (levelCaps(levelId)): qué componentes del jugador están activos. */
   caps: LevelCaps;
   /** Fase `starting`: las 3 misiones a votar con sus votos. Vacío en las demás fases. */
@@ -208,7 +211,7 @@ export const SCALE = { x: -3.7, z: 1.6, r: 0.6 }; // (cerca de la pared oeste, e
 export type Joined = { id: string; room: RoomView } | { error: string };
 
 /** Un objeto de la partida: cinta, linterna, cámara o rifle. */
-export type ItemKind = 'tape' | 'flashlight' | 'camera' | 'gun' | 'water' | 'totem' | 'radar' | 'tank' | 'watergun' | 'loot' | 'locker' | 'gen';
+export type ItemKind = 'tape' | 'flashlight' | 'camera' | 'gun' | 'water' | 'totem' | 'radar' | 'tank' | 'watergun' | 'loot' | 'locker' | 'gen' | 'ammo';
 export interface WorldSnapshot {
   /** Reloj del servidor (Date.now()) al tomar el snapshot: las entidades se interpolan con él, no con la hora de llegada. */
   t?: number;
@@ -285,6 +288,8 @@ export interface ClientToServer {
   shoot: (playerId: string) => void;
   /** Un disparo del rifle (dé o no a algo): las entidades lo oyen. */
   bang: () => void;
+  /** El rifle te ha explotado en la cara: mueres y el estallido daña alrededor. */
+  blast: () => void;
   /** Se ha caído al vacío. */
   fell: () => void;
   chat: (text: string) => void;
@@ -299,9 +304,14 @@ export interface ClientToServer {
   leave: () => void;
   /**
    * Ha entrado en el ascensor abierto (la misión está cumplida) y sube. Manda lo que lleva: el servidor lo acota a lo que podía tener
-   * (inventario del inicio + lo recogido, menos lo soltado) y es lo que conserva para la siguiente ronda.
+   * (inventario del inicio + lo recogido, menos lo soltado) y es lo que conserva para la siguiente ronda. Por la escalera de servicio de Las Suites
+   * `floor` es la planta (1-5) a la que se va, la que sea; sin él, la siguiente.
    */
-  ascend: (inv: Inventory) => void;
+  ascend: (inv: Inventory, floor?: number) => void;
+  /** Las Suites, misión del encargo de recepción: entregar una pieza de botín al Faceling del mostrador (responde si la tenía y la misión la pide). */
+  deliver: (cb: (ok: boolean) => void) => void;
+  /** Suites: un Faceling ofrece otra misión tras cumplir la actual. `pick` < 0 solo pregunta cuántas quedan (n); `pick` ≥ 0 elige a ciegas una de ellas (n = las que había; 0 = ninguna). */
+  nextMission: (pick: number, cb: (n: number) => void) => void;
   /** Votación (fase `starting`, tras la entrada): votar una misión por su id (cambia el voto anterior; '' lo quita). */
   vote: (missionId: string) => void;
   /**
@@ -325,6 +335,7 @@ export interface ClientToServer {
   drink: () => void;
   /** Se ha sacado una foto (el servidor cuenta las que valen, solo con cámara en la mano). */
   photo: () => void;
+  snap: () => void;
   /** Solo invitados: su color (uno de los gratis). Con cuenta, el aspecto sale de la cuenta. */
   look: (color: string) => void;
   /** Listo / no listo en la sala de espera. En la fase `starting` (votación): `true` = este cliente ya tiene el nivel cargado. */
@@ -364,6 +375,8 @@ export interface ServerToClient {
   /** Señalización WebRTC de `from` (un compañero de la sala). */
   rtc: (from: string, data: unknown) => void;
   dead: (id: string) => void;
+  /** El rifle de `id` ha explotado en (x, y, z): todos ven la explosión y a él salir volando. */
+  blastFx: (m: { id: string; x: number; y: number; z: number }) => void;
   /** Fin de la ronda (todos vuelven al lobby): el resultado completo (cobro o penalización, saldo, qué fue de cada uno). */
   over: (r: RoundResult) => void;
   /**

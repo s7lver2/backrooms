@@ -3,15 +3,16 @@ import { CELL, type Cell } from './maze';
 import { center, type World } from './world';
 import type { Assets } from './game';
 import type { Player } from './player';
+import { lockerMesh } from './lockerMesh';
 import { PickupField, MAG, TOTAL, type Pickup } from './pickups';
 export { MAG, TOTAL };
-import { boostOf, lootSpots, radarSpot, spotRarity, waterSpots, type Drop, type ItemId } from '@backrooms/shared';
+import { boostOf, lootSpots, radarSpot, spotRarity, waterSpots, type Drop, type ItemId, type LockerItem } from '@backrooms/shared';
+import { itemModel } from './itemModels';
 import { lootModel } from './rarityFx';
 import { perks } from './perks';
 import type { Controls } from './input';
 import type { GameAudio } from './audio';
 import { loadPoolKit, type PoolKit } from './poolmap';
-import { itemModel } from './itemModels';
 
 /*
  * Lo que se recoge y lo que se hace con ello: las 8 cintas, la cámara (fotos) y el rifle (disparos), lo que sueltan los compañeros
@@ -51,16 +52,23 @@ export class Items extends PickupField {
   open = false;
   /** La misión está cumplida: el ascensor se abre al acercarse. */
   ready = false;
-  onWin?: (stairs?: boolean) => void;
+  onWin?: (stairs?: boolean, floor?: number) => void;
+  /** En una sala de Las Suites, la escalera de servicio pregunta a qué planta ir (game.ts abre el selector); sin esto, sube directo. */
   onKill?: (t: Target, from: THREE.Vector3) => void;
   /** Los compañeros vivos (el centro del cuerpo) y qué pasa si el tiro da a uno: fuego amigo. */
   peers: () => { id: string; at: THREE.Vector3 }[] = () => [];
   onShootPlayer?: (id: string) => void;
   /** Cada disparo (dé o no): el ruido que oyen las entidades. */
   onShot?: () => void;
+  onMisfire?: () => void;
   /** Una foto que cuenta (multijugador: se avisa al servidor, que lo comprueba). */
   onPhoto?: () => void;
-  private won = false;
+  /** Cada disparo de la cámara (haya o no entidad): hace ruido. */
+  onSnap?: () => void;
+  won = false;
+  /** Las Suites: el ascensor no se lleva solo; dentro de la cabina se pulsa a qué planta (game.ts abre el panel). */
+  onCab?: (inside: boolean) => void;
+  wasCab = false;
   private rejectAt = 0;
   /** Los fotogramas que la foto se queda congelada. */
   freeze = 0;
@@ -91,7 +99,7 @@ export class Items extends PickupField {
     lootSpots(m).forEach((c, i) => {
       if (i % 8 === 7) {
         // una taquilla (se abre con un minijuego y guarda botín y objetos)
-        const lk = itemModel('locker') ?? new THREE.Mesh(new THREE.BoxGeometry(0.5, 1.8, 0.5), new THREE.MeshStandardMaterial({ color: 0x59636b, roughness: 0.6, metalness: 0.6 }));
+        const lk = lockerMesh();
         // siempre pegada a una pared: la primera de las cuatro de la celda con muro, de frente a la sala
         const cc = center(c), D = [[1, 0], [-1, 0], [0, 1], [0, -1]] as const, w = D.find(([dx, dz]) => this.world.solid(cc.x + dx * (CELL / 2 + 0.2), cc.z + dz * (CELL / 2 + 0.2))) ?? D[0];
         put('l' + i, 'locker', c, lk, 1.8, Math.atan2(-w[0], -w[1]), { x: cc.x + w[0] * (CELL / 2 - 0.4), z: cc.z + w[1] * (CELL / 2 - 0.4) });
@@ -135,6 +143,7 @@ export class Items extends PickupField {
     pl.kick();
     this.audio?.shot();
     this.onShot?.();
+    if (Math.random() < (pl.scoped ? 0.05 : 0.1)) return this.onMisfire?.(); // el rifle te explota en la cara (5 % apuntando, 10 % sin apuntar)
     // el tiro: la entidad viva más cerca dentro de un cono estrecho, a la vista, a menos de 30 m
     const eye = this.camera.getWorldPosition(new THREE.Vector3()), fwd = this.camera.getWorldDirection(new THREE.Vector3());
     let best: Target | undefined, bd = 30 * boostOf(perks, 'gun'); // (la rareza del rifle: más alcance)
@@ -172,6 +181,7 @@ export class Items extends PickupField {
     this.freeze = 0.15;
     this.snap = true;
     this.audio?.shutter();
+    this.onSnap?.();
     const tg = this.framed(15);
     if (tg) (this.photographed.add(tg), this.onPhoto?.());
     return !!tg;
@@ -179,10 +189,14 @@ export class Items extends PickupField {
 
   /** Los objetos soltados que hay ahora en el suelo (lista del servidor), con los modelos de este mundo. */
   override syncDrops(list: Drop[]) {
-    const g = this.assets.gltf;
     if (!this.kit && list.some((d) => d.kind === 'tank' || d.kind === 'watergun')) void loadPoolKit().then((k) => (this.kit = k)); // (sus modelos están en el kit de las Poolrooms; se reintenta en el siguiente mundo)
-    const kit = this.kit;
-    const model: Partial<Record<ItemId | 'loot', [THREE.Object3D, number]>> = {
+    super.syncDrops(list, this.models(), lootModel);
+  }
+
+  /** Los modelos de cada objeto y su tamaño. */
+  private models(): Partial<Record<ItemId | 'loot', [THREE.Object3D, number]>> {
+    const g = this.assets.gltf, kit = this.kit;
+    return {
       loot: [lootModel(), 0.24],
       ...(kit?.tank && { tank: [kit.tank, 0.6] as [THREE.Object3D, number] }),
       ...(kit?.watergun && { watergun: [kit.watergun, 0.4] as [THREE.Object3D, number] }),
@@ -193,9 +207,28 @@ export class Items extends PickupField {
       caution: [g.duct.scene, 0.16],
       radar: [g.radar.scene, 0.2],
       totem: [g.totem.scene, 0.5],
+      ...(itemModel('uno') && { uno: [itemModel('uno')!, 0.2] as [THREE.Object3D, number] }),
+      ...(itemModel('monster') && { monster: [itemModel('monster')!, 0.2] as [THREE.Object3D, number] }),
       ammo: [new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.06, 0.06), new THREE.MeshStandardMaterial({ color: 0xb08d3a, roughness: 0.5, metalness: 0.5 })), 0.12],
     };
-    super.syncDrops(list, model, lootModel);
+  }
+
+  /** La taquilla `id` se ha abierto (minijuego hecho): la puerta se abre y lo que queda dentro (`taken`: lo ya cogido) se ve en los estantes, listo para G. */
+  openLocker(id: string, items: LockerItem[], taken: boolean[]) {
+    const lk = this.pickups.find((p) => p.id === id);
+    if (!lk) return;
+    this.swing(lk);
+    const m = this.models(), pos = lk.obj.position, rot = lk.obj.rotation.y, fx = Math.sin(rot), fz = Math.cos(rot);
+    items.forEach((it, i) => {
+      const pid = `${id}:${i}`;
+      if (taken[i] || this.pickups.some((p) => p.id === pid)) return;
+      const [src, size] = m[it.kind] ?? [lootModel(it.r), 0.24];
+      this.put(pid, it.kind, { x: 0, y: 0 }, it.kind === 'loot' ? lootModel(it.r) : src, size, 0, { x: pos.x + fx * 0.06, z: pos.z + fz * 0.06 }, false, it.r);
+      const p = this.pickups[this.pickups.length - 1];
+      p.given = true;
+      p.y = 1.5 - i * 0.4; // un estante cada 40 cm, de arriba abajo
+      p.obj.position.y = p.y;
+    });
   }
 
   get photos() {
@@ -217,14 +250,18 @@ export class Items extends PickupField {
     }
     // dentro de la cabina, se cierra la grabación
     const cab = center(w.maze.elevator);
-    if (this.open && !this.won && Math.hypot(this.player.pos.x - cab.x, this.player.pos.z - cab.z) < CELL * 0.3) {
+    const inCab = this.open && !this.won && Math.hypot(this.player.pos.x - cab.x, this.player.pos.z - cab.z) < CELL * 0.3;
+    if (this.onCab) {
+      if (inCab !== this.wasCab) (this.wasCab = inCab), this.onCab(inCab);
+    } else if (inCab) {
       this.won = true;
       this.onWin?.();
     }
-    // la escalera de servicio (Las Suites): arriba del todo (el rellano, a una planta de altura), con la misión hecha, se pasa de planta (en silencio y a oscuras)
-    if (w.maze.stairs && !this.won && this.player.pos.y > 2.2) {
-      if (ready) (this.won = true), this.onWin?.(true);
-      else if (t > this.rejectAt) (this.rejectAt = t + 1.5), this.audio?.reject();
+    // la escalera de servicio (Las Suites): cada planta tiene su puerta en el hueco; cruzarla, con la salida abierta, lleva a esa planta (en silencio y a oscuras)
+    if (!this.won) {
+      const q = this.player.pos, d = w.stairDoors.find((d) => Math.hypot(q.x - d.x, q.z - d.z) < 0.9 && Math.abs(q.y - d.y) < 0.8);
+      if (d && ready) (this.won = true), this.onWin?.(true, d.n);
+      else if (d && t > this.rejectAt) (this.rejectAt = t + 1.5), this.audio?.reject();
     }
   }
 }

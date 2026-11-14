@@ -17,14 +17,16 @@ import { buildPits, PIT_EDGE } from './pit';
 
 export const HEIGHT = 2.7;
 /** Lo que gira la hoja de una puerta abierta de las Suites (rad). */
-const SWING = 1.3;
+const SWING = 1.75;
+const PROP_FAR = 24;
 /** El mobiliario de las suites: qué modelo, a qué medida (el lado `axis` mide `size` m), a qué altura cuelga (`mount`: el centro; si no, al suelo) y lo que no se atraviesa (círculos `r` en [lateral, hacia donde mira]). */
-const SUITE_PROPS: Partial<Record<PropKind, { key: 'suites/bed' | 'suites/sofa' | 'suites/luggage' | 'suites/bin' | 'suites/mirror' | 'suites/plant' | 'suites/chair' | 'suites/wardrobe' | 'suites/table' | 'suites/secretary' | 'suites/panel'; turn?: number; tint?: number; axis: 'x' | 'y' | 'z'; size: number; mount?: number; r?: number; at?: [number, number][] }>> = {
+const SUITE_PROPS: Partial<Record<PropKind, { key: 'suites/bed' | 'suites/sofa' | 'suites/luggage' | 'suites/bin' | 'suites/mirror' | 'suites/plant' | 'suites/chair' | 'suites/wardrobe' | 'suites/table' | 'suites/secretary' | 'suites/panel' | 'suites/trolley'; turn?: number; tint?: number; axis: 'x' | 'y' | 'z'; size: number; mount?: number; r?: number; at?: [number, number][] }>> = {
   bed: { key: 'suites/bed', axis: 'z', size: 2.25, r: 0.62, at: [[0, -0.8], [0, 0], [0, 0.8]] },
   sofa: { key: 'suites/sofa', axis: 'x', size: 1.9, r: 0.5, at: [[-0.45, 0], [0.45, 0]] },
   luggage: { key: 'suites/luggage', axis: 'y', size: 0.78, r: 0.3, at: [[0, 0]] },
   plant: { key: 'suites/plant', axis: 'y', size: 1.3, r: 0.3, at: [[0, 0]] },
   bin: { key: 'suites/bin', axis: 'y', size: 0.4 },
+  trolley: { key: 'suites/trolley', turn: Math.PI / 2, axis: 'y', size: 1.8, r: 0.4, at: [[0, -0.3], [0, 0.3]] }, // (el modelo es largo en z)
   mirror: { key: 'suites/mirror', axis: 'y', size: 1.2, mount: 1.5 },
   wardrobe: { key: 'suites/wardrobe', axis: 'y', size: 2.2, tint: 0x9a6c52, r: 0.5, at: [[-0.4, 0], [0.4, 0]] },
   wingchair: { key: 'suites/chair', axis: 'y', size: 1.05, r: 0.4, at: [[0, 0]] },
@@ -57,12 +59,22 @@ function instanced(src: THREE.Object3D, mats: THREE.Matrix4[], fix?: (m: THREE.M
     g.applyMatrix4(mesh.matrixWorld);
     byMat.set(mat, [...(byMat.get(mat) ?? []), g.index ? g.toNonIndexed() : g]);
   });
-  return [...byMat].map(([mat, gs]) => {
+  // por trozos de 9 m: cada uno con su esfera, para que el frustum descarte lo que no se ve (una sola cubría todo el mapa y se dibujaba siempre)
+  const chunks = new Map<string, THREE.Matrix4[]>();
+  for (const m of mats) {
+    const k = `${Math.floor(m.elements[12] / 9)},${Math.floor(m.elements[14] / 9)}`;
+    chunks.set(k, [...(chunks.get(k) ?? []), m]);
+  }
+  return [...byMat].flatMap(([mat, gs]) => {
     fix?.(mat);
-    const im = new THREE.InstancedMesh(mergeGeometries(gs) ?? gs[0], mat, mats.length);
-    mats.forEach((m, i) => im.setMatrixAt(i, m));
-    im.computeBoundingSphere();
-    return im;
+    const geo = mergeGeometries(gs) ?? gs[0];
+    return [...chunks.values()].map((cm) => {
+      const im = new THREE.InstancedMesh(geo, mat, cm.length);
+      cm.forEach((m, i) => im.setMatrixAt(i, m));
+      im.computeBoundingSphere();
+      im.userData.cull = true; // (World.update los oculta por distancia: los modelos pesan decenas de miles de triángulos)
+      return im;
+    });
   });
 }
 
@@ -406,7 +418,7 @@ const yaw = (dx: number, dz: number) => Math.atan2(-dz, dx); // gira +x local ha
 const place = (p: THREE.Vector3, ry: number, s = 1) => new THREE.Matrix4().compose(p, new THREE.Quaternion().setFromAxisAngle(UP, ry), new THREE.Vector3(s, s, s));
 
 /** Piezas de servicio del hotel hechas a mano (el cuadro eléctrico, el carro de limpieza y el carrito de maletas): su "frente" es +z local y su eje largo, x. */
-const serviceProp = (kind: 'trolley' | 'cart') => {
+const serviceProp = (kind: 'cart') => {
   const g = new THREE.Group(), mat = (color: number, metal = 0.1, rough = 0.6) => lit(new THREE.MeshStandardMaterial({ color, metalness: metal, roughness: rough }));
   const box = (bw: number, bh: number, bd: number, x: number, y: number, z: number, m: THREE.Material) => {
     const b = new THREE.Mesh(new THREE.BoxGeometry(bw, bh, bd), m);
@@ -420,16 +432,7 @@ const serviceProp = (kind: 'trolley' | 'cart') => {
     c.position.set(x, 0.06, z);
     g.add(c);
   };
-  if (kind === 'trolley') {
-    const brass = mat(0xb8923a, 0.8, 0.35), dark = mat(0x222222, 0.2, 0.7);
-    box(1, 0.05, 0.6, 0, 0.2, 0, brass);
-    for (const x of [-0.46, 0.46]) for (const z of [-0.26, 0.26]) (box(0.035, 1.5, 0.035, x, 0.95, z, brass), wheel(x, z, dark));
-    for (const z of [-0.26, 0.26]) box(0.96, 0.035, 0.035, 0, 1.68, z, brass);
-    for (const x of [-0.46, 0.46]) box(0.035, 0.035, 0.52, x, 1.68, 0, brass);
-    box(0.7, 0.45, 0.4, -0.05, 0.47, 0, mat(0x5a2a22, 0.05, 0.7));
-    box(0.5, 0.3, 0.32, -0.1, 0.84, 0.02, mat(0x2a3550, 0.05, 0.7));
-    box(0.4, 0.26, 0.3, 0.25, 0.8, -0.03, mat(0x7a6a50, 0.05, 0.7));
-  } else if (kind === 'cart') {
+  if (kind === 'cart') {
     const body = mat(0x3a5a78, 0.2, 0.55), grey = mat(0x8a8d8f, 0.5, 0.5), dark = mat(0x222222, 0.2, 0.7);
     box(0.95, 0.05, 0.55, 0, 0.3, 0, grey);
     box(0.9, 0.5, 0.5, 0, 0.62, 0, body);
@@ -483,11 +486,19 @@ export class World implements Terrain {
   private glow?: { cove: THREE.MeshBasicMaterial; ceil: THREE.MeshBasicMaterial; wall: THREE.MeshBasicMaterial; halo: THREE.MeshBasicMaterial; wash: THREE.MeshBasicMaterial };
   private rf?: Reflector;
   /** Las puertas de las suites que se abren (Las Suites): empiezan cerradas; `tgt` 1 es abierta, `cur` el giro (0 a 1). */
-  private doors: { x: number; z: number; nx: number; nz: number; leaf?: THREE.Object3D; cell: number; cur: number; tgt: number; swing?: (k: number) => void; grand?: boolean }[] = [];
+  private doors: { x: number; z: number; nx: number; nz: number; leaf?: THREE.Object3D; cell: number; cur: number; tgt: number; swing?: (k: number) => void; grand?: boolean; y?: number; stair?: number }[] = [];
   /** Las celdas de los ascensores de adorno (Las Suites repite el pasillo): no se entra. */
   private decoys = new Set<number>();
 
+  /** Quién hay en el mundo (el jugador y los compañeros): una puerta no se cierra encima de nadie (se quedaba la gente atrapada dentro de la pared). */
+  occupants?: () => { x: number; z: number }[];
+  private hotel: boolean;
+  private assets: Assets;
+  /** Facelings que pasean por el pasillo del hotel (cosmético: se calculan del reloj de la partida, así que casi coinciden en todos los clientes). Uno por copia del pasillo. */
+  private walkers: { rigs: Rig[]; groups: THREE.Group[]; blk: { x: number; z: number; r: number }[]; phase: number; dir: number; z: number; v: number }[] = [];
   constructor(readonly maze: Maze, assets: Assets, hotel = false) {
+    this.hotel = hotel;
+    this.assets = assets;
     const { w, h, open } = maze;
     const isOpen = (x: number, y: number) => x >= 0 && y >= 0 && x < w && y < h && !!open[y * w + x];
     const voids = new Set(maze.voids.map((v) => v.y * w + v.x));
@@ -495,7 +506,7 @@ export class World implements Terrain {
     const cw = hotel ? SUITE_L * 3 : w; // el pasillo del hotel (las copias); el vestíbulo, más allá, es de alfombra
     const hm = hotel ? hotelMaterials(assets) : undefined, { wallMat, floorMat, ceilMat, pitMat, panelMat, metalMat, streak, frameMat, hideMat, dustMat } = hm ?? materials(assets);
     // los nichos de las paredes: siguen siendo pared en `open`, pero se dibujan huecos (las paredes de alrededor, con su cara hacia dentro)
-    const hideCells = new Set(maze.hides.map((q) => q.cell.y * w + q.cell.x));
+    const hideCells = new Set(maze.hides.filter((q) => !q.at).map((q) => q.cell.y * w + q.cell.x));
     const passable = (x: number, y: number) => isOpen(x, y) || hideCells.has(y * w + x);
 
     // paredes: solo los bloques que tocan algún suelo (los de dentro no se ven)
@@ -514,7 +525,9 @@ export class World implements Terrain {
           continue;
         }
         if (!open[y * w + x]) {
-          if (DIRS.some(([dx, dy]) => passable(x + dx, y + dy))) walls.push(m.clone().makeTranslation(c.x, HEIGHT / 2, c.z));
+          // (el hotel: tabiques finos, una losa de 30 cm pegada a cada cara que da a un sitio abierto; el resto del bloque, hueco, que no se ve ni se pisa)
+          if (hotel) for (const [dx, dy] of DIRS) if (passable(x + dx, y + dy)) walls.push(new THREE.Matrix4().compose(new THREE.Vector3(c.x + dx * (CELL / 2 - 0.15), HEIGHT / 2, c.z + dy * (CELL / 2 - 0.15)), new THREE.Quaternion(), new THREE.Vector3(dx ? 0.3 / CELL : 1, 1, dy ? 0.3 / CELL : 1)));
+          else if (DIRS.some(([dx, dy]) => passable(x + dx, y + dy))) walls.push(m.clone().makeTranslation(c.x, HEIGHT / 2, c.z));
           continue;
         }
         if (!(hotel && x >= SUITE_L * 3 + 4 && x <= SUITE_L * 3 + 9 && y >= 6 && y <= 11) && !shaft.has(y * w + x)) ceils.push(m.clone().makeTranslation(c.x, HEIGHT, c.z)); // (el salón de recepción: un hueco de 9 × 9 m en el centro, con la cúpula)
@@ -616,7 +629,7 @@ export class World implements Terrain {
 
     // el marco de cada nicho (a ras de la pared, algo saliente): dintel con franjas de peligro, dos postes, un umbral roto, una rejilla
     // de ventilación encima de la boca y la hoja de una puerta de servicio abierta a medias, descolgada de su bisagra
-    if (maze.hides.length) {
+    if (maze.hides.some((q) => !q.at)) {
       const part = (g: THREE.BufferGeometry, r: number, gr: number, b: number) => {
         const ng = g.toNonIndexed(), n = ng.getAttribute('position').count, col = new Float32Array(n * 3);
         for (let i = 0; i < n; i++) col.set([r, gr, b], i * 3);
@@ -643,6 +656,7 @@ export class World implements Terrain {
       const hideG = mergeGeometries(parts)!;
       const frames: THREE.Matrix4[] = [], dusts: THREE.Matrix4[] = [];
       for (const q of maze.hides) {
+        if (q.at) continue;
         const c = center(q.cell), [dx, dy] = DIRS[q.side];
         frames.push(place(new THREE.Vector3(c.x + dx * (CELL / 2), 0, c.z + dy * (CELL / 2)), Math.atan2(dx, dy)));
         for (let i = 0; i < 2; i++) {
@@ -772,7 +786,7 @@ export class World implements Terrain {
       else if (p.kind === 'grandoor') { grandoors.push(p); continue; }
       else if (p.kind === 'exit') continue; // va con el ascensor
       else if (p.kind === 'stairs') { stairsAt.push(c); continue; }
-      else if (p.kind === 'trolley' || p.kind === 'cart') {
+      else if (p.kind === 'cart') {
         const g = serviceProp(p.kind);
         g.position.set(c.x + (p.off?.[0] ?? 0), 0, c.z + (p.off?.[1] ?? 0));
         g.rotation.y = Math.atan2(dx, dy);
@@ -999,8 +1013,8 @@ export class World implements Terrain {
         t.colorSpace = THREE.SRGBColorSpace;
         return new THREE.MeshBasicMaterial({ map: t });
       };
-      const upSign = signTex(`UP · ${FL < 5 ? 'FLOOR ' + (FL + 1) : 'ROOF'}`, '#0c3a22'), staffSign = signTex('STAFF ONLY', '#6a1c14'), exitSign = signTex('EXIT', '#0f6a35', 44);
-      const numSign = (() => {
+      const floorSign = (n: number) => signTex(`FLOOR ${n}`, '#0c3a22'), staffSign = signTex('STAFF ONLY', '#6a1c14'), exitSign = signTex('EXIT', '#0f6a35', 44);
+      const floorNum = (n: number) => {
         const cv = Object.assign(document.createElement('canvas'), { width: 128, height: 128 }), g = cv.getContext('2d')!;
         g.fillStyle = '#1b2f86';
         g.fillRect(0, 0, 128, 128);
@@ -1011,75 +1025,103 @@ export class World implements Terrain {
         g.font = 'bold 96px sans-serif';
         g.textAlign = 'center';
         g.textBaseline = 'middle';
-        g.fillText(String(FL), 64, 68);
+        g.fillText(String(n), 64, 68);
         const t = new THREE.CanvasTexture(cv);
         t.colorSpace = THREE.SRGBColorSpace;
         return new THREE.MeshBasicMaterial({ map: t });
-      })();
+      };
       const _u = new THREE.Vector3(0, 1, 0);
+      const LV = 5, base = (k: number) => -(FL - 1) * TOP + k * TOP; // el suelo del nivel k (0-4: las plantas 1-5; el 5, la azotea): la planta de ahora queda a y = 0
+      const y0 = base(0), SHT = base(LV) + TOP + 0.3, WH = SHT - y0; // el hueco va del suelo de la planta 1 al techo de la azotea
       for (const c of stairsAt) {
-        const add = (g: THREE.BufferGeometry, x: number, y: number, z: number, mat: THREE.Material = conc) => {
-          const m = new THREE.Mesh(g, mat);
-          m.position.set(x, y, z);
-          m.receiveShadow = true;
-          this.root.add(m);
-          return m;
+        // todo el hueco se funde por material al final (eran ~1000 mallas por escalera: un dibujo cada una)
+        const bucket = new Map<THREE.Material, THREE.BufferGeometry[]>();
+        const add = (g: THREE.BufferGeometry, x: number, y: number, z: number, mat: THREE.Material = conc, q?: THREE.Quaternion) => {
+          g.applyMatrix4(new THREE.Matrix4().compose(new THREE.Vector3(x, y, z), q ?? new THREE.Quaternion(), new THREE.Vector3(1, 1, 1)));
+          bucket.set(mat, [...(bucket.get(mat) ?? []), g.index ? g : g.toNonIndexed()]);
         };
         /** Un tubo de metal entre dos puntos. */
         const bar = (ax: number, ay: number, az: number, bx: number, by: number, bz: number, r = 0.02) => {
-          const d = new THREE.Vector3(bx - ax, by - ay, bz - az), m = add(new THREE.CylinderGeometry(r, r, d.length(), 8), (ax + bx) / 2, (ay + by) / 2, (az + bz) / 2, rail);
-          m.quaternion.setFromUnitVectors(_u, d.normalize());
-          m.castShadow = true;
+          const d = new THREE.Vector3(bx - ax, by - ay, bz - az);
+          add(new THREE.CylinderGeometry(r, r, d.length(), 8), (ax + bx) / 2, (ay + by) / 2, (az + bz) / 2, rail, new THREE.Quaternion().setFromUnitVectors(_u, d.normalize()));
         };
-        /** Una barandilla sobre la línea de peldaños: pasamanos y barra intermedia, y barrotes cada 30 cm. `y(z)`: la altura del suelo bajo ella. */
+        /** Una barandilla sobre la línea de peldaños: pasamanos y barra intermedia, y barrotes cada 45 cm. `y(z)`: la altura del suelo bajo ella. */
         const guard = (x: number, zA: number, zB: number, y: (z: number) => number) => {
           bar(x, y(zA) + 0.95, zA, x, y(zB) + 0.95, zB, 0.026);
           bar(x, y(zA) + 0.5, zA, x, y(zB) + 0.5, zB, 0.014);
-          const n = Math.max(2, Math.round(Math.abs(zA - zB) / 0.3));
+          const n = Math.max(2, Math.round(Math.abs(zA - zB) / 0.45));
           for (let i = 0; i <= n; i++) {
             const z = zA + ((zB - zA) * i) / n;
             bar(x, y(z), z, x, y(z) + 0.95, z, 0.012);
           }
         };
         const xl = c.x - 1.5, xr = c.x + 1.5; // el centro de la columna del primer tramo (sube al norte) y el del segundo (vuelve al sur)
-        const hL = (z: number) => (z <= ZT ? H1 : z >= Z0 ? 0 : RISE * Math.ceil((Z0 - z) / TREAD)), hR = (z: number) => (z <= ZT ? H1 : z >= Z0 ? TOP : H1 + RISE * Math.ceil((z - ZT) / TREAD));
-        for (let i = 1; i <= N; i++) {
-          add(tiled(new THREE.BoxGeometry(CELL, RISE * i, TREAD), CELL, RISE * i), xl, (RISE * i) / 2, Z0 - TREAD * (i - 0.5)); // bloques desde el suelo
-          add(tiled(new THREE.BoxGeometry(CELL, H1 + RISE * i, TREAD), CELL, H1 + RISE * i), xr, (H1 + RISE * i) / 2, ZT + TREAD * (i - 0.5));
-        }
-        add(tiled(new THREE.BoxGeometry(2 * HW, H1, ZT - 1.5), 2 * HW, H1), c.x, H1 / 2, (ZT + 1.5) / 2); // el descansillo
-        add(tiled(new THREE.BoxGeometry(CELL, TOP, 10.5 - Z0), CELL, TOP), xr, TOP / 2, (Z0 + 10.5) / 2); // y el rellano de arriba
-        // el cuarto: suelo de las entradas, techo alto y paredes pintadas con su zócalo
-        add(tiled(new THREE.PlaneGeometry(2 * HW, 3).rotateX(-Math.PI / 2), 2 * HW, 3), c.x, 0.006, (Z0 + 10.5) / 2);
-        add(tiled(new THREE.PlaneGeometry(CELL, Z0 - 1.5).rotateX(-Math.PI / 2), CELL, Z0 - 1.5), c.x, 0.006, (Z0 + 1.5) / 2); // el pasillo central
-        add(tiled(new THREE.PlaneGeometry(2 * HW, 9).rotateX(Math.PI / 2), 2 * HW, 9), c.x, SH - 0.006, 6, paint);
-        for (const z of [3.4, 8.2]) add(new THREE.PlaneGeometry(1.5, 0.5).rotateX(Math.PI / 2), c.x, SH - 0.016, z, new THREE.MeshBasicMaterial({ color: 0xfff2d0 })); // los plafones
-        for (const [sx, rot] of [[-1, Math.PI / 2], [1, -Math.PI / 2]] as const) {
-          add(tiled(new THREE.PlaneGeometry(9, SH).rotateY(rot), 9, SH), c.x + sx * (HW - 0.006), SH / 2, 6, paint);
-          add(tiled(new THREE.PlaneGeometry(9, 1.05).rotateY(rot), 9, 1.05), c.x + sx * (HW - 0.012), 0.525, 6, dado);
-        }
-        add(tiled(new THREE.PlaneGeometry(2 * HW, SH), 2 * HW, SH), c.x, SH / 2, 1.506, paint);
-        add(tiled(new THREE.PlaneGeometry(2 * HW, SH - HEIGHT).rotateY(Math.PI), 2 * HW, SH - HEIGHT), c.x, (SH + HEIGHT) / 2, 10.494, paint); // sobre la pared de la puerta
         const steel = new THREE.MeshStandardMaterial({ color: 0x55695c, metalness: 0.5, roughness: 0.5, emissive: 0x1d2a22 });
         lightmapped(steel);
-        add(new THREE.BoxGeometry(1.1, 2.1, 0.08), xr, TOP + 1.05, 10.45, steel); // la puerta de la planta de arriba, en el rellano
-        add(new THREE.PlaneGeometry(1.2, 0.45).rotateY(Math.PI), xr, TOP + 2.35, 10.49, upSign);
-        add(new THREE.PlaneGeometry(1.2, 0.45), xl, 2.2, 1.52, upSign);
-        add(new THREE.PlaneGeometry(0.62, 0.62), c.x, 3.6, 1.52, numSign); // el número de la planta, grande, como en las escaleras de verdad
+        // un nivel por planta, apilados: tramo izquierdo (sube al norte), descansillo, tramo derecho (vuelve al sur) y el rellano de la planta de arriba, con su puerta
+        for (let k = 0; k < LV; k++) {
+          const b = base(k), hL = (z: number) => b + (z <= ZT ? H1 : z >= Z0 ? 0 : RISE * Math.ceil((Z0 - z) / TREAD)), hR = (z: number) => b + (z <= ZT ? H1 : z >= Z0 ? TOP : H1 + RISE * Math.ceil((z - ZT) / TREAD));
+          for (let i = 1; i <= N; i++) {
+            add(tiled(new THREE.BoxGeometry(CELL, 0.3, TREAD), CELL, 0.3), xl, b + RISE * i - 0.15, Z0 - TREAD * (i - 0.5)); // peldaños como losas
+            add(tiled(new THREE.BoxGeometry(CELL, 0.3, TREAD), CELL, 0.3), xr, b + H1 + RISE * i - 0.15, ZT + TREAD * (i - 0.5));
+          }
+          add(tiled(new THREE.BoxGeometry(2 * HW, 0.3, ZT - 1.5), 2 * HW, 0.3), c.x, b + H1 - 0.15, (ZT + 1.5) / 2); // el descansillo
+          guard(c.x - 0.78, Z0 - 0.05, ZT + 0.05, hL);
+          guard(c.x + 0.78, ZT + 0.05, Z0 - 0.05, hR);
+          bar(c.x - 0.78, b + H1 + 0.95, ZT + 0.1, c.x + 0.78, b + H1 + 0.95, ZT + 0.1, 0.026);
+          bar(c.x - 0.78, b + H1 + 0.5, ZT + 0.1, c.x + 0.78, b + H1 + 0.5, ZT + 0.1, 0.014);
+          add(new THREE.PlaneGeometry(0.62, 0.62), c.x, b + H1 + 1.7, 1.52, floorNum(k + 1)); // el número de la planta de este nivel, como en las escaleras de verdad
+        }
+        for (let k = 0; k <= LV; k++) {
+          const b = base(k);
+          if (k !== FL - 1) add(tiled(new THREE.BoxGeometry(2 * HW, 0.3, 10.5 - Z0), 2 * HW, 0.3), c.x, b - 0.15, (Z0 + 10.5) / 2); // el rellano de la planta (el de la planta de ahora es el suelo de siempre)
+          if (k < LV && k !== FL - 1) {
+            // la puerta de esa planta: la de servicio de verdad (el modelo de las puertas del hotel, de acero), que se abre con G solo si la misión está cumplida
+            const ds = assets.gltf['suites/door'].scene, db = new THREE.Box3().setFromObject(ds), dk = 2.1 / (db.max.y - db.min.y), dmid = db.getCenter(new THREE.Vector3()), dd = ds.clone(true), dg = new THREE.Group();
+            dd.scale.setScalar(dk);
+            dd.position.set(-dmid.x * dk, -db.min.y * dk - 0.015, -db.max.z * dk);
+            dd.traverse((o) => {
+              const mesh = o as THREE.Mesh;
+              if (!mesh.isMesh) return;
+              const dm = (mesh.material = (mesh.material as THREE.MeshStandardMaterial).clone()) as THREE.MeshStandardMaterial;
+              dm.color.set(0x7d858b);
+              Object.assign(dm, { metalness: 0.7, roughness: 0.38 });
+              lightmapped(dm);
+            });
+            dg.add(dd);
+            dg.position.set(xr, b, 10.5);
+            this.root.add(dg);
+            this.doors.push({ x: xr, z: 10.5, nx: 0, nz: -1, leaf: (dd.getObjectByName('Plane001') ?? dd.getObjectByName('Plane.001')) ?? undefined, cell: -1, cur: 0, tgt: 0, y: b, stair: k + 1 });
+            add(new THREE.PlaneGeometry(1.2, 0.45).rotateY(Math.PI), xr, b + 2.35, 10.49, floorSign(k + 1));
+            this.stairDoors.push({ n: k + 1, x: xr, z: 10.3, y: b });
+          }
+          if (k < LV) (bar(c.x - 0.78, b + 0.95, Z0 + 0.05, c.x + 0.78, b + 0.95, Z0 + 0.05, 0.026), bar(c.x - 0.78, b + 0.5, Z0 + 0.05, c.x + 0.78, b + 0.5, Z0 + 0.05, 0.014)); // la barandilla del borde del hueco
+        }
+        // el cuarto: suelo, techo alto y paredes pintadas con su zócalo
+        add(tiled(new THREE.PlaneGeometry(2 * HW, 3).rotateX(-Math.PI / 2), 2 * HW, 3), c.x, 0.006, (Z0 + 10.5) / 2);
+        if (FL > 1) add(tiled(new THREE.PlaneGeometry(2 * HW, Z0 - 1.5).rotateX(-Math.PI / 2), 2 * HW, Z0 - 1.5), c.x, y0 + 0.006, (Z0 + 1.5) / 2); // el fondo del hueco
+        else add(tiled(new THREE.PlaneGeometry(CELL, Z0 - 1.5).rotateX(-Math.PI / 2), CELL, Z0 - 1.5), c.x, 0.006, (Z0 + 1.5) / 2);
+        add(tiled(new THREE.PlaneGeometry(2 * HW, 9).rotateX(Math.PI / 2), 2 * HW, 9), c.x, SHT - 0.006, 6, paint);
+        for (let k = 0; k <= LV; k++) for (const z of [3.4, 8.2]) add(new THREE.PlaneGeometry(1.5, 0.5).rotateX(Math.PI / 2), c.x, base(k) + TOP - 0.016, z, new THREE.MeshBasicMaterial({ color: 0xfff2d0 })); // los plafones de cada nivel
+        for (const [sx, rot] of [[-1, Math.PI / 2], [1, -Math.PI / 2]] as const) {
+          add(tiled(new THREE.PlaneGeometry(9, WH).rotateY(rot), 9, WH), c.x + sx * (HW - 0.006), y0 + WH / 2, 6, paint);
+          for (let k = 0; k <= LV; k++) add(tiled(new THREE.PlaneGeometry(9, 1.05).rotateY(rot), 9, 1.05), c.x + sx * (HW - 0.012), base(k) + 0.525, 6, dado);
+        }
+        add(tiled(new THREE.PlaneGeometry(2 * HW, WH), 2 * HW, WH), c.x, y0 + WH / 2, 1.506, paint);
+        add(tiled(new THREE.PlaneGeometry(2 * HW, SHT - HEIGHT).rotateY(Math.PI), 2 * HW, SHT - HEIGHT), c.x, (SHT + HEIGHT) / 2, 10.494, paint); // sobre la pared de la puerta
+        if (FL > 1) add(tiled(new THREE.PlaneGeometry(2 * HW, -y0).rotateY(Math.PI), 2 * HW, -y0), c.x, y0 / 2, 10.494, paint); // y bajo el suelo de la planta de ahora
         add(new THREE.PlaneGeometry(0.9, 0.34), c.x, 1.8, 1.52, staffSign);
         add(new THREE.PlaneGeometry(0.5, 0.19), c.x, 2.5, 1.52, exitSign);
-        // barandillas hacia el pasillo central: las de los dos tramos y la del borde del descansillo
-        guard(c.x - 0.78, Z0 - 0.05, ZT + 0.05, hL);
-        guard(c.x + 0.78, ZT + 0.05, 10.4, hR);
-        bar(c.x - 0.78, H1 + 0.95, ZT + 0.1, c.x + 0.78, H1 + 0.95, ZT + 0.1, 0.026);
-        bar(c.x - 0.78, H1 + 0.5, ZT + 0.1, c.x + 0.78, H1 + 0.5, ZT + 0.1, 0.014);
-        // lo que no se pisa: el borde entre el pasillo central y los dos tramos (para no saltar ni colarse), y el borde del descansillo
-        for (let z = ZT + 0.1; z < 10.45; z += 0.45) {
-          if (z < Z0 + 0.1) this.blockers.push({ x: c.x - 0.75, z, r: 0.3 });
-          this.blockers.push({ x: c.x + 0.75, z, r: 0.3 });
+        // lo que no se pisa: el borde del hueco entre los dos tramos (para no caer ni colarse)
+        for (let z = ZT + 0.1; z < Z0 + 0.1; z += 0.45) (this.blockers.push({ x: c.x - 0.75, z, r: 0.3 }), this.blockers.push({ x: c.x + 0.75, z, r: 0.3 }));
+        for (let x = c.x - 0.75; x <= c.x + 0.76; x += 0.375) this.blockers.push({ x, z: Z0 - 0.05, r: 0.3 });
+        for (const [mat, gs] of bucket) {
+          const m = new THREE.Mesh(mergeGeometries(gs.map((g) => (g.index ? g.toNonIndexed() : g)))!, mat);
+          m.receiveShadow = true;
+          m.castShadow = mat === rail;
+          this.root.add(m);
         }
-        for (let x = c.x - 0.75; x <= c.x + 0.76; x += 0.375) this.blockers.push({ x, z: ZT + 0.2, r: 0.3 });
-        this.stairs.push({ xl: c.x - HW, xm0: c.x - 0.75, xm1: c.x + 0.75, xr: c.x + HW, z0: 1.5, z1: 10.5, ZT, Z0, RISE, H1, TOP });
+        this.stairs.push({ xl: c.x - HW, xm0: c.x - 0.75, xm1: c.x + 0.75, xr: c.x + HW, z0: 1.5, z1: 10.5, ZT, Z0, RISE, H1, TOP, y0, LV });
       }
     }
     // las mesillas de noche y las lámparas de mesa (hechas aquí: una caja de madera, una base de latón y una pantalla que brilla)
@@ -1147,8 +1189,8 @@ export class World implements Terrain {
           const leaf = d.getObjectByName('Plane001') ?? d.getObjectByName('Plane.001');
           this.doors.push({ x: c.x + dx * (CELL / 2), z: c.z + dy * (CELL / 2), nx: dx, nz: dy, leaf: leaf ?? undefined, cell: p.cell.y * w + p.cell.x, cur: 0, tgt: 0 }); // (cerrada al empezar)
           for (const sx of [-1, 1]) {
-            const jam = new THREE.Mesh(new THREE.BoxGeometry(jw, HEIGHT, CELL), frameM);
-            jam.position.set(sx * (dw / 2 + jw / 2), HEIGHT / 2, -CELL / 2);
+            const jam = new THREE.Mesh(new THREE.BoxGeometry(jw, HEIGHT, 0.3), frameM);
+            jam.position.set(sx * (dw / 2 + jw / 2), HEIGHT / 2, -0.15);
             g.add(jam);
           }
           const head = new THREE.Mesh(new THREE.BoxGeometry(CELL, HEIGHT - 2.1, CELL), frameM);
@@ -1368,20 +1410,20 @@ export class World implements Terrain {
   }
 
   /** La puerta que se abre o cierra con G: a menos de 1,6 m de su umbral (lado del pasillo) y delante de ti (`yaw`: 0 mira a -z). */
-  nearDoor(x: number, z: number, yaw: number) {
+  nearDoor(x: number, z: number, yaw: number, y = 0) {
     const fx = -Math.sin(yaw), fz = -Math.cos(yaw);
     let best: (typeof this.doors)[number] | undefined, bd = 1.6;
     for (const d of this.doors) {
       const px = d.x + d.nx * 0.3 - x, pz = d.z + d.nz * 0.3 - z, dist = Math.hypot(px, pz);
-      if (dist < bd && (px * fx + pz * fz) / Math.max(dist, 0.01) > 0.35) (best = d), (bd = dist);
+      if (Math.abs((d.y ?? 0) - y) < 1.2 && dist < bd && (px * fx + pz * fz) / Math.max(dist, 0.01) > 0.35) (best = d), (bd = dist);
     }
     return best;
   }
   /** Abre o cierra una puerta; devuelve si queda abierta. */
-  toggleDoor(d: { tgt: number; x: number; z: number }) {
+  toggleDoor(d: { tgt: number; x: number; z: number; y?: number }) {
     const open = d.tgt ? 0 : 1, span = SUITE_L * CELL;
     // las copias del pasillo (Las Suites) se ven igual: la misma puerta de cada copia se abre y se cierra a la vez, para que el bucle no se note
-    for (const o of this.doors) if (o.grand ? !!(d as { grand?: boolean }).grand : o.z === d.z && Math.abs(Math.round((o.x - d.x) / span) * span - (o.x - d.x)) < 1e-6) o.tgt = open;
+    for (const o of this.doors) if ((o.y ?? 0) !== (d.y ?? 0)) continue; else if (o.grand ? !!(d as { grand?: boolean }).grand : o.z === d.z && Math.abs(Math.round((o.x - d.x) / span) * span - (o.x - d.x)) < 1e-6) o.tgt = open;
     return !!(d.tgt = open);
   }
 
@@ -1448,18 +1490,60 @@ export class World implements Terrain {
     this.shownPower = this.power;
   }
 
+  /** Los Facelings que pasean por el pasillo: tres, cada uno por su carril y a su paso, y uno por cada copia del pasillo (se repite cada `SUITE_L`). */
+  private addWalkers() {
+    for (const [phase, dir, z, v] of [[0.15, 1, 12.75, 1.0]]) {
+      const w: (typeof this.walkers)[number] = { rigs: [], groups: [], blk: [], phase, dir, z, v };
+      for (let k = 0; k < 3; k++) {
+        const rig = new Rig(this.assets.gltf['suites/faceling']), h = new THREE.Box3().setFromObject(rig.root).getSize(new THREE.Vector3()).y, g = new THREE.Group(), b = { x: 0, z, r: 0.3 };
+        rig.root.scale.setScalar(1.75 / h);
+        g.add(rig.root);
+        rig.action('walk')?.play();
+        this.root.add(g);
+        this.blockers.push(b);
+        w.rigs.push(rig), w.groups.push(g), w.blk.push(b);
+      }
+      this.walkers.push(w);
+    }
+  }
   /** El personal del hotel (los Facelings): su animación. */
   private staff: Rig[] = [];
+  /** Un Faceling de verdad (del servidor) ocupa ese sitio: se quita el de adorno. */
+  hideStaff(x: number, z: number) {
+    for (const r of this.staff) {
+      const g = r.root.parent;
+      if (g && Math.abs(g.position.z - z) < 0.6 && Math.abs(((g.position.x - x + SUITE_L * CELL / 2) % (SUITE_L * CELL) + SUITE_L * CELL) % (SUITE_L * CELL) - SUITE_L * CELL / 2) < 0.6) g.visible = false; // (cualquier copia del pasillo)
+    }
+  }
+  private walkersOff = false;
+  /** Los que paseaban por el pasillo (de adorno) se van cuando el personal se vuelve contra ti. */
+  hideWalkers() {
+    this.walkersOff = true;
+    for (const w of this.walkers) w.groups.forEach((g) => (g.visible = false));
+  }
   /** Las escaleras de servicio (Las Suites): dónde están y sus medidas. */
-  private stairs: { xl: number; xm0: number; xm1: number; xr: number; z0: number; z1: number; ZT: number; Z0: number; RISE: number; H1: number; TOP: number }[] = [];
-  /** La altura del suelo en ese punto: 0, o la del peldaño, descansillo o rellano de la escalera de servicio. */
-  floorAt(x: number, z: number, _y?: number): number {
+  private stairs: { xl: number; xm0: number; xm1: number; xr: number; z0: number; z1: number; ZT: number; Z0: number; RISE: number; H1: number; TOP: number; y0: number; LV: number }[] = [];
+  /** Las puertas de las plantas en el hueco de la escalera de servicio: planta, sitio y altura del rellano. Cruzarla (con la salida abierta) lleva a esa planta. */
+  readonly stairDoors: { n: number; x: number; z: number; y: number }[] = [];
+  /** La altura del suelo bajo (x, z) estando a altura `y`: el más alto que se alcanza de un paso (el hueco de la escalera tiene los niveles apilados). */
+  floorAt(x: number, z: number, y = 0): number {
     for (const s of this.stairs) {
       if (x < s.xl || x > s.xr || z < s.z0 || z > s.z1) continue;
-      if (z <= s.ZT) return s.H1; // el descansillo
-      if (x >= s.xm0 && x <= s.xm1) return 0; // el pasillo central
-      if (x < s.xm0) return z >= s.Z0 ? 0 : s.RISE * Math.ceil((s.Z0 - z) / 0.3); // el primer tramo
-      return z >= s.Z0 ? s.TOP : s.H1 + s.RISE * Math.ceil((z - s.ZT) / 0.3); // el segundo y el rellano
+      let best = -Infinity, low = Infinity;
+      const take = (h: number) => {
+        if (h < low) low = h;
+        if (h <= y + 0.5 && h > best) best = h;
+      };
+      for (let k = 0; k <= s.LV; k++) {
+        const b = s.y0 + k * s.TOP;
+        if (z >= s.Z0) take(b); // el rellano de la planta (todo el ancho)
+        else if (k < s.LV) {
+          if (z <= s.ZT) take(b + s.H1); // el descansillo
+          else if (x >= s.xm0 && x <= s.xm1) continue; // el hueco
+          else take(x < s.xm0 ? b + s.RISE * Math.ceil((s.Z0 - z) / 0.3) : b + s.H1 + s.RISE * Math.ceil((z - s.ZT) / 0.3)); // los dos tramos
+        }
+      }
+      return best > -Infinity ? best : low === Infinity ? s.y0 : low;
     }
     return 0;
   }
@@ -1490,8 +1574,33 @@ export class World implements Terrain {
       return d < 2.6 && (x - c.x) * c.dx + (z - c.z) * c.dy > 0.3 && (px * fx + pz * fz) / Math.max(d, 0.01) > 0.6;
     });
   }
+  /** ¿Estoy mirando a un Faceling que pasea, a ≤ 2,6 m? */
+  nearWalker(x: number, z: number, yaw: number) {
+    const fx = -Math.sin(yaw), fz = -Math.cos(yaw);
+    return this.walkers.some((w) => w.blk.some((b) => {
+      const px = b.x - x, pz = w.z - z, d = Math.hypot(px, pz);
+      return d < 2.6 && (px * fx + pz * fz) / Math.max(d, 0.01) > 0.6;
+    }));
+  }
+  /** Dónde está la cámara (la pone el juego): lo instanciado a más de PROP_FAR m no se dibuja. */
+  viewer?: THREE.Vector3;
+  private cullable?: THREE.InstancedMesh[];
   update(t: number, dt: number) {
+    if (this.viewer) {
+      this.cullable ??= this.root.children.filter((o) => o.userData.cull) as THREE.InstancedMesh[];
+      for (const im of this.cullable) {
+        const b = im.boundingSphere!;
+        im.visible = Math.hypot(b.center.x - this.viewer.x, b.center.z - this.viewer.z) - b.radius < PROP_FAR;
+      }
+    }
     this.cab.update(dt);
+    if (this.hotel && !this.walkers.length && !this.walkersOff && this.assets.gltf['suites/faceling']) this.addWalkers();
+    const span = SUITE_L * CELL;
+    for (const w of this.walkers) {
+      const x = (((w.phase * span + w.dir * w.v * t) % span) + span) % span;
+      w.groups.forEach((g, k) => (g.position.set(x + k * span, 0, w.z), (g.rotation.y = w.dir > 0 ? Math.PI / 2 : -Math.PI / 2), (w.blk[k].x = x + k * span)));
+      w.rigs.forEach((r) => r.update(dt));
+    }
     for (const s of this.staff) s.update(dt);
     if (this.dustMat) this.dustMat.uniforms.uT.value = t;
     if (this.skyMat) this.skyMat.uniforms.uT.value = t;
@@ -1502,7 +1611,13 @@ export class World implements Terrain {
       this.glow.ceil.opacity = k, this.glow.wall.opacity = k, this.glow.cove.color.setRGB(1, 0.85, 0.63).multiplyScalar(k);
       this.glow.halo.opacity = 0.8 * a, this.glow.wash.opacity = 0.8 * a;
     }
+    const occ = this.occupants?.() ?? [], mod = (a: number, n: number) => ((a % n) + n) % n;
     for (const d of this.doors) {
+      if (d.tgt === 0 && d.cur > 0 && occ.length) {
+        // cerrándose con alguien en su celda (de cualquier copia del pasillo): se vuelve a abrir
+        const dx = d.cell % this.maze.w, dy = Math.floor(d.cell / this.maze.w);
+        if (occ.some((o) => Math.floor(o.z / CELL) === dy && (this.hotel ? mod(Math.floor(o.x / CELL), SUITE_L) === mod(dx, SUITE_L) : Math.floor(o.x / CELL) === dx))) this.toggleDoor(d);
+      }
       d.cur = Math.max(0, Math.min(1, d.cur + Math.sign(d.tgt - d.cur) * Math.min(Math.abs(d.tgt - d.cur), dt * 1.5)));
       if (d.leaf) d.leaf.rotation.z = SWING * (d.cur * d.cur * (3 - 2 * d.cur)); // (con suavizado)
       d.swing?.(d.cur * d.cur * (3 - 2 * d.cur));

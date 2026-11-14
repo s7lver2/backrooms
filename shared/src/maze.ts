@@ -40,7 +40,8 @@ export interface Maze {
    * Nichos en las paredes donde esconderse: `cell` es la celda del nicho (en `open` sigue siendo pared: para
    * todo lo demás es pared; solo se dibuja hueca) y `side` el índice de DIRS hacia la celda abierta de la boca.
    */
-  hides: { cell: Cell; side: number }[];
+  /** Los nichos del nivel 0 (`cell`, `side`) y, en el hotel, los armarios (`at` dentro y `front` delante, en metros). */
+  hides: { cell: Cell; side: number; at?: [number, number]; front?: [number, number] }[];
   /** Las salas grandes (informativo). */
   rooms: { x: number; y: number; w: number; h: number; zone: number }[];
   /** Dónde está el Tótem de la vida, si esta partida lo tiene (se pone con `totemSpot`, no lo trae generateMaze). */
@@ -468,7 +469,7 @@ function build(seed: number, n: number): Maze {
   const first = spare.find((c) => dist(c) >= 8 && dist(c) <= 18);
   if (first) flashlights.push(take(first));
   for (const c of spare) {
-    if (flashlights.length >= 6) break;
+    if (flashlights.length >= 4) break;
     if (used.has(at(c.x, c.y)) || flashlights.some((l) => near(l, c, 10))) continue;
     flashlights.push(take(c));
   }

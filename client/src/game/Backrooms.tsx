@@ -9,9 +9,10 @@ import Touch from './Touch';
 import Inventory, { type Cell } from './Inventory';
 import Hotbar from './Hotbar';
 import TotemUi from './Totem';
+import Effects from './Effects';
 import { HOT } from './quickslots';
 import { setCursors } from './cursors';
-import { AMMO_PACK, DIFFICULTY, levelsOpen, type Inventory as SrvInv, type ItemId, type RoomView, type RoundResult } from '@backrooms/shared';
+import { RIFLE_MAG, DIFFICULTY, missionHint, levelsOpen, type Inventory as SrvInv, type ItemId, type RoomView, type RoundResult } from '@backrooms/shared';
 import { useNet, useServer } from '../net';
 import { avatarUrl, useAccount } from '../account';
 import { Avatar, AuthScreen, DiscordButton, AccountBox, AccountMenu, AchievementsScreen, Toasts, type AuthMode } from './Account';
@@ -34,6 +35,8 @@ import { ChatInput, ChatLog, useChat } from './Chat';
 import VoiceHud from './VoiceHud';
 import { useVoice } from '../voice';
 import LockerGame from './LockerGame';
+import Dialogue from './Dialogue';
+import ElevatorPanel from './ElevatorPanel';
 import EmoteWheel from './EmoteWheel';
 import { emoteGate } from './emotes';
 
@@ -183,14 +186,14 @@ function Osd({ hud }: { hud: Hud }) {
 /** La misión de la ronda, siempre en pantalla (sin mirar por la cámara): el objetivo, su progreso en bloques («PHOTOS 1/3», «TVS 2/4») y, si se gasta, la linterna y el aguante. */
 /** El inventario del servidor como lo espera el menú de la mochila (en la sala de espera no hay jugador: manos y cinturón quedan vacíos). */
 function waitInv(s: SrvInv, hot: (string | null)[] = ['caution', null, null, null], left: 'none' | 'flashlight' = s.spares ? 'flashlight' : 'none'): Inv {
-  return { hand: 'none', left, belt: 'none', stamina: 1, sanity: 1, escaped: false, camera: s.camera, gun: s.gun, ammo: Math.min(s.ammo, AMMO_PACK), spare: Math.max(0, s.ammo - AMMO_PACK), tapes: 0, photos: 0, thumbs: [], full: [], flashOn: false, battery: 1, charge: 1, spares: s.spares, uno: s.uno, monster: s.monster, water: s.water, totem: s.totem, radar: s.radar, caution: s.caution, tank: s.tank, tankOn: true, watergun: s.watergun, tape: 1, hot, hotSel: 0, gadget: 'none' };
+  return { hand: 'none', left, belt: 'none', stamina: 1, sanity: 1, escaped: false, camera: s.camera, gun: s.gun, ammo: Math.min(s.ammo, RIFLE_MAG), spare: Math.max(0, s.ammo - RIFLE_MAG), tapes: 0, photos: 0, thumbs: [], full: [], flashOn: false, battery: 1, charge: 1, spares: s.spares, uno: s.uno, monster: s.monster, water: s.water, totem: s.totem, radar: s.radar, caution: s.caution, tank: s.tank, tankOn: true, watergun: s.watergun, tape: 1, hot, hotSel: 0, gadget: 'none' };
 }
 
 /** La misión de la ronda, siempre en pantalla (sin mirar por la cámara): el objetivo, su progreso en bloques («PHOTOS 1/3», «TVS 2/4») y, si se gasta, la linterna y el aguante. */
 function Mission({ hud, room }: { hud: Hud; room: RoomView | null }) {
   const i = hud.inv, m = hud.mission, up = hud.ascent;
   const aboard = (room?.ascent?.boarded ?? []).map((id) => room?.players.find((p) => p.id === id)?.name || 'ANON');
-  const goal = !m ? '' : m.done ? (room?.levelId === 'suites' ? 'ELEVATOR OR STAIRS OPEN' : 'ELEVATOR OPEN') : m.kind === 'photos' && !i.camera ? 'FIND A CAMCORDER' : m.text;
+  const goal = !m ? '' : m.done ? (room?.levelId === 'suites' ? 'MISSION DONE · ASK A FACELING FOR ANOTHER, OR LEAVE' : 'ELEVATOR OPEN') : m.kind === 'photos' && !i.camera ? 'FIND A CAMCORDER' : m.text;
   const blocks = (n: number, of: number) => (
     <>
       {'▮'.repeat(n)}
@@ -199,13 +202,14 @@ function Mission({ hud, room }: { hud: Hud; room: RoomView | null }) {
   );
   return (
     <div className="br-mission" aria-live="polite">
-      {room?.levelId === 'suites' && room.floor && <p className="br-osd__dim">FLOOR {room.floor} / 5</p>}
+      {room?.levelId === 'suites' && room.floor && <p className="br-osd__dim">FLOOR {room.floor} / 5{room.quota ? ` · JOBS ${Math.min(room.jobs ?? 0, room.quota)}/${room.quota}` : ''}</p>}
       {m && (
-        <p className={m.done ? 'br-lift__t' : undefined} data-urgent={(m.done && !!up && !up.boarded) || undefined}>
+        <p className={m.done ? 'br-lift__t' : undefined} data-urgent={(m.exit && !!up && !up.boarded) || undefined}>
           {goal}
         </p>
       )}
-      {m?.done && (
+      {m && !m.done && <p className="br-osd__dim">{missionHint(m.kind)}</p>}
+      {m?.exit && (
         <div className="br-lift">
           <p>{up ? `${up.boarded ? 'YOU ARE ABOARD. WAITING FOR THE OTHERS. ' : 'CLOSES IN '}${Math.ceil(up.left)}S` : 'GET EVERYONE IN BEFORE IT CLOSES'}</p>
           {aboard.length > 0 && <p className="br-osd__dim">ABOARD {aboard.join(', ')}</p>}
@@ -213,7 +217,7 @@ function Mission({ hud, room }: { hud: Hud; room: RoomView | null }) {
       )}
       {m && !m.done && (
         <p aria-label={m.line}>
-          {m.line} {m.kind === 'survive' ? blocks(Math.round((m.progress / m.goal) * 10), 10) : blocks(m.progress, m.goal)}
+          {m.line} {m.kind === 'survive' || m.kind === 'eeh' ? blocks(Math.round((m.progress / m.goal) * 10), 10) : blocks(m.progress, m.goal)}
         </p>
       )}
       {(i.charge < 0.99 || i.spares > 0) && (
@@ -224,7 +228,7 @@ function Mission({ hud, room }: { hud: Hud; room: RoomView | null }) {
       )}
       {i.hand === 'gun' && (
         <p className="br-mission__stamina" data-low={i.ammo + i.spare === 0 || undefined} aria-label={`Rifle: ${i.ammo} in the magazine, ${i.spare} in reserve`}>
-          AMMO {blocks(i.ammo, AMMO_PACK)} {i.ammo}/{i.spare}
+          AMMO {blocks(i.ammo, RIFLE_MAG)} {i.ammo}/{i.spare}
         </p>
       )}
       {(i.stamina < 0.99 || i.rainbow) && <p className="br-mission__stamina" data-rainbow={i.rainbow || undefined} data-low={(!i.rainbow && i.stamina < 0.25) || undefined}>STAMINA {blocks(Math.round(i.stamina * 10), 10)}</p>}
@@ -404,6 +408,9 @@ export default function Backrooms({ onQuit, onWin }: { onQuit: () => void; onWin
     const bright = () => void (g.canvas.style.filter = settings.brightness === 1 ? '' : `brightness(${settings.brightness})`);
     bright();
     onSetting('brightness', bright);
+    const ui = () => void root.current?.style.setProperty('--br-ui', String(settings.ui));
+    ui();
+    onSetting('ui', ui);
     // desarrollo local (no por túnel ni en producción, ver devGate.ts): __game y __maze(semilla) en la consola
     if (dev) Object.assign(window, { __game: g, __maze: (seed: number) => console.info(asciiMaze(seed)) });
     g.onPause = () => alive && setScreen(g.waiting ? 'waitpause' : 'pause');
@@ -850,12 +857,13 @@ export default function Backrooms({ onQuit, onWin }: { onQuit: () => void; onWin
       {screen === 'achv' && <AchievementsScreen acct={acct} onSignIn={() => openAuth('signin')} onBack={() => setScreen('menu')} />}
       {screen === 'settings' && <SettingsPane muted={muted} toggleSound={toggleSound} onBack={() => setScreen('menu')} />}
       {wheel && <EmoteWheel have={haveAch} onPick={pickEmote} />}
+      {screen === 'play' && !!hud?.talk && <Dialogue n={hud.talk} onPick={(i) => game.current?.pickMission(i)} onClose={() => game.current?.closeTalk()} />}
+      {screen === 'play' && !!hud?.lift && net.room && <ElevatorPanel floor={net.room.floor ?? 1} quota={net.room.quota ?? 0} jobs={net.room.jobs ?? 0} onPick={(f) => game.current?.pickFloor(f)} onClose={() => game.current?.closeLift()} />}
       {locker && (
         <LockerGame
           id={locker}
           sock={net.sock}
-          assets={game.current?.assets}
-          onTake={(it) => it.kind !== 'loot' && game.current?.player?.receive(it.kind)}
+          onOpen={(items, taken) => game.current?.openLocker(locker, items, taken)}
           onClose={() => (setLocker(null), game.current?.setLockerUi(false))}
         />
       )}
@@ -1004,6 +1012,7 @@ export default function Backrooms({ onQuit, onWin }: { onQuit: () => void; onWin
         </div>
       )}
       {screen === 'play' && hud && !hud.aiming && !hud.bag && hud.spectating == null && !hud.totem.run && <Mission hud={hud} room={net.room} />}
+      {screen === 'play' && hud && !hud.bag && hud.spectating == null && !hud.totem.run && <Effects list={hud.effects} />}
       {screen === 'play' && hud && !hud.aiming && !hud.bag && (
         <Team
           me={net.room ? net.me : 'me'}

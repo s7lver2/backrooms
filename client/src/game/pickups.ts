@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { clone as skClone } from 'three/examples/jsm/utils/SkeletonUtils.js';
+import { AMMO_PACK, RIFLE_MAG } from '@backrooms/shared';
 import { CELL, type Cell } from './maze';
 import { fit } from './player';
 import type { Player } from './player';
@@ -15,7 +16,7 @@ import type { GameAudio } from './audio';
  * jugadores (`syncDrops`, con su caída). `Items` (nivel 0, Suites) le suma la cámara, el rifle y el ascensor; `PoolPickups` (Poolrooms), su propia colocación.
  */
 const REACH = 1.6; // metros para recoger
-export const MAG = 3, TOTAL = 6; // el rifle: dos cargadores de 3, sin más balas
+export const MAG = RIFLE_MAG, TOTAL = AMMO_PACK; // el rifle: monta 2 balas a la vez y el del mapa trae un cargador de 4
 
 /** Lo que el nivel le da: dónde colgar los objetos, paredes (para lo que cae), de qué celda es un punto y, si el mundo se repite (Las Suites), cuánto. */
 export interface PickupHost {
@@ -38,6 +39,8 @@ export interface Pickup {
   drop?: boolean;
   /** Pedido al servidor, sin respuesta aún. */
   pending?: boolean;
+  /** Una pieza de una taquilla abierta (id `taquilla:i`): al cogerla es suya tal cual, como lo soltado, pero sin caer. */
+  given?: boolean;
   /** Un objeto soltado cae con físicas (gravedad, rebotes, choca con las paredes) y se queda quieto en el suelo. */
   phys?: { v: THREE.Vector3; spin: THREE.Vector3; rest: boolean; floor: number };
 }
@@ -56,6 +59,12 @@ export class PickupField {
   onGot?: (p: Pickup) => void;
   /** Cintas recogidas (en solitario las cuenta el campo; en una sala, el servidor). */
   tapes = 0;
+  /** Taquillas que se están abriendo: la puerta gira hasta abrirse. */
+  private doors = new Map<Pickup, { door: THREE.Object3D; t: number }>();
+  protected swing(p: Pickup) {
+    const door = p.obj.getObjectByName('door');
+    if (door && !this.doors.has(p)) this.doors.set(p, { door, t: 0 });
+  }
   /** Lo que se recogería con G ahora mismo (para el aviso en pantalla). */
   hint: string | null = null;
   private nearDx = 0;
@@ -216,6 +225,10 @@ export class PickupField {
       else (p.obj.rotation.y += dt * 0.8), (p.obj.position.y = p.y + Math.sin(t * 1.6 + p.obj.position.x * 3) * 0.04);
       pulse(p.fx, t);
     }
+    for (const d of this.doors.values()) {
+      d.t = Math.min(1, d.t + dt * 1.6);
+      d.door.rotation.y = -1.9 * d.t * d.t * (3 - 2 * d.t);
+    }
     this.ghostsSync();
     const near = this.nearest();
     this.hint = near ? this.label(near.kind) : null;
@@ -228,7 +241,7 @@ export class PickupField {
           p.obj.visible = false;
           this.audio?.pickup(p.fx?.userData.glow?.k ?? 0);
           if (p.kind === 'loot') return; // el botín lo lleva el servidor (llega con `bag`)
-          if (p.drop) pl.receive(p.kind as ItemId); // lo soltado vuelve tal cual (y va a la barra o a la mano)
+          if (p.drop || p.given) pl.receive(p.kind as ItemId); // lo soltado vuelve tal cual (y va a la barra o a la mano)
           else if (p.kind === 'tape') this.claim || this.tapes++; // en una sala, las cintas son de todos: las cuenta el servidor
           else if (p.kind === 'flashlight') pl.spares++;
           else if (p.kind === 'water') (pl.water++, pl.autoSlot('water'));
@@ -246,7 +259,9 @@ export class PickupField {
           } else if (p.kind !== 'gen' && p.kind !== 'locker') pl.receive(p.kind as ItemId); // (el tanque, la pistola de agua...)
           this.onGot?.(p);
         };
-        if (pl.reach(p.obj.getWorldPosition(new THREE.Vector3()).add(new THREE.Vector3(ndx, 0, 0)), got)) p.taken = true;
+        const at = p.obj.getWorldPosition(new THREE.Vector3()).add(new THREE.Vector3(ndx, 0, 0));
+        if (p.kind === 'gen') pl.onType = () => this.audio?.click(); // (un cuadro eléctrico: se teclea, y se enciende al acabar)
+        if (p.kind === 'gen' ? pl.typing(at, got) : pl.reach(at, got)) p.taken = true;
         else if (this.claim) (p.taken = true), got(); // el servidor ya se lo ha dado: sin gesto
       };
       if (p && this.claim) {

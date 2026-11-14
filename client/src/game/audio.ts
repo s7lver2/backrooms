@@ -267,16 +267,17 @@ export class GameAudio {
     if (this.siren) return;
     const g = c.createGain(), lp = c.createBiquadFilter(), a = c.createOscillator(), b = c.createOscillator(), lfo = c.createOscillator(), lg = c.createGain();
     lp.type = 'lowpass';
-    lp.frequency.value = 520;
+    lp.frequency.value = 1800;
     a.type = 'sawtooth';
     b.type = 'square';
-    a.frequency.value = 98;
-    b.frequency.value = 49;
-    lfo.frequency.value = 0.9; // sube y baja casi cada segundo
-    lg.gain.value = 26;
+    a.frequency.value = 520;
+    b.frequency.value = 262;
+    lfo.frequency.value = 0.7; // el aullido de una sirena: sube y baja entre ~300 y ~740 Hz
+    lg.gain.value = 220;
+    lfo.connect(b.frequency);
     lfo.connect(lg).connect(a.frequency);
     g.gain.setValueAtTime(0, t);
-    g.gain.linearRampToValueAtTime(0.07, t + 0.6);
+    g.gain.linearRampToValueAtTime(0.22, t + 0.4);
     a.connect(lp);
     b.connect(lp);
     lp.connect(g).connect(this.sfx);

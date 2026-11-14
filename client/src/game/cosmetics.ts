@@ -10,7 +10,7 @@ import raw from './pieces.json';
  * Lo que lleva puesto un avatar: el tinte (copias propias de los materiales del hazmat, que son del juego) y los
  * accesorios (sombrero en la cabeza, mochila en la espalda). Los accesorios no cuelgan de los huesos (sus escalas
  * son de Mixamo): se colocan cada fotograma en el mundo, en la posición del hueso y con la orientación del cuerpo.
- * Las medidas de cada pieza viven en pieces.json (la herramienta /?grips las retoca y las guarda); para añadir una
+ * Las medidas de cada pieza viven en pieces.json (el estudio /?anim (pestaña IK) las retoca y las guarda); para añadir una
  * pieza nueva basta con una entrada ahí (más su cosmético en shared/src/progress.ts y su modelo en public/models/cosmetics).
  */
 export interface Piece {
@@ -34,6 +34,22 @@ export const PIECES: Record<string, Piece> = structuredClone(DEFAULT_PIECES);
 export const BONE = { head: 'mixamorigHead', back: 'mixamorigSpine2' } as const;
 const D2R = Math.PI / 180;
 
+/** Modelos que traen algo que sobra dentro (el bucket hat viene sobre un busto de maniquí): se quitan los triángulos cuyo centro cae en un cilindro vertical (eje en x,z; radio r; por debajo de y), en el espacio del modelo. */
+const STRIP: Record<string, { x: number; z: number; r: number; y: number }> = { bucket_hat: { x: 0.06, z: -0.015, r: 0.19, y: 0.12 } };
+function strip(m: THREE.Mesh, s: { x: number; z: number; r: number; y: number }) {
+  const g = m.geometry, pa = g.attributes.position, ix = g.index;
+  if (!ix) return;
+  m.updateWorldMatrix(true, false);
+  const keep: number[] = [], p = new THREE.Vector3();
+  for (let t = 0; t < ix.count; t += 3) {
+    let cx = 0, cy = 0, cz = 0;
+    for (let k = 0; k < 3; k++) (p.fromBufferAttribute(pa, ix.getX(t + k)).applyMatrix4(m.matrixWorld), (cx += p.x), (cy += p.y), (cz += p.z));
+    if (Math.hypot(cx / 3 - s.x, cz / 3 - s.z) < s.r && cy / 3 < s.y) continue;
+    keep.push(ix.getX(t), ix.getX(t + 1), ix.getX(t + 2));
+  }
+  g.setIndex(keep);
+}
+
 const loader = new GLTFLoader().setMeshoptDecoder(MeshoptDecoder);
 const cache = new Map<string, Promise<THREE.Object3D | undefined>>();
 /** El modelo de un accesorio (una sola descarga por pieza); undefined si no carga. */
@@ -48,6 +64,7 @@ export const model = (id: string) => {
           g.scene.traverse((o) => {
             const m = o as THREE.Mesh;
             // el bicornio trae un atlas hecho jirones (islas de UV sueltas, sin sentido): se sustituye por fieltro liso
+            if (m.isMesh && STRIP[id]) strip(m, STRIP[id]);
             if (id === 'bicorn_hat' && m.isMesh) m.material = new THREE.MeshStandardMaterial({ color: 0x23242e, roughness: 0.92, side: THREE.DoubleSide });
             const k = m.material as THREE.MeshStandardMaterial | undefined;
             if (k?.isMeshStandardMaterial) k.metalness = Math.min(k.metalness, 0.25);
@@ -104,7 +121,7 @@ export class Cosmetics {
 
   /** Poner este aspecto (si no cambió, no hace nada). Los accesorios llegan cuando se descargan. */
   set(look: Look) {
-    // el hueso lo manda pieces.json (la herramienta /?grips cambia gorro ↔ mochila): se recolocan las dos piezas por su `slot`
+    // el hueso lo manda pieces.json (el estudio /?anim cambia gorro ↔ mochila): se recolocan las dos piezas por su `slot`
     const want = { head: '', back: '' };
     for (const id of [look.head, look.back]) if (id && PIECES[id]) want[PIECES[id].slot] = id;
     look = { ...look, ...want };

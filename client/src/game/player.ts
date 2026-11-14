@@ -6,7 +6,7 @@ import type { World } from './world';
 import { FLASH } from './lightmap';
 import type { Assets } from './game';
 import { settings } from '../settings';
-import { AMMO_PACK, HP_MAX, MONSTER, WATER_HEAL, addItem, hasItem, removeItem, type Inventory, type ItemId, type Look } from '@backrooms/shared';
+import { RIFLE_MAG, HP_MAX, MONSTER, WATER_HEAL, addItem, hasItem, removeItem, type Inventory, type ItemId, type Look } from '@backrooms/shared';
 import { Rig } from './rig';
 import { Cosmetics } from './cosmetics';
 import { build } from './anim/core';
@@ -40,6 +40,7 @@ const _hl = new THREE.Vector3(), _hd = new THREE.Vector3(), _hq = new THREE.Quat
 // como a FLASH_D0 y no ciega contra el suelo o una pared cercana); más lejos, alcance completo
 const FLICKER_MAX = 0.2; // probabilidad máxima de que la linterna parpadee al encenderla (con la pila casi a cero)
 const FLASH_D0 = 4, FLASH_DECAY = 1.2, _fo = new THREE.Vector3(), _ft = new THREE.Vector3(), _v0 = new THREE.Vector3();
+const TYPE_T = 2.2; // lo que dura teclear en el cuadro del generador, en segundos
 const REACH_T = 0.85; // lo que dura recoger algo, en segundos
 const DRINK_T = 1.5; // lo que se mantiene la lata para beberla (s)
 /** Balance: enfocar con la camcorder (mirar por el visor) frena un 8 %. */
@@ -157,6 +158,13 @@ export class Player {
   private reachAt?: THREE.Vector3;
   private reachT = 0;
   private reachCb?: () => void;
+  // teclear (encender un generador): las dos manos al teclado, los dedos tamborilean, y al acabar se enciende (0 → TYPE_T)
+  private typeAt?: THREE.Vector3;
+  private typeT = 0;
+  private typeCb?: () => void;
+  private typeTap = 0;
+  /** Suena una pulsación (cada golpe de los dedos al teclear). */
+  onType?: () => void;
   /** Mirando por la camcorder (clic derecho). */
   aiming = false;
   /** Mirando por la mira del rifle (ver update). */
@@ -302,7 +310,7 @@ export class Player {
       f.rotation.copy(g.rotation);
       f.rotateX(MOUNT.rot[0] * D), f.rotateY(MOUNT.rot[1] * D), f.rotateZ(MOUNT.rot[2] * D);
     }
-    for (const k of ['caution', 'radar', 'totem', 'water', 'soap', 'tape', 'ammo'] as const) put(this.items[k], grips[k].view, _rest.fromArray(grips[k].view.pos));
+    for (const k of ['caution', 'radar', 'totem', 'water', 'monster', 'uno', 'soap', 'tape', 'ammo'] as const) put(this.items[k], grips[k].view, _rest.fromArray(grips[k].view.pos));
     const wv = grips.watergun.view;
     put(this.items.watergun, wv, _rest.fromArray(wv.pos).lerp(_eye.fromArray(wv.aim ?? wv.pos), k));
     const cv = grips.camera.view;
@@ -430,12 +438,12 @@ export class Player {
     if (tb) (this.velY = tb.vy), (this.ground = !tb.air), (this.falling = false); // (en las Poolrooms la altura la pone PoolLevel: aquí no hay suelo en 0, y la gravedad hacía temblar el cuerpo en el agua)
     else {
       if (c.jump && this.ground && !this.falling) (this.velY = JUMP * this.jumpMul), (this.ground = false);
-      const floor = this.falling || this.world.voidAt(this.pos.x, this.pos.z) ? -Infinity : (this.world.floorAt?.(this.pos.x, this.pos.z) ?? 0); // (los mundos falsos no tienen escaleras)
+      const floor = this.falling || this.world.voidAt(this.pos.x, this.pos.z) ? -Infinity : (this.world.floorAt?.(this.pos.x, this.pos.z, this.pos.y) ?? 0); // (los mundos falsos no tienen escaleras)
       this.velY -= G * dt;
       this.pos.y += this.velY * dt;
       if (this.pos.y <= floor) (this.pos.y = floor), (this.velY = 0), (this.ground = true);
-      else if (this.pos.y < -0.2) this.falling = true;
-      if (this.pos.y < -3 && !this.fell) (this.fell = true), this.onFall?.();
+      else if (floor === -Infinity && this.pos.y < -0.2) this.falling = true; // (solo sobre un hueco: las escaleras bajan por debajo de 0)
+      if (floor === -Infinity && this.pos.y < -3 && !this.fell) (this.fell = true), this.onFall?.();
     }
 
     // el escondite: de la boca al fondo (o al revés) en 0,4 s, y la vista se agacha (hk: 0 de pie, 1 dentro)
@@ -461,6 +469,15 @@ export class Player {
       if (this.reachT >= REACH_T) this.reachAt = undefined;
       else rk = Math.sin((Math.PI * this.reachT) / REACH_T);
     }
+    let tk = 0;
+    if (this.typeAt) {
+      this.typeT += dt;
+      if (this.typeT >= TYPE_T) (this.typeCb?.(), (this.typeCb = undefined), (this.typeAt = undefined));
+      else tk = Math.min(1, this.typeT / 0.3, (TYPE_T - this.typeT) / 0.3);
+      const tap = Math.floor(this.typeT * 9);
+      if (tap !== this.typeTap) (this.typeTap = tap), this.onType?.();
+    }
+    rk = Math.max(rk, tk * 0.5); // (la vista se agacha hacia el cuadro y lo que llevaba en las manos se guarda un momento)
     // el cuerpo: detrás de los ojos, mirando hacia donde se mira (los de Mixamo miran a +z); al mirar
     // abajo se retrasa (y el ojo se adelanta, sobre el cuello), que no se vea por dentro
     const down = Math.max(0, -this.pitch) / 1.45;
@@ -505,9 +522,10 @@ export class Player {
     this.recoil = Math.max(0, this.recoil - dt * 5);
     // al recoger, la vista se va al objeto
     let pitch = this.pitch;
-    if (this.reachAt) {
-      const d = Math.hypot(this.reachAt.x - this.camera.position.x, this.reachAt.z - this.camera.position.z);
-      pitch = THREE.MathUtils.lerp(this.pitch, Math.atan2(this.reachAt.y - this.camera.position.y, d), rk * 0.85);
+    const look = this.reachAt ?? this.typeAt;
+    if (look) {
+      const d = Math.hypot(look.x - this.camera.position.x, look.z - this.camera.position.z);
+      pitch = THREE.MathUtils.lerp(this.pitch, Math.atan2(look.y - this.camera.position.y, d), rk * (this.reachAt ? 0.85 : 1.4));
     }
     this.camera.rotation.set(pitch + this.recoil * 0.06, this.yaw, Math.sin(this.bob) * amp * 0.3, 'YXZ');
     this.camera.updateMatrixWorld();
@@ -556,7 +574,7 @@ export class Player {
       if (m) this.items.soap.add(fit(m.clone(true), 0.2));
       else void loadPoolKit();
     }
-    const pg = this.prop !== 'none' && this.hand === 'none' && this.gadget === 'none' && hk < 0.3 && !this.aiming ? grips[this.prop === 'monster' || this.prop === 'uno' ? 'water' : this.prop] : undefined;
+    const pg = this.prop !== 'none' && this.hand === 'none' && this.gadget === 'none' && hk < 0.3 && !this.aiming ? grips[this.prop] : undefined;
     if (pg) {
       // un objeto suelto en la mano (lata, jabón, cinta VHS, balas)
       const it = this.items[this.prop as 'water'];
@@ -593,6 +611,20 @@ export class Player {
         it.position.add(e.d);
         if (it === this.items.gun && this.hand === 'gun') this.items.flashlight.position.add(e.d); // (la linterna va montada en el rifle)
         it.updateMatrixWorld(true);
+      }
+    }
+    if (tk > 0 && this.typeAt) {
+      // las dos manos al teclado: cada una, de su sitio en reposo a unas teclas delante de la vista, con un tecleo alterno y los dedos tamborileando
+      const t = this.typeT;
+      for (const [side, sg] of [['Right', 1], ['Left', -1]] as const) {
+        const arm = this.bones[`${side}Arm`], fore = this.bones[`${side}ForeArm`], hand = this.bones[`${side}Hand`];
+        if (!arm || !fore || !hand) continue;
+        const ph = side === 'Right' ? 0 : Math.PI, bob = Math.max(0, Math.sin(t * 19 + ph)) * 0.03;
+        const rest = this.camera.localToWorld(V(0.2 * sg, -0.32, -0.3)), key = this.camera.localToWorld(V(0.13 * sg + Math.sin(t * 4 + ph) * 0.03, -0.34 - bob, -0.42));
+        const pole = arm.getWorldPosition(new THREE.Vector3()).add(V(0.5 * sg, -0.6, 0.2).applyQuaternion(q));
+        solveTwoBone(arm, fore, hand, rest.lerp(key, tk), pole, this.bones[`${side}HandMiddle1`], V(0, -1, 0).lerp(V(0, 0, -1).applyQuaternion(q), 0.4).normalize());
+        const f = (o: number) => 0.55 + 0.45 * Math.sin(t * 24 + ph + o) * tk;
+        poseFingers((n) => this.rig.bone(n), side, [0.25, f(0), f(1.3), f(2.6), f(3.9)], 0.15);
       }
     }
     if (rk && this.reachAt) {
@@ -715,6 +747,16 @@ export class Player {
     return true;
   }
 
+  /** Teclear en el cuadro que hay en `at` (encender un generador): `done` se llama al acabar el gesto. */
+  typing(at: THREE.Vector3, done: () => void) {
+    if (this.reachAt || this.typeAt) return false;
+    this.typeAt = at.clone();
+    this.typeT = 0;
+    this.typeTap = 0;
+    this.typeCb = done;
+    return true;
+  }
+
   /** Variante de animación puesta (cosmético; id de anim/variants.json, '' = ninguna). */
   setVariant(id: string) {
     this.rig.animator?.setVariant(id);
@@ -762,7 +804,7 @@ export class Player {
       if ((this.jetT -= dt) <= 0) (this.jetT = 1 / 15), this.onSquirt?.(this.pos.x, this.pos.z, this.yaw);
     }
     // el mundo dice dónde está el suelo (o el agua) y las paredes; sin él, la rejilla del nivel
-    const probe = t?.jetProbe ?? ((x: number, _y: number, z: number) => (this.world.solid(x, z) ? null : { gy: this.world.floorAt?.(x, z) ?? 0, wet: false }));
+    const probe = t?.jetProbe ?? ((x: number, _y: number, z: number) => (this.world.solid(x, z) ? null : { gy: this.world.floorAt?.(x, z, _y) ?? 0, wet: false }));
     J.update(dt, go ? eye : null, this.yaw, this.pitch, probe, t?.splash);
     // recargar junto a un bebedero (las Poolrooms): mantener G ~1,5 s
     const at = !!t?.refillNear?.(this.pos.x, this.pos.y, this.pos.z) && this.poolGear.watergun && this.squirt < 1;
@@ -774,6 +816,13 @@ export class Player {
     } else this.fillT = 0;
   }
 
+  /** Segundos que le quedan mojado / parado (para el HUD de efectos). */
+  get wetLeft() {
+    return this.wetT;
+  }
+  get stunLeft() {
+    return this.stunT;
+  }
   /** Le ha dado la pistola de agua de otro (el servidor lo avisa): mojado frena a la mitad, parado no se mueve. */
   hit(kind: 'wet' | 'stun', ms: number) {
     if (kind === 'stun') this.stunT = ms / 1000;
@@ -973,7 +1022,7 @@ export class Player {
     this.buffT = this.monsterT = this.unoT = 0;
     this.apply(inv);
     const t = this.ammo + this.spare;
-    this.ammo = Math.min(AMMO_PACK, t);
+    this.ammo = Math.min(RIFLE_MAG, t);
     this.spare = t - this.ammo;
   }
 

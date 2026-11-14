@@ -79,7 +79,7 @@ export function levelsOpen(all: (Ups | undefined)[]): Set<string> {
   const s = new Set<string>(['level0']);
   for (const id of UP_IDS) {
     const l = UPGRADES[id].level;
-    if (l && all.some((u) => upLevel(u, id) >= 1)) s.add(l);
+    if (l && all.length && all.every((u) => upLevel(u, id) >= 1)) s.add(l); // (hace falta que lo tengan todos)
   }
   return s;
 }

@@ -42,12 +42,15 @@ export class Entity implements Target {
   private out: Snap = { t: 0, x: 0, y: 0, z: 0, yaw: 0, pitch: 0 };
   private netState: EntState['state'] = 'wander';
   private moving = false;
+  /** Las Suites: dónde estoy yo y lo que mide el bucle del pasillo; se pinta en la copia más cercana a mí. */
+  hall?: { x: number; span: number };
   private shown?: string;
 
   constructor(readonly kind: Kind, private world: World, assets: Assets, at: Cell, public speed = 1, public hp = 1, readonly remote = false) {
     this.hp0 = hp;
     this.height = ENTITIES[kind].height;
-    this.rig = new Rig(assets.gltf[kind]);
+    this.rig = new Rig(assets.gltf[kind === 'faceling' ? 'suites/faceling' : kind]);
+    if (kind === 'faceling') this.rig.root.scale.setScalar(this.height / new THREE.Box3().setFromObject(this.rig.root).getSize(new THREE.Vector3()).y);
     this.rig.root.traverse((o) => void ((o as THREE.Mesh).isMesh && (o.castShadow = true)));
     // la bacteria viene sin textura (gris): negra y algo brillante, como en el original
     if (kind === 'bacteria')
@@ -127,6 +130,10 @@ export class Entity implements Target {
   private follow(dt: number) {
     const clip = CLIPS[this.kind], k = 1 - Math.exp(-dt * 28); // ya viene suave de la interpolación: solo un pulido corto
     if (this.track.sample(performance.now(), this.out)) (this.goal.set(this.out.x, 0, this.out.z), (this.goalYaw = this.out.yaw));
+    if (this.hall) {
+      const d = Math.round((this.hall.x - this.goal.x) / this.hall.span) * this.hall.span;
+      if (d) (this.goal.x += d), (this.pos.x += d);
+    }
     const bx = this.pos.x, bz = this.pos.z;
     Timeline.follow(this.pos, this.goal, dt, k, 9);
     this.facing += (THREE.MathUtils.euclideanModulo(this.goalYaw - this.facing + Math.PI, Math.PI * 2) - Math.PI) * k;
