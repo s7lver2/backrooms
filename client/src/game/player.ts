@@ -7,7 +7,7 @@ import type { Terrain } from './terrain';
 import { FLASH } from './lightmap';
 import type { Assets } from './game';
 import { settings } from '../settings';
-import { RIFLE_MAG, HP_MAX, MONSTER, WATER_HEAL, PARKING_ITEM_IDS, addItem, hasItem, removeItem, type Inventory, type ItemId, type Look, type ParkingItemId } from '@backrooms/shared';
+import { RIFLE_MAG, HP_MAX, MONSTER, PILLS, WATER_HEAL, PARKING_ITEM_IDS, addItem, hasItem, removeItem, type Inventory, type ItemId, type Look, type ParkingItemId } from '@backrooms/shared';
 import { Rig } from './rig';
 import { Cosmetics } from './cosmetics';
 import { build } from './anim/core';
@@ -229,7 +229,9 @@ export class Player {
   get pills() { return this.parkingItems.pills; }
   get steelcard() { return this.parkingItems.steelcard; }
   get beer() { return this.parkingItems.beer; }
-  get pillSpeed() { return performance.now() < this.pillsUntil ? .8 : 0; }
+  /** Las pastillas hacen efecto (30 s). */
+  get pillOn() { return performance.now() < this.pillsUntil; }
+  get pillSpeed() { return 0; }
 
   equipParkingItem(id: ParkingItemId) {
     if (!this.owns(id)) return;
@@ -245,7 +247,7 @@ export class Player {
     this.onParkingItem(id, accepted => {
       this.specialPending = false;
       if (!accepted) return;
-      if (id === 'pills') this.pillsUntil = performance.now() + 60_000;
+      if (id === 'pills') this.pillsUntil = performance.now() + PILLS.time * 1000;
       if (id === 'glasses') this.glassesUntil = performance.now() + 60_000;
     });
   }
@@ -489,11 +491,11 @@ export class Player {
     const moving = c.move.length() > 0.05, run = c.run && moving && !this.winded && !this.duck;
     // ~9 s corriendo; se recupera en ~6 s andando y ~4 s parado; agotado, no se corre hasta el 30 %
     if (this.buffT > 0) (this.stamina = 1), (this.winded = false);
-    else this.stamina = THREE.MathUtils.clamp(this.stamina + dt * (run ? -1 / (11 * perks.stats.stamina * (this.pillSpeed ? 1.25 : 1)) : (moving ? 1 / 6 : 1 / 4) * perks.stats.rest), 0, 1);
+    else this.stamina = THREE.MathUtils.clamp(this.stamina + dt * (run ? -1 / (11 * perks.stats.stamina * (this.pillOn ? PILLS.stamina : 1)) : (moving ? 1 / 6 : 1 / 4) * perks.stats.rest), 0, 1);
     if (this.stamina <= 0) this.winded = true;
     else if (this.stamina > 0.3) this.winded = false;
     const pace = run ? this.world.groundPace?.run ?? RUN : this.world.groundPace?.walk ?? WALK;
-    let speed = moving ? (pace * this.speedMul * this.buffSpeed * perks.stats.speed + this.pillSpeed) * Math.min(1, c.move.length()) * (this.duck ? perks.stats.sneak : 1) * (this.stunT > 0 ? 0 : this.wetT > 0 ? 0.5 : 1) * (this.aiming ? CAM_AIM_SLOW : 1) : 0;
+    let speed = moving ? (pace * this.speedMul * this.buffSpeed * perks.stats.speed * (this.pillOn ? PILLS.speed : 1) + this.pillSpeed) * Math.min(1, c.move.length()) * (this.duck ? perks.stats.sneak : 1) * (this.stunT > 0 ? 0 : this.wetT > 0 ? 0.5 : 1) * (this.aiming ? CAM_AIM_SLOW : 1) : 0;
     const f = new THREE.Vector3(-Math.sin(this.yaw), 0, -Math.cos(this.yaw)), r = new THREE.Vector3(-f.z, 0, f.x);
     const v = f.multiplyScalar(c.move.y).add(r.multiplyScalar(c.move.x));
     if (v.lengthSq() > 0) v.normalize().multiplyScalar(speed * dt);
@@ -534,7 +536,7 @@ export class Player {
     if (tb) (this.velY = tb.vy), (this.ground = !tb.air), (this.falling = false); // (en las Poolrooms la altura la pone PoolLevel: aquí no hay suelo en 0, y la gravedad hacía temblar el cuerpo en el agua)
     else if (this.world.groundPace) (this.velY = 0), (this.ground = true), (this.falling = false);
     else {
-      if (c.jump && this.ground && !this.falling) (this.velY = JUMP * this.jumpMul), (this.ground = false);
+      if (c.jump && this.ground && !this.falling) (this.velY = JUMP * this.jumpMul * (this.pillOn ? PILLS.jump : 1)), (this.ground = false);
       const floor = this.falling || this.world.voidAt(this.pos.x, this.pos.z) ? -Infinity : (this.world.floorAt?.(this.pos.x, this.pos.z, this.pos.y) ?? 0); // (los mundos falsos no tienen escaleras)
       this.velY -= G * dt;
       this.pos.y += this.velY * dt;

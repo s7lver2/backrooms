@@ -48,7 +48,7 @@ import { prepAvatar } from './InvAvatar';
 import { WAIT_HALF, type Sold } from '@backrooms/shared';
 import { type LockerItem, RIFLE_MAG, canHold, ITEM_IDS, START_INV, type AdminFx, makeMission, missionLine, tvCount, type ActiveMission, type Inventory, type ItemId, type MissionKind, type Maze, type LevelCaps, levelCaps, NOISE_RUN, NOISE_SHOT, NOISE_PHOTO, type Noise } from '@backrooms/shared';
 import { Explosion } from './explosion';
-import { Breath, DEFAULT_LOOK, EEH_HOLD, HIT_DAMAGE, HP_MAX, MONSTER, SUITE_FLOORS, REVIVE_IMMUNE, boostOf, totemSpot, type Look, hideStates, tickHides, startOffset, type HideState, type PlayerState, type RoomView, type ToolFx, type WorldSnapshot, FLIGHT_DT, flight } from '@backrooms/shared';
+import { Breath, DEFAULT_LOOK, EEH_HOLD, HIT_DAMAGE, HP_MAX, MONSTER, PILLS, SUITE_FLOORS, REVIVE_IMMUNE, boostOf, totemSpot, type Look, hideStates, tickHides, startOffset, type HideState, type PlayerState, type RoomView, type ToolFx, type WorldSnapshot, FLIGHT_DT, flight } from '@backrooms/shared';
 import { parkingOptionsForMission, PARKING_HEIGHT } from '@backrooms/shared';
 import { ITEMS, PARKING_ITEM_IDS, type ParkingItemId } from '@backrooms/shared';
 
@@ -1185,7 +1185,7 @@ export class BackroomsGame {
     if (!p || this.run) return out;
     const now = performance.now(), dead = p.dead || this.spectating;
     if (!dead) {
-      if (p.pillSpeed) out.push({ id: 'pills', icon: 'speed', label: 'PILLS', kind: 'good', frac: (p.pillsUntil - performance.now()) / 60_000 });
+      if (p.pillOn) out.push({ id: 'pills', icon: 'speed', label: 'PILLS', kind: 'good', frac: (p.pillsUntil - performance.now()) / (PILLS.time * 1000) });
       if (p.glassesUntil > performance.now()) out.push({ id: 'glasses', icon: 'speed', label: 'X-RAY', kind: 'good', frac: (p.glassesUntil - performance.now()) / 60_000 });
       if (p.buffT > 0) out.push({ id: 'monster', icon: 'speed', label: 'MONSTER', kind: 'good', frac: p.buffT / (MONSTER.time * boostOf(perks, 'monster')) });
       if (now < this.immuneUntil) out.push({ id: 'immune', icon: 'shield', label: 'IMMUNE', kind: 'good', frac: (this.immuneUntil - now) / REVIVE_IMMUNE });
@@ -2528,9 +2528,9 @@ export class BackroomsGame {
     }
     if (pl instanceof PoolLevel && me) {
       // el mismo Player de siempre mueve el cuerpo (con las constantes de locomotion.ts y a través del mundo, que sabe de agua, tubos y plantas) y pone la cámara
-      pl.speedK = perks.stats.speed * me.speedMul;
+      pl.speedK = perks.stats.speed * me.speedMul * (me.pillOn ? PILLS.speed : 1);
       pl.speedAdd = me.pillSpeed;
-      pl.jumpK = me.jumpMul;
+      pl.jumpK = me.jumpMul * (me.pillOn ? PILLS.jump : 1);
       pl.slowMul = (me.aiming ? CAM_AIM_SLOW : 1) * me.buffSpeed; // enfocar con la camcorder frena (igual que en el laberinto)
       const cc = pl.pre(dt, me.winded && c.run ? { ...c, run: false } : c); // sin aguante no se corre (el Player lo gasta)
       this.poolHands(pl, dt, cc);

@@ -81,7 +81,9 @@ export type ParkingItemId = typeof PARKING_ITEM_IDS[number];
 export type ItemId = 'flashlight' | 'camera' | 'gun' | 'ammo' | 'water' | 'caution' | 'radar' | 'totem' | 'tank' | 'watergun' | 'uno' | 'monster' | 'pokeball' | 'grenade' | 'nokia' | 'bat' | ParkingItemId;
 export const ITEM_IDS: ItemId[] = ['flashlight', 'camera', 'gun', 'ammo', 'water', 'caution', 'radar', 'totem', 'tank', 'watergun', 'uno', 'monster', 'pokeball', 'grenade', 'nokia', 'bat', ...PARKING_ITEM_IDS];
 /** Monster: segundos que se tarda en beberla, lo que dura el efecto, y lo que acelera. Uno Reverse: ver ITEMS.uno. */
-export const MONSTER = { drink: 3, time: 5, speed: 1.4 } as const;
+export const MONSTER = { drink: 3, time: 5, speed: 1.8 } as const;
+/** Las pastillas: cuestan el 25 % de la vida actual y dan 30 s de +10 % de velocidad, +8 % de aguante y +5 % de salto; al acabar, devuelven el doble de lo quitado. */
+export const PILLS = { time: 30, hurt: 0.25, speed: 1.1, stamina: 1.08, jump: 1.05, heal: 2 } as const;
 /** Un cargador suelto: 4 balas. El rifle monta 2 a la vez (`RIFLE_MAG`) y se pueden llevar 2 cargadores como mucho. */
 export const AMMO_PACK = 4;
 export const RIFLE_MAG = 2;
@@ -226,7 +228,7 @@ export const ITEMS: Record<ItemId, ItemDef> = {
   bat: { name: 'BASEBALL BAT', price: 350, info: 'Knocks entities and teammates far back. It can break.', slot: 'bat', hot: true, boost: 'KNOCKBACK', level: 'suites' },
   totem: { name: 'TOTEM OF LIFE', price: 650, info: 'Brings back a fallen teammate.', slot: 'totem', hot: true },
   glasses: { name: 'X-RAY GLASSES', price: 400, info: 'Reveal nearby pickups, unfinished generators, and the unlocked exit for 60 seconds.', slot: 'glasses', hot: true, level: 'parking' },
-  pills: { name: 'PILLS', price: 260, info: 'Three doses. Each gives +0.8 m/s speed and +25% stamina for 60 seconds at a cost of 15% health.', slot: 'pills', pack: 3, hot: true, level: 'parking' },
+  pills: { name: 'PILLS', price: 260, info: 'Three doses. Each costs 25% of your current health and gives 30 seconds of +10% speed, +8% stamina and +5% jump; when it wears off you regain double the health it took.', slot: 'pills', pack: 3, hot: true, level: 'parking' },
   steelcard: { name: 'STEEL CARD', price: 240, info: 'Roll for a shop item. A 5% chance speeds up entities by 0.5 m/s instead.', slot: 'steelcard', hot: true, level: 'parking' },
   beer: { name: 'BEER BOTTLE', price: 100, info: 'Throw to lure entities to the impact. A direct hit deals 5% health damage to a player.', slot: 'beer', hot: true, level: 'parking' },
 };

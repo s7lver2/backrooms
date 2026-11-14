@@ -9,7 +9,7 @@ import {
 } from '@backrooms/shared';
 import { Match, type Player } from './match';
 import { ACHIEVEMENT_KEYS, WATER_HEAL, NOISE_SHOT, NOISE_DROP, NOISE_PHOTO, NOISE_PICK, levelCaps, solidAt, startOffset } from '@backrooms/shared';
-import { lockerContents, facelingStock, type LockerItem, ITEMS, PARKING_ITEM_IDS, RARITIES, SCALE, UPGRADES, UP_IDS, boostOf, itemOpen, levelsOpen, cleanUps, hasRoom, lootPrice, rarity, rollRarity, sellPrice, spotRarity, statsOf, subOf, upCost, upLevel, wearInv, type Qual, type SaveInfo, type Ups } from '@backrooms/shared';
+import { lockerContents, facelingStock, type LockerItem, ITEMS, PILLS, PARKING_ITEM_IDS, RARITIES, SCALE, UPGRADES, UP_IDS, boostOf, itemOpen, levelsOpen, cleanUps, hasRoom, lootPrice, rarity, rollRarity, sellPrice, spotRarity, statsOf, subOf, upCost, upLevel, wearInv, type Qual, type SaveInfo, type Ups } from '@backrooms/shared';
 import { allowedOrigins, handleApi, isAdminName, originOk, userFromCookie } from './auth';
 import { MONEY_LIMIT, parseAdmin } from './admin';
 import { achievementsOf, avatarRef, deleteSave, loadoutOf, saveOf, savesOf, writeSave } from './db';
@@ -642,7 +642,7 @@ io.on('connection', (sock) => {
     // un salto de `jam` al alza es un túnel sin fondo (teletransporte legítimo): no se recorta
     // (y el salto del bucle de Las Suites, `tp`: si no, el servidor te cree 24 m atrás y no te deja coger nada)
     if (!isAdmin() && !((st.jam ?? 0) > (p.st.jam ?? 0)) && !((st.tp ?? 0) > (p.st.tp ?? 0))) {
-      const speed = MAX_SPEED + (now2 < (p.pillsUntil ?? 0) ? .8 : 0);
+      const speed = MAX_SPEED * (now2 < (p.pillsUntil ?? 0) ? PILLS.speed : 1);
       const reach = Math.min(2, (now2 - prev) / 1000) * speed + MOVE_SLACK, dx = st.x - p.st.x, dz = st.z - p.st.z, d = Math.hypot(dx, dz);
       if (d > reach) (st.x = p.st.x + (dx / d) * reach), (st.z = p.st.z + (dz / d) * reach);
     }
@@ -1226,8 +1226,13 @@ io.on('connection', (sock) => {
     };
     if (id === 'pills') {
       p.cap = (p.cap.pills ?? 0) > 1 ? { ...p.cap, pills: p.cap.pills! - 1 } : removeItem(p.cap, id);
-      p.pillsUntil = now + 60_000;
-      hurt(p, .15);
+      p.pillsUntil = now + PILLS.time * 1000;
+      const lost = p.hp * PILLS.hurt; // (el 25 % de la vida de ahora: nunca llega a matar)
+      p.hp -= lost;
+      // pasados los 30 s, devuelve el doble de lo que quitó
+      setTimeout(() => {
+        if (r.match === match && r.phase === 'playing' && !p.dead && !p.boarded) (p.hp = Math.min(st(p).hp, p.hp + lost * PILLS.heal)), push(r);
+      }, PILLS.time * 1000);
     } else {
       const remaining = removeItem(p.cap, id);
       if (id === 'steelcard') {

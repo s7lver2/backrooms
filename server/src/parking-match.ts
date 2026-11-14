@@ -1,6 +1,6 @@
 import { parkingSurface, lockerItem, lockerLocked } from '@backrooms/shared';
 import {
-  HIT_DAMAGE, MONSTER, ParkingSkinAI, ParkingSmilerAI, addItem, boostOf, canHold, generateParking, parkingContains, parkingDoorBlocks, parkingFits, parkingGeneratorBounds, parkingOptionsForMission,
+  HIT_DAMAGE, MONSTER, PILLS, ParkingSkinAI, ParkingSmilerAI, addItem, boostOf, canHold, generateParking, parkingContains, parkingDoorBlocks, parkingFits, parkingGeneratorBounds, parkingOptionsForMission,
   type ItemId, type Mission, type ParkingInteraction, type ParkingPoint, type ParkingRect, type ParkingSnapshot, type PlayerState, type SkinTarget,
 } from '@backrooms/shared';
 import type { Player } from './match';
@@ -127,7 +127,7 @@ export class ParkingMatch {
     let { x,y,z } = player.st;
     const dx = next.x-x, dz = next.z-z, distance = Math.hypot(dx,dz);
     const speed = admin ? 14 : (now < (this.monsterUntil.get(player.id) ?? 0) ? 7 * MONSTER.speed : 7)
-      + (now < (player.pillsUntil ?? 0) ? .8 : 0);
+      * (now < (player.pillsUntil ?? 0) ? PILLS.speed : 1);
     const credit = Math.min(1.6,(this.moveCredit.get(player.id) ?? .8) + Math.min(.25,(now-(previous??now))/1000)*speed);
     const travel = Math.min(distance,credit), parts = Math.max(1,Math.ceil(travel/.16));
     const sx = distance ? dx*travel/distance/parts : 0, sz = distance ? dz*travel/distance/parts : 0;
