@@ -7,7 +7,7 @@ import { lockerMesh } from './lockerMesh';
 import { PickupField, MAG, TOTAL, type PickupModel } from './pickups';
 export { MAG, TOTAL };
 import { boostOf, lootSpots, radarSpot, spotRarity, waterSpots, type Drop, type ItemId, type LockerItem } from '@backrooms/shared';
-import { itemModel } from './itemModels';
+import { inventoryModels, itemModel } from './itemModels';
 import { lootModel } from './rarityFx';
 import { perks } from './perks';
 import type { Controls } from './input';
@@ -208,8 +208,10 @@ export class Items extends PickupField {
       caution: [g.duct.scene, 0.16],
       radar: [g.radar.scene, 0.2],
       totem: [g.totem.scene, 0.5],
-      ...(itemModel('uno') && { uno: [itemModel('uno')!, 0.2] as [THREE.Object3D, number] }),
-      ...(itemModel('monster') && { monster: [itemModel('monster')!, 0.2] as [THREE.Object3D, number] }),
+      ...Object.fromEntries(inventoryModels.flatMap(id => {
+        const model = itemModel(id);
+        return model ? [[id, [model, id === 'bat' ? 0.7 : 0.2] as [THREE.Object3D, number]]] : [];
+      })),
       ammo: () => [new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.06, 0.06), new THREE.MeshStandardMaterial({ color: 0xb08d3a, roughness: 0.5, metalness: 0.5 })), 0.12],
     };
   }

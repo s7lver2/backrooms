@@ -16,10 +16,10 @@ export class GameAudio {
   private out: GainNode;
   private master: GainNode; // el volumen del menú: 0 con el sonido quitado (corrupt() toca `out`, no este)
   private shaper: WaveShaperNode;
-  private amb: GainNode; // el fondo (zumbido, ventilación, siseo): el ajuste AMBIENT
-  private sfx: GainNode; // lo puntual (pasos, disparo, entidades…): el ajuste EFFECTS
+  protected amb: GainNode; // el fondo (zumbido, ventilación, siseo): el ajuste AMBIENT
+  protected sfx: GainNode; // lo puntual (pasos, disparo, entidades…): el ajuste EFFECTS
   private noise: AudioBuffer;
-  private nearNext = { bacteria: 0, partygoer: 0 };
+  private readonly nearNext = new Map<string, number>();
   private nodes: AudioNode[] = [];
 
   private vol = 1;
@@ -122,7 +122,7 @@ export class GameAudio {
     this.amb.gain.value = settings.ambient * 2;
   }
 
-  private loop(src: AudioScheduledSourceNode, ...chain: AudioNode[]) {
+  protected loop(src: AudioScheduledSourceNode, ...chain: AudioNode[]) {
     let n: AudioNode = src;
     for (const x of chain) n.connect(x), (n = x);
     n.connect(this.amb);
@@ -130,7 +130,7 @@ export class GameAudio {
     this.nodes.push(src, ...chain);
   }
 
-  private noiseSrc() {
+  protected noiseSrc() {
     const s = this.ctx.createBufferSource();
     s.buffer = this.noise;
     s.loop = true;
@@ -205,7 +205,7 @@ export class GameAudio {
     this.loop(this.noiseSrc(), hp, hg);
   }
 
-  private burst(dur: number, gain: number, f: number, q = 1, type: BiquadFilterType = 'bandpass', t0 = 0, dest: AudioNode = this.sfx) {
+  protected burst(dur: number, gain: number, f: number, q = 1, type: BiquadFilterType = 'bandpass', t0 = 0, dest: AudioNode = this.sfx) {
     const c = this.ctx, t = c.currentTime + t0, s = c.createBufferSource(), bp = c.createBiquadFilter(), g = c.createGain();
     s.buffer = this.noise;
     s.playbackRate.value = 0.8 + Math.random() * 0.4;
@@ -215,19 +215,31 @@ export class GameAudio {
     g.gain.setValueAtTime(gain, t);
     g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
     s.connect(bp).connect(g).connect(dest);
-    s.start(t, Math.random() * 1.5, dur + 0.05);
+    const bufferDuration = (dur + .05) * s.playbackRate.value;
+    const offset = Math.random() * Math.max(0, Math.min(1.5, this.noise.duration - bufferDuration));
+    s.start(t, offset, bufferDuration);
+    s.addEventListener('ended', () => { s.disconnect(); bp.disconnect(); g.disconnect(); }, { once: true });
+    return s;
   }
 
-  private tone(f: number, dur: number, gain: number, type: OscillatorType = 'square', t0 = 0, f2?: number) {
+  bottleBreak(gain: number) {
+    this.burst(.13, .24 * gain, 4600, .9);
+    this.burst(.23, .13 * gain, 7200, 1.2, 'bandpass', .025);
+    this.tone(2110, .08, .045 * gain, 'sine', .01, 1400);
+  }
+
+  protected tone(f: number, dur: number, gain: number, type: OscillatorType = 'square', t0 = 0, f2?: number, dest: AudioNode = this.sfx) {
     const c = this.ctx, t = c.currentTime + t0, o = c.createOscillator(), g = c.createGain();
     o.type = type;
     o.frequency.setValueAtTime(f, t);
     if (f2) o.frequency.exponentialRampToValueAtTime(f2, t + dur);
     g.gain.setValueAtTime(gain, t);
     g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
-    o.connect(g).connect(this.sfx);
+    o.connect(g).connect(dest);
     o.start(t);
     o.stop(t + dur + 0.05);
+    o.addEventListener('ended', () => { o.disconnect(); g.disconnect(); }, { once: true });
+    return o;
   }
 
   /** Un paso sobre moqueta: un golpe sordo y un roce; en las salas grandes, con su eco. */
@@ -358,18 +370,26 @@ export class GameAudio {
    */
   near(kind: 'bacteria' | 'partygoer', d: number) {
     const v = Math.max(0, Math.min(1, 1 - d / 16));
-    const now = this.ctx.currentTime;
-    if (v < 0.05 || now < this.nearNext[kind]) return;
+    if (v < 0.05) return;
+    const delay = kind === 'bacteria' ? 0.4 + Math.random() * 1.2 : 1.2 + Math.random() * 2;
+    if (!this.entityCueDue(kind, delay)) return;
     if (kind === 'bacteria') {
       for (let i = 0; i < 3 + Math.random() * 4; i++) this.burst(0.03, 0.25 * v, 2500 + Math.random() * 3000, 6, 'bandpass', i * 0.05 + Math.random() * 0.03);
-      this.nearNext[kind] = now + 0.4 + Math.random() * 1.2;
     } else {
       const f = 520 + Math.random() * 80;
       this.tone(f, 0.35, 0.05 * v, 'sawtooth', 0, f * 0.82);
       if (Math.random() < 0.4) [0, 0.11, 0.2].forEach((t, i) => this.tone(700 - i * 60, 0.07, 0.03 * v, 'triangle', 0.45 + t));
-      this.nearNext[kind] = now + 1.2 + Math.random() * 2;
     }
   }
+
+  protected entityCueDue(id: string, interval: number, immediate = false) {
+    const now = this.ctx.currentTime;
+    if (!immediate && now < (this.nearNext.get(id) ?? 0)) return false;
+    this.nearNext.set(id, now + interval);
+    return true;
+  }
+
+  protected clearEntityCue(id: string) { this.nearNext.delete(id); }
 
   shot() {
     this.burst(0.35, 0.9, 900, 0.5, 'lowpass');

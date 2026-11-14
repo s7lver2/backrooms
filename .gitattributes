@@ -1,0 +1,7 @@
+/client/public/models/parking/**/*.glb filter=lfs diff=lfs merge=lfs -text
+/client/public/models/parking/**/*.bin filter=lfs diff=lfs merge=lfs -text
+/client/public/models/parking/**/*.png filter=lfs diff=lfs merge=lfs -text
+/client/public/models/parking/**/*.jpeg filter=lfs diff=lfs merge=lfs -text
+/client/public/models/parking/**/*.jpg filter=lfs diff=lfs merge=lfs -text
+/client/public/models/parking/**/*.webp filter=lfs diff=lfs merge=lfs -text
+/.githooks/* text eol=lf

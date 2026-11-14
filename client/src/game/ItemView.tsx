@@ -28,8 +28,16 @@ function modelOf(assets: Assets, k: IconKey | 'loot', r: number): THREE.Object3D
     case 'radar': return g.radar.scene;
     case 'totem': return g.totem.scene;
     case 'loot': return lootModel(r);
-    case 'uno': return itemModel('uno');
-    case 'monster': return itemModel('monster');
+    case 'uno':
+    case 'monster':
+    case 'pokeball':
+    case 'grenade':
+    case 'nokia':
+    case 'bat':
+    case 'glasses':
+    case 'pills':
+    case 'steelcard':
+    case 'beer': return itemModel(k);
     default: return poolPart(k);
   }
 }

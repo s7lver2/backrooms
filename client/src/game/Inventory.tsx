@@ -1,9 +1,9 @@
 'use client';
-import { memo, useEffect, useMemo, useRef, useState, type MutableRefObject } from 'react';
-import { DEFAULT_LOOK, RIFLE_MAG, ITEMS, SHOP, lootPrice, rarity, sellPrice, type ItemId, type Look, type Qual } from '@backrooms/shared';
+import { Fragment, memo, useEffect, useMemo, useRef, useState, type MutableRefObject } from 'react';
+import { DEFAULT_LOOK, RIFLE_MAG, ITEMS, SHOP, BALL_KINDS, SUBS, fmtSub, subOf, lootPrice, rarity, sellPrice, PARKING_ITEM_IDS, type ItemId, type Look, type Qual, type ParkingItemId } from '@backrooms/shared';
 import { perks } from './perks';
 import { lootIcon } from './rarityFx';
-import type { Assets, Inv } from './game';
+import type { Assets, Inv, MissionHud } from './game';
 import { FITS, type Gear, type Slot } from './player';
 import { gearIcons, type IconKey } from './invIcons';
 import { HOT, HOT_SLOTS } from './quickslots';
@@ -19,19 +19,39 @@ import './inventory.css';
  * al instante. Qué se puede llevar y dónde lo decide player.ts (FITS); aquí solo se pide con onPlace.
  */
 
-const NAME: Partial<Record<Item, string>> = { flashlight: 'FLASHLIGHT', camera: 'CAMCORDER', gun: 'RIFLE', water: 'ALMOND WATER', tape: 'VHS TAPES', spare: 'SPARE FLASHLIGHTS', ammo: 'RIFLE AMMO', tank: 'DIVING TANK', loot: 'ARTIFACT', uno: 'UNO REVERSE', monster: 'MONSTER' };
-type Item = Gear | 'water' | 'caution' | 'radar' | 'totem' | 'watergun' | 'tape' | 'spare' | 'ammo' | 'tank' | 'loot' | 'uno' | 'monster';
+/** Los substats de un objeto de las Suites según su rareza (varias filas). */
+function Subs({ id, q }: { id: ItemId; q: Qual }) {
+  return (
+    <>
+      {SUBS[id]!.map((x) => (
+        <Fragment key={x.key}>
+          <span>{x.name}</span>
+          <span data-up={rarity(q.r).boost > 1 || undefined}>{fmtSub(x, subOf({ q: { [id]: q } }, id, x.key))}</span>
+        </Fragment>
+      ))}
+      {q.c && BALL_KINDS[q.c] && (
+        <>
+          <span>CAUGHT</span>
+          <span data-up>{BALL_KINDS[q.c].name} · ×{BALL_KINDS[q.c].mul} TIME</span>
+        </>
+      )}
+    </>
+  );
+}
+const NAME: Partial<Record<Item, string>> = { flashlight: 'FLASHLIGHT', camera: 'CAMCORDER', gun: 'RIFLE', water: 'ALMOND WATER', tape: 'VHS TAPES', spare: 'SPARE FLASHLIGHTS', ammo: 'RIFLE AMMO', tank: 'DIVING TANK', loot: 'ARTIFACT', uno: 'UNO REVERSE', monster: 'MONSTER', pokeball: 'POKEBALL', grenade: 'SMOKE GRENADE', nokia: 'NOKIA', bat: 'BASEBALL BAT' };
+type Item = Gear | 'water' | 'caution' | 'radar' | 'totem' | 'watergun' | 'tape' | 'spare' | 'ammo' | 'tank' | 'loot' | 'uno' | 'monster' | 'pokeball' | 'grenade' | 'nokia' | 'bat' | ParkingItemId;
 /** El objeto de la tienda (ITEMS) que corresponde a cada cosa del inventario: de él salen su rareza, su estado y su precio. La linterna de la mano y las cintas no tienen. */
-const SHOP_ID: Partial<Record<Item, ItemId>> = { flashlight: 'flashlight', camera: 'camera', gun: 'gun', water: 'water', caution: 'caution', radar: 'radar', totem: 'totem', watergun: 'watergun', spare: 'flashlight', ammo: 'ammo', tank: 'tank', uno: 'uno', monster: 'monster' };
+const SHOP_ID: Partial<Record<Item, ItemId>> = { flashlight: 'flashlight', camera: 'camera', gun: 'gun', water: 'water', caution: 'caution', radar: 'radar', totem: 'totem', watergun: 'watergun', spare: 'flashlight', ammo: 'ammo', tank: 'tank', uno: 'uno', monster: 'monster', pokeball: 'pokeball', grenade: 'grenade', nokia: 'nokia', bat: 'bat', glasses: 'glasses', pills: 'pills', steelcard: 'steelcard', beer: 'beer' };
 const hex = (r: number) => '#' + rarity(r).color.toString(16).padStart(6, '0');
 /** Una casilla de la mochila: qué hay y cuántas unidades (solo lo que se cuenta pasa de 1). */
 export type Cell = { k: Item; n: number };
 const STACK = new Set<Item>(['water', 'tape', 'spare', 'ammo']);
 /** Lo que el servidor deja soltar al suelo (id de ItemId); las cintas no. */
-const DROP: Partial<Record<Item, string>> = { loot: 'loot', water: 'water', spare: 'flashlight', ammo: 'ammo', camera: 'camera', gun: 'gun', caution: 'caution', radar: 'radar', totem: 'totem', watergun: 'watergun', tank: 'tank', uno: 'uno', monster: 'monster' };
+const DROP: Partial<Record<Item, string>> = { loot: 'loot', water: 'water', spare: 'flashlight', ammo: 'ammo', camera: 'camera', gun: 'gun', caution: 'caution', radar: 'radar', totem: 'totem', watergun: 'watergun', tank: 'tank', uno: 'uno', monster: 'monster', pokeball: 'pokeball', grenade: 'grenade', nokia: 'nokia', bat: 'bat', glasses: 'glasses', steelcard: 'steelcard', beer: 'beer' };
 const hotable = (g: Item) => g === 'camera' || g === 'gun' || barOnly(g);
 /** Lo que solo va en la barra de acceso rápido (no se equipa en las manos): se arrastra a una ranura de la barra. */
-const barOnly = (g: Item): g is 'water' | 'caution' | 'radar' | 'totem' | 'watergun' | 'uno' | 'monster' => g === 'uno' || g === 'monster' || g === 'water' || g === 'caution' || g === 'radar' || g === 'totem' || g === 'watergun';
+const bagHotItems = ['caution', 'radar', 'totem', 'watergun', 'uno', 'monster', 'pokeball', 'grenade', 'nokia', 'bat', ...PARKING_ITEM_IDS] as const;
+const barOnly = (g: Item): g is 'water' | typeof bagHotItems[number] => g === 'water' || (bagHotItems as readonly Item[]).includes(g);
 const fits = (s: string, g: Item) => (s === 'left' && (g === 'flashlight' || g === 'spare')) || (s === 'back' && g === 'tank');
 const label = (g: Item) => NAME[g] ?? HOT[g]?.name ?? g;
 const SLOTS: [Slot, string][] = [
@@ -98,10 +118,12 @@ function Inventory({
   onLight,
   onHot,
   onUse,
+  onEquipSpecial,
   onDrop,
   onTank,
   onClose,
   bag,
+  parkingMission,
 }: {
   /** Montado siempre (montarlo al abrir cuesta ~0,1 s): cerrado, solo se oculta y no se vuelve a pintar. */
   open: boolean;
@@ -114,6 +136,7 @@ function Inventory({
   /** Poner un objeto en una ranura de la barra de acceso rápido (null la vacía). */
   onHot: (slot: number, id: string | null) => void;
   onUse: (id: string) => void;
+  onEquipSpecial?: (id: ParkingItemId) => void;
   /** Soltar una unidad al suelo (arrastrando fuera del panel). */
   onDrop?: (id: string, index?: number) => void;
   /** Ponerse la bombona en la espalda (true) o guardarla en la mochila (false). */
@@ -121,6 +144,7 @@ function Inventory({
   onClose: () => void;
   /** La disposición de la mochila (solo de la sesión): la guarda quien monta el menú para que sobreviva a cerrarlo. */
   bag?: MutableRefObject<(Cell | null)[]>;
+  parkingMission?: MissionHud;
 }) {
   const [tab, setTab] = useState<'items' | 'photos'>('items');
   // la foto ampliada (índice) o ninguna
@@ -156,7 +180,7 @@ function Inventory({
     ...(lamps > 0 ? [{ kind: 'spare' as const, n: lamps }] : []),
     ...(inv.gun && inv.spare ? [{ kind: 'ammo' as const, n: inv.spare }] : []),
   ];
-  const loose = [...(['caution', 'radar', 'totem', 'watergun', 'uno', 'monster'] as const).filter((id) => HOT[id].have(inv) && !hotIn.includes(id)), ...(inv.tank && !(inv.tankOn && st.back) ? (['tank'] as const) : [])]; // lo de la barra que se ha quitado de ella y la bombona sin puesta
+  const loose = [...bagHotItems.filter((id) => HOT[id].have(inv) && !hotIn.includes(id)), ...(inv.tank && !(inv.tankOn && st.back) ? (['tank'] as const) : [])]; // lo de la barra que se ha quitado de ella y la bombona sin puesta
   const loot = perks.loot;
   const cells = stacks.length + loose.length + stored.length + loot.length;
   // lo que se lleva por tipo, y la disposición (la que eligió el jugador) cuadrada con ello
@@ -341,7 +365,7 @@ function Inventory({
         <span className="iv-tip__banner">{R.name}</span>
         <span className="iv-tip__name">{label(g)}</span>
         <span className="iv-tip__rows">
-          {d?.boost && (
+          {id && SUBS[id] ? <Subs id={id} q={q} /> : d?.boost && (
             <>
               <span>{d.boost}</span>
               <span data-up={R.boost > 1 || undefined}>{R.boost > 1 ? `+${Math.round((R.boost - 1) * 100)}%` : '—'}</span>
@@ -410,7 +434,10 @@ function Inventory({
     if (sel.kind === 'tape') return { title: 'VHS TAPE', lines: [`COLLECTED ${inv.tapes}/8`, 'Recorded tapes. Find them all.'], icon: icons.tape };
     if (sel.kind === 'spare') return { title: 'SPARE FLASHLIGHT', lines: [`×${inv.spares} IN THE BACKPACK`, 'Swaps in when the battery dies.'], icon: icons.spare };
     if (sel.kind === 'water') return { title: HOT.water.name, lines: [`×${inv.water} CARRIED`, HOT.water.info, 'Drag it to the quick access bar.'], icon: icons.water };
-    if (sel.kind === 'hot') return { title: HOT[sel.id].name, lines: [HOT[sel.id].info, 'Drag it to the quick access bar.'], icon: icons[HOT[sel.id].icon] };
+    if (sel.kind === 'hot') {
+      const special = PARKING_ITEM_IDS.includes(sel.id as ParkingItemId);
+      return { title: HOT[sel.id].name, lines: [HOT[sel.id].info, special ? 'Equip here or assign it to the quick access bar.' : 'Drag it to the quick access bar.'], icon: icons[HOT[sel.id].icon] };
+    }
     if (sel.kind === 'ammo') return { title: 'RIFLE AMMO', lines: [`${inv.spare} IN RESERVE`, 'Reloads the rifle (R).'], icon: icons.ammo };
     const g = (sel as { g: Gear }).g; // lo demás ya volvió arriba
     const lines =
@@ -491,7 +518,7 @@ function Inventory({
                 );
               })}
             </div>
-            <p className="br-inv__keys">DRAG TO ARRANGE. SHIFT+DRAG SPLITS ONE. DROP OUTSIDE TO THROW IT. DOUBLE CLICK EQUIPS. ESC CANCELS. LOCKED CELLS AND SLOTS OPEN WITH UPGRADES AT THE TERMINAL.</p>
+            <p className="br-inv__keys">DRAG TO ARRANGE. SHIFT+DRAG SPLITS ONE. {onDrop && 'DROP OUTSIDE TO THROW IT.'} DOUBLE CLICK EQUIPS. ESC CANCELS. LOCKED CELLS AND SLOTS OPEN WITH UPGRADES AT THE TERMINAL.</p>
           </section>
 
           <section className="iv-col" aria-label="Details">
@@ -509,7 +536,7 @@ function Inventory({
                 <p className="iv-detail__t">{detail.title}</p>
                 {selQ && selItem && (
                   <span className="iv-tip__rows iv-card__rows">
-                    {selId && ITEMS[selId].boost && (
+                    {selId && SUBS[selId] ? <Subs id={selId} q={selQ} /> : selId && ITEMS[selId].boost && (
                       <>
                         <span>{ITEMS[selId].boost}</span>
                         <span data-up={rarity(selQ.r).boost > 1 || undefined}>{rarity(selQ.r).boost > 1 ? `+${Math.round((rarity(selQ.r).boost - 1) * 100)}%` : '—'}</span>
@@ -534,6 +561,11 @@ function Inventory({
                     DRINK
                   </button>
                 )}
+                {sel.kind === 'hot' && !gone && onEquipSpecial && PARKING_ITEM_IDS.includes(sel.id as ParkingItemId) && (
+                  <button type="button" className="br-opt br-inv__switch" onClick={() => onEquipSpecial(sel.id as ParkingItemId)}>
+                    EQUIP
+                  </button>
+                )}
                 {sel.kind === 'tank' && inv.tank && st.back && (
                   <button type="button" className="br-opt br-inv__switch" onClick={() => onTank?.(!inv.tankOn)}>
                     {inv.tankOn ? 'TAKE OFF' : 'PUT ON'}
@@ -546,8 +578,12 @@ function Inventory({
                 )}
               </div>
             </div>
-            <p className="br-inv__head">TAPES {inv.tapes}/8</p>
-            <ul className="br-inv__goals">
+            <p className="br-inv__head">{parkingMission ? 'MISSION' : `TAPES ${inv.tapes}/8`}</p>
+            {parkingMission ? <ul className="br-inv__goals">
+              <li data-done={parkingMission.done || undefined}>
+                <span>{parkingMission.done ? 'FIND THE ELEVATOR' : parkingMission.line}</span>
+              </li>
+            </ul> : <ul className="br-inv__goals">
               {goals.map(([t, n, of]) => (
                 <li key={t} data-done={n >= of || undefined}>
                   <span>{t}</span>
@@ -556,13 +592,13 @@ function Inventory({
                   </span>
                 </li>
               ))}
-            </ul>
+            </ul>}
             <p className="br-inv__head">BIOMETRICS</p>
             <ul className="br-inv__goals">
-              <li data-low={inv.sanity < 0.3 || undefined}>
+              {!parkingMission && <li data-low={inv.sanity < 0.3 || undefined}>
                 <span>SANITY</span>
                 <Bar v={inv.sanity} />
-              </li>
+              </li>}
               <li data-low={inv.stamina < 0.25 || undefined}>
                 <span>STAMINA</span>
                 <Bar v={inv.stamina} />

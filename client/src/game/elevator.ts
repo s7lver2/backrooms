@@ -17,14 +17,14 @@ export class ElevatorCab {
   rideT = -1;
   private closed: number;
   private want: number;
-  private leaves: THREE.Mesh[] = [];
+  readonly doorLeaves: THREE.Mesh[] = [];
   private light: THREE.PointLight;
   private lamp: THREE.MeshStandardMaterial;
   private led: THREE.CanvasTexture;
   private shown = '';
   private owned: { dispose(): void }[] = [];
 
-  constructor(w = 1.46, d = 1.46, h = 2.5, private floor = 0, closed = false) {
+  constructor(w = 1.46, d = 1.46, h = 2.5, private floor = 0, closed = false, openingWidth = 1.1) {
     this.closed = this.want = closed ? 1 : 0;
     const own = <T extends { dispose(): void }>(o: T) => (this.owned.push(o), o), T = 0.04;
     /** Una textura pintada a mano (lienzo). */
@@ -90,7 +90,7 @@ export class ElevatorCab {
     for (const s of [-1, 1]) box(T, h, d, wall, s * (w / 2 - T / 2), h / 2, -d / 2);
     box(w, T, d, trim, 0, h - T / 2, -d / 2);
     // el frente: jambas y dintel alrededor del hueco de la puerta, y la pisadera de aluminio ranurado en el umbral
-    const ow = Math.min(w - 0.3, 1.1), oh = Math.min(2.1, h - 0.3), jw = (w - ow) / 2;
+    const ow = Math.min(w - 0.3, openingWidth), oh = Math.min(2.1, h - 0.3), jw = (w - ow) / 2;
     for (const s of [-1, 1]) box(jw, h, T, steel, s * (ow / 2 + jw / 2), h / 2, -T / 2);
     box(ow, h - oh, T, steel, 0, oh + (h - oh) / 2, -T / 2);
     const sill = mat(
@@ -197,7 +197,7 @@ export class ElevatorCab {
     for (const s of [-1, 1]) {
       const g = own(new THREE.BoxGeometry(ow / 2, oh, 0.03).translate((-s * ow) / 4, oh / 2, 0)), l = new THREE.Mesh(g, door);
       l.position.set((s * ow) / 2, 0, -T / 2 - 0.02);
-      this.leaves.push(l);
+      this.doorLeaves.push(l);
       this.group.add(l);
     }
     this.paint();
@@ -216,6 +216,15 @@ export class ElevatorCab {
   get isOpen() {
     return this.closed < 0.5;
   }
+  get isFullyOpen() {
+    return this.closed === 0;
+  }
+
+  resetClosed() {
+    this.closed = this.want = 1;
+    this.rideT = -1;
+    this.update(0);
+  }
 
   /** El indicador: la planta, y la flecha en marcha. */
   private paint() {
@@ -233,7 +242,7 @@ export class ElevatorCab {
   update(dt: number) {
     this.closed = THREE.MathUtils.clamp(this.closed + Math.sign(this.want - this.closed) * (dt / 1.1), 0, 1);
     const k = this.closed * this.closed * (3 - 2 * this.closed);
-    for (const l of this.leaves) l.scale.x = 0.04 + 0.96 * k;
+    for (const leaf of this.doorLeaves) leaf.scale.x = 0.04 + 0.96 * k;
     this.shake = 0;
     let glow = 1;
     if (this.rideT >= 0 && this.closed >= 1) {

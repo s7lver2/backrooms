@@ -186,14 +186,14 @@ function Osd({ hud }: { hud: Hud }) {
 /** La misión de la ronda, siempre en pantalla (sin mirar por la cámara): el objetivo, su progreso en bloques («PHOTOS 1/3», «TVS 2/4») y, si se gasta, la linterna y el aguante. */
 /** El inventario del servidor como lo espera el menú de la mochila (en la sala de espera no hay jugador: manos y cinturón quedan vacíos). */
 function waitInv(s: SrvInv, hot: (string | null)[] = ['caution', null, null, null], left: 'none' | 'flashlight' = s.spares ? 'flashlight' : 'none'): Inv {
-  return { hand: 'none', left, belt: 'none', stamina: 1, sanity: 1, escaped: false, camera: s.camera, gun: s.gun, ammo: Math.min(s.ammo, RIFLE_MAG), spare: Math.max(0, s.ammo - RIFLE_MAG), tapes: 0, photos: 0, thumbs: [], full: [], flashOn: false, battery: 1, charge: 1, spares: s.spares, uno: s.uno, monster: s.monster, water: s.water, totem: s.totem, radar: s.radar, caution: s.caution, tank: s.tank, tankOn: true, watergun: s.watergun, tape: 1, hot, hotSel: 0, gadget: 'none' };
+  return { hand: 'none', left, belt: 'none', stamina: 1, sanity: 1, escaped: false, camera: s.camera, gun: s.gun, ammo: Math.min(s.ammo, RIFLE_MAG), spare: Math.max(0, s.ammo - RIFLE_MAG), tapes: 0, photos: 0, thumbs: [], full: [], flashOn: false, battery: 1, charge: 1, spares: s.spares, uno: s.uno, monster: s.monster, pokeball: s.pokeball, nokia: s.nokia, bat: s.bat, grenade: s.grenade, glasses: s.glasses, pills: s.pills, steelcard: s.steelcard, beer: s.beer, water: s.water, totem: s.totem, radar: s.radar, caution: s.caution, tank: s.tank, tankOn: true, watergun: s.watergun, tape: 1, hot, hotSel: 0, gadget: 'none' };
 }
 
 /** La misión de la ronda, siempre en pantalla (sin mirar por la cámara): el objetivo, su progreso en bloques («PHOTOS 1/3», «TVS 2/4») y, si se gasta, la linterna y el aguante. */
 function Mission({ hud, room }: { hud: Hud; room: RoomView | null }) {
   const i = hud.inv, m = hud.mission, up = hud.ascent;
   const aboard = (room?.ascent?.boarded ?? []).map((id) => room?.players.find((p) => p.id === id)?.name || 'ANON');
-  const goal = !m ? '' : m.done ? (room?.levelId === 'suites' ? 'MISSION DONE · ASK A FACELING FOR ANOTHER, OR LEAVE' : 'ELEVATOR OPEN') : m.kind === 'photos' && !i.camera ? 'FIND A CAMCORDER' : m.text;
+  const goal = !m ? '' : m.done ? (room?.levelId === 'suites' ? 'MISSION DONE · ASK A FACELING FOR ANOTHER, OR LEAVE' : (hud.parking && i.escaped ? 'ABOARD ELEVATOR' : hud.parking && !hud.parking.open ? 'ELEVATOR UNLOCKED' : 'ELEVATOR OPEN')) : m.kind === 'photos' && !i.camera ? 'FIND A CAMCORDER' : m.text;
   const blocks = (n: number, of: number) => (
     <>
       {'▮'.repeat(n)}
@@ -202,6 +202,7 @@ function Mission({ hud, room }: { hud: Hud; room: RoomView | null }) {
   );
   return (
     <div className="br-mission" aria-live="polite">
+      {hud.parking && <p>{hud.parking.floor} · HEALTH {Math.round(hud.hp)}</p>}
       {room?.levelId === 'suites' && room.floor && <p className="br-osd__dim">FLOOR {room.floor} / 5{room.quota ? ` · JOBS ${Math.min(room.jobs ?? 0, room.quota)}/${room.quota}` : ''}</p>}
       {m && (
         <p className={m.done ? 'br-lift__t' : undefined} data-urgent={(m.exit && !!up && !up.boarded) || undefined}>
@@ -211,10 +212,11 @@ function Mission({ hud, room }: { hud: Hud; room: RoomView | null }) {
       {m && !m.done && <p className="br-osd__dim">{missionHint(m.kind)}</p>}
       {m?.exit && (
         <div className="br-lift">
-          <p>{up ? `${up.boarded ? 'YOU ARE ABOARD. WAITING FOR THE OTHERS. ' : 'CLOSES IN '}${Math.ceil(up.left)}S` : 'GET EVERYONE IN BEFORE IT CLOSES'}</p>
+          <p>{hud.parking ? (i.escaped ? 'ASCENDING' : hud.parking.open ? 'STEP INSIDE TO ESCAPE' : 'FIND THE ELEVATOR TO ESCAPE') : up ? `${up.boarded ? 'YOU ARE ABOARD. WAITING FOR THE OTHERS. ' : 'CLOSES IN '}${Math.ceil(up.left)}S` : 'GET EVERYONE IN BEFORE IT CLOSES'}</p>
           {aboard.length > 0 && <p className="br-osd__dim">ABOARD {aboard.join(', ')}</p>}
         </div>
       )}
+      {!!hud.parking?.pendingFloors && <p>GENERATORS LEFT ON FLOORS {hud.parking.pendingFloors}</p>}
       {m && !m.done && (
         <p aria-label={m.line}>
           {m.line} {m.kind === 'survive' || m.kind === 'eeh' ? blocks(Math.round((m.progress / m.goal) * 10), 10) : blocks(m.progress, m.goal)}
@@ -546,7 +548,7 @@ export default function Backrooms({ onQuit, onWin }: { onQuit: () => void; onWin
 
   // PLAY lleva a las salas; en desarrollo, con &seed=N sigue yendo directo a una partida en solitario
   const playClick = useCallback(() => {
-    if (DEV_LOCAL && new URLSearchParams(location.search).get('seed')) return (enter(), start());
+    if (DEV_LOCAL && !new URLSearchParams(location.search).has('parking') && new URLSearchParams(location.search).get('seed')) return (enter(), start());
     setNotice('');
     setMp(true);
     setScreen('lobby');
@@ -627,6 +629,12 @@ export default function Backrooms({ onQuit, onWin }: { onQuit: () => void; onWin
     const room = roomRef.current, sock = net.sock;
     if (!room || !sock) return;
     enter();
+    game.current!.onLevelError = () => {
+      sock.emit('leave');
+      net.setRoom(null);
+      setNotice('COULD NOT LOAD THE LEVEL');
+      setScreen('lobby');
+    };
     game.current!.myLook = acct.me ? cleanLook(acct.me.loadout) : guestLook();
     game.current!.start(room.seed, { sock, id: sock.id!, life: DIFFICULTY[room.difficulty].life, players: room.players.length, index: Math.max(0, room.players.findIndex((p) => p.id === sock.id)), inv: invRef.current ?? undefined, mission: room.mission, level: room.levelId, floor: room.floor, caps: room.caps });
     setNotice('');
@@ -814,7 +822,7 @@ export default function Backrooms({ onQuit, onWin }: { onQuit: () => void; onWin
     <div ref={root} className="br" data-screen={screen}>
       {(screen === 'menu' || screen === 'settings' || screen === 'achv' || (screen === 'lobby' && !net.room)) && <Static still={reduced.current} scenes={game.current?.stills ?? []} />}
       <div ref={gl} className="br-stage" />
-      {lvl != null && screen !== 'load' && <BootLoading over title="POOLROOMS" label="BUILDING THE LEVEL" progress={lvl} />}
+      {lvl != null && screen !== 'load' && <BootLoading over title={net.room?.levelId === 'parking' ? 'THE HABITABLE ZONE' : 'POOLROOMS'} label="BUILDING THE LEVEL" progress={lvl} />}
       {screen === 'load' && <BootLoading title="BACKROOMS" label={LOAD_PHASES[loadP.phase].label} progress={loadP.f} error={failed ? 'FAILED TO LOAD' : undefined} />}
       {screen === 'menu' && (
         <nav className="br-menu" aria-label="Backrooms">
@@ -833,6 +841,7 @@ export default function Backrooms({ onQuit, onWin }: { onQuit: () => void; onWin
                 PLAY
               </button>
             </li>
+
             <li>
               <button type="button" className="br-opt" onClick={() => setScreen('achv')}>
                 ACHIEVEMENTS
@@ -1004,7 +1013,7 @@ export default function Backrooms({ onQuit, onWin }: { onQuit: () => void; onWin
           <p className="br-spectate__keys">← → SWITCH · V VIEW · C FREE CAM{hud.specView === 'free' ? ' · WASD FLY · SHIFT FAST' : ''}</p>
         </div>
       )}
-      {acct.me?.admin && (screen === 'play' || screen === 'wait') && <AdminConsole game={game} sock={net.sock} room={net.room} me={net.me} />}
+      {acct.me?.admin && (screen === 'play' || screen === 'wait') && !(hud?.parking && hud.inv.escaped) && <AdminConsole game={game} sock={net.sock} room={net.room} me={net.me} />}
       {(screen === 'play' || screen === 'wait') && mp && net.sock && (
         <div className="br-chatbox">
           <ChatLog msgs={msgs} fade={!chat} max={6} />
@@ -1039,7 +1048,7 @@ export default function Backrooms({ onQuit, onWin }: { onQuit: () => void; onWin
         <TotemUi hud={hud} touch={touch} avatars={Object.fromEntries((net.room?.players ?? []).map((p) => [p.id, p.avatar]))} onPick={(id) => game.current?.useTotem(id)} onClose={() => game.current?.closeTotem()} />
       )}
       {screen === 'play' && hud?.note && !hud.bag && <p className="br-click">{hud.note}</p>}
-      {screen === 'play' && hud?.needClick && !hud.bag && <p className="br-click">CLICK TO CONTINUE</p>}
+      {screen === 'play' && hud?.needClick && !hud.bag && !(hud.parking && hud.inv.escaped) && <p className="br-click">CLICK TO CONTINUE</p>}
       {screen === 'play' && hud?.hint && !hud.bag && !hud.aiming && hud.spectating == null && (
         <p className="br-hint">
           [{touch ? 'GRAB' : 'G'}] PICK UP {hud.hint.toUpperCase()}
@@ -1050,16 +1059,20 @@ export default function Backrooms({ onQuit, onWin }: { onQuit: () => void; onWin
           [{touch ? 'GRAB' : 'G'}] {hud.act}
         </p>
       )}
+      {screen === 'play' && hud?.parking?.prompt && !hud.bag && <p className="br-hint">{touch ? hud.parking.prompt.replace(/\bE\b/g, 'USE') : hud.parking.prompt}</p>}
+      {screen === 'play' && hud?.parking && !hud.parking.prompt && !touch && !hud.bag && !hud.aiming && !hud.inv.escaped && hud.hp > 0 && (
+        <p className="br-hint">[TAB / E] INVENTORY</p>
+      )}
       {screen === 'play' && hud?.hide && !hud.bag && !hud.aiming && hud.spectating == null && (
         <p className="br-hint">
           [{touch ? 'BAG' : 'E'}] {hud.hide === 'hide' ? 'HIDE' : 'LEAVE'}
         </p>
       )}
-      {screen === 'play' && hud && hud.drink > 0 && !hud.bag && hud.spectating == null && (
-        <div className="br-drink" role="status" aria-label={`Drinking ${Math.round(hud.drink * 100)}%`}>
-          <p>{hud.drinkName}</p>
+      {screen === 'play' && hud && (hud.parking?.repair != null || hud.drink > 0) && !hud.bag && hud.spectating == null && (
+        <div className="br-drink" role="progressbar" aria-label={hud.parking?.repair != null ? 'Activating generator' : hud.drinkName} aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round((hud.parking?.repair ?? hud.drink) * 100)}>
+          <p>{hud.parking?.repair != null ? 'ACTIVATING GENERATOR' : hud.drinkName}</p>
           <div className="br-breath__bar">
-            <i style={{ width: `${Math.round(hud.drink * 100)}%` }} />
+            <i style={{ width: `${Math.round((hud.parking?.repair ?? hud.drink) * 100)}%` }} />
           </div>
         </div>
       )}
@@ -1080,7 +1093,7 @@ export default function Backrooms({ onQuit, onWin }: { onQuit: () => void; onWin
         </div>
       )}
       {screen === 'play' && hud?.shop && net.room && game.current?.assets && (
-        <ShopGrid seed={net.room.seed} floor={net.room.floor} open={levelsOpen(net.room.players.map((p) => p.ups))} bank={net.room.bank} inv={game.current.player?.inventory ?? null} sock={net.sock} assets={game.current.assets} onBought={(id) => game.current?.buyHere(id)} />
+        <ShopGrid seed={net.room.seed} floor={net.room.floor} open={net.room.openLevels ? new Set(net.room.openLevels) : levelsOpen(net.room.players.map((p) => p.ups))} bank={net.room.bank} inv={game.current.player?.inventory ?? null} sock={net.sock} assets={game.current.assets} onBought={(id) => game.current?.buyHere(id)} />
       )}
       {screen === 'play' && hud && game.current?.assets && (
         <Inventory
@@ -1088,6 +1101,7 @@ export default function Backrooms({ onQuit, onWin }: { onQuit: () => void; onWin
           inv={hud.inv}
           assets={game.current.assets!}
           look={net.room?.players.find((p) => p.id === net.me)?.look}
+          parkingMission={hud.parking ? hud.mission ?? undefined : undefined}
           reduced={reduced.current}
           onPlace={(s, g) => game.current!.player?.place(s, g)}
           onLight={() => game.current!.player?.toggleLight()}
@@ -1097,12 +1111,26 @@ export default function Backrooms({ onQuit, onWin }: { onQuit: () => void; onWin
             const p = game.current!.player;
             if (p && HOT[id]?.have(p.own)) HOT[id].use(p);
           }}
-          onDrop={(id, i) => (id === 'loot' ? game.current!.dropLoot(i ?? 0) : game.current!.dropItem(id as ItemId))}
+          onDrop={hud.parking ? undefined : (id, i) => (id === 'loot' ? game.current!.dropLoot(i ?? 0) : game.current!.dropItem(id as ItemId))}
+          onEquipSpecial={(id) => {
+            game.current?.player?.equipParkingItem(id);
+            game.current?.closeBag();
+          }}
           onTank={(on) => game.current!.setTank(on)}
           onClose={() => game.current!.closeBag()}
         />
       )}
-      {screen === 'play' && touch && game.current && !hud?.bag && <Touch input={game.current.input} hand={hand} aiming={!!hud?.aiming} />}
+      {screen === 'play' && hud?.steelRoll && (
+        <div className="br-steel-reel" key={hud.steelRoll.serial} aria-label={`Steel Card result: ${hud.steelRoll.winner}`}>
+          <div className="br-steel-reel__track" style={{ '--roll-shift': `-${(hud.steelRoll.labels.length - 1) * 14}rem`, animationDuration: reduced.current ? '1ms' : '2.8s' } as React.CSSProperties}>
+            {hud.steelRoll.labels.map((label, i) => <span key={i}>{label}</span>)}
+          </div>
+        </div>
+      )}
+      {screen === 'play' && hud?.parkingItemHeld && !touch && !hud.bag && (
+        <p className="br-item-use">{hud.parkingItemHeld === 'beer' ? 'CLICK TO THROW' : 'CLICK TO USE'}</p>
+      )}
+      {screen === 'play' && touch && game.current && !hud?.bag && <Touch input={game.current.input} hand={hand} aiming={!!hud?.aiming} parking={game.current.inParking} itemHeld={!!hud?.parkingItemHeld} />}
       {screen === 'pause' && (
         <div className="br-pause" role="dialog" aria-labelledby="br-pause-t">
           <p className="br-pause__head" id="br-pause-t">

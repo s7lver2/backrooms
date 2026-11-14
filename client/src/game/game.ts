@@ -2,7 +2,7 @@ import { DEV_LOCAL } from '../devGate';
 import { claimPickup } from '../pickup-claim';
 import * as THREE from 'three';
 import { glow, lootModel, pulse } from './rarityFx';
-import { loadItemModels } from './itemModels';
+import { itemModel, loadItemModels } from './itemModels';
 import { perks } from './perks';
 import { GLTFLoader, type GLTF } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { MeshoptDecoder } from 'three/examples/jsm/libs/meshopt_decoder.module.js';
@@ -27,12 +27,14 @@ import { Entity, type Kind } from './entity';
 import { Shatter } from './shatter';
 import { unlock } from '../achievements';
 import { Remote } from './remote';
+import { voice } from '../voice';
 import { Minimap } from './minimap';
 import { Gadgets, ROLL } from './gadgets';
 import { loadAnimations } from './anim/animator';
 import { RunLevel, type RunHud } from './runlevel';
 import { PoolTest } from './pool';
 import { PoolLevel, loadPoolKit, type PoolKit } from './poolmap';
+import type { ParkingRound } from './parking-round';
 import { WaitingRoom } from './waiting';
 import { Tvs } from './mission';
 import { holdStill } from './still';
@@ -45,7 +47,9 @@ import { prepAvatar } from './InvAvatar';
 import { WAIT_HALF, type Sold } from '@backrooms/shared';
 import { type LockerItem, RIFLE_MAG, canHold, ITEM_IDS, START_INV, type AdminFx, makeMission, missionLine, tvCount, type ActiveMission, type Inventory, type ItemId, type MissionKind, type Maze, type LevelCaps, levelCaps, NOISE_RUN, NOISE_SHOT, NOISE_PHOTO, type Noise } from '@backrooms/shared';
 import { Explosion } from './explosion';
-import { Breath, DEFAULT_LOOK, EEH_HOLD, HIT_DAMAGE, HP_MAX, MONSTER, SUITE_FLOORS, REVIVE_IMMUNE, boostOf, totemSpot, type Look, hideStates, tickHides, startOffset, type HideState, type PlayerState, type RoomView, type WorldSnapshot } from '@backrooms/shared';
+import { Breath, DEFAULT_LOOK, EEH_HOLD, HIT_DAMAGE, HP_MAX, MONSTER, SUITE_FLOORS, REVIVE_IMMUNE, boostOf, totemSpot, type Look, hideStates, tickHides, startOffset, type HideState, type PlayerState, type RoomView, type ToolFx, type WorldSnapshot, FLIGHT_DT, flight } from '@backrooms/shared';
+import { parkingOptionsForMission, PARKING_HEIGHT } from '@backrooms/shared';
+import { ITEMS, PARKING_ITEM_IDS, type ParkingItemId } from '@backrooms/shared';
 
 /** Lo que el juego necesita de una sala: el socket y quién soy. */
 export interface Mp {
@@ -95,6 +99,14 @@ export interface Inv {
   /** Carta Uno Reverse y latas de Monster; `rainbow`: bebiendo una o con su efecto (la barra de aguante es un arcoíris). */
   uno?: boolean;
   monster?: number;
+  glasses?: boolean;
+  pills?: number;
+  steelcard?: boolean;
+  beer?: number;
+  pokeball?: boolean;
+  nokia?: boolean;
+  bat?: boolean;
+  grenade?: number;
   rainbow?: boolean;
   radar: boolean;
   /** Tiene cinta de acordonar. */
@@ -130,6 +142,8 @@ export interface MissionHud {
 
 /** Lo que el OSD enseña, leído desde React diez veces por segundo. */
 export interface Hud {
+  parkingItemHeld?: ParkingItemId;
+  steelRoll?: { labels: string[]; winner: string; serial: number };
   /** Efectos activos del personaje (cuadraditos del HUD): positivos y negativos, con una fracción de lo que queda si dura un tiempo. */
   /** Selector de planta de la escalera de servicio (Las Suites): la de ahora y cuántas hay. */
 
@@ -171,6 +185,7 @@ export interface Hud {
   needClick: boolean;
   /** La misión de la ronda y su progreso (la línea del HUD: «PHOTOS 1/3», «TVS 2/4», «SURVIVE 3:20»). `done`: el ascensor está abierto. */
   mission: MissionHud | null;
+  parking?: { floor: string; pendingFloors: string; prompt: string; repair: number | null; open: boolean };
   /** El diálogo de un Faceling: cuántas opciones (a ciegas) ofrece; 0 = cerrado. */
   talk: number;
   /** El panel del ascensor de Las Suites está abierto. */
@@ -182,7 +197,7 @@ export interface Hud {
   /** Lo que haría G ahora si no es recoger algo («TURN OFF TV»). */
   act: string | null;
   /** El Tótem de la vida: el selector (compañeros caídos a los que se puede revivir; null cerrado), el nivel «Run for your life» si lo estoy corriendo, los avisos y los segundos de inmunidad que quedan. */
-  totem: { pick: { id: string; name: string }[] | null; run: RunHud | null; notes: string[]; immune: number };
+  totem: { pick: { id: string; name: string }[] | null; phone?: boolean; run: RunHud | null; notes: string[]; immune: number };
 }
 
 const _spec = new THREE.Vector3(), _want = new THREE.Vector3(), _none = new THREE.Vector2();
@@ -273,6 +288,70 @@ export async function loadAssets(progress: (f: number) => void): Promise<Assets>
  * partida comparten programas: no se vuelve a compilar al darle a Play); `start` monta una partida.
  */
 export class BackroomsGame {
+  private steelRoll?: NonNullable<Hud['steelRoll']> & { until: number };
+  private rollSerial = 0;
+  private readonly xray = new THREE.Group();
+  private readonly xrayMaterial = new THREE.LineBasicMaterial({ color: 0xff2525, transparent: true, depthTest: false, depthWrite: false, toneMapped: false });
+  private readonly xrayEdges = new Map<THREE.BufferGeometry, THREE.EdgesGeometry>();
+  private readonly throws = new Set<{ mesh: THREE.Object3D; path: THREE.Vector3[]; start: number; duration: number }>();
+  private xrayNext = 0;
+
+  private clearXray() {
+    this.xray.clear();
+    for (const edges of this.xrayEdges.values()) edges.dispose();
+    this.xrayEdges.clear();
+  }
+
+  private itemEffects() {
+    const now = performance.now(), player = this.player;
+    for (const shot of this.throws) {
+      const progress = (now - shot.start) / shot.duration;
+      if (progress >= 1) {
+        shot.mesh.removeFromParent();
+        this.throws.delete(shot);
+        const distance = this.camera.position.distanceTo(shot.path[shot.path.length - 1]);
+        if (distance < 36) this.audio?.bottleBreak(1 / (1 + (distance / 8) ** 2));
+      } else {
+        const index = progress * (shot.path.length - 1), first = Math.floor(index);
+        shot.mesh.position.copy(shot.path[first]).lerp(shot.path[Math.min(first + 1, shot.path.length - 1)], index - first);
+        shot.mesh.rotation.x = progress * 16;
+      }
+    }
+    if (!player || player.dead || this.winning || now >= player.glassesUntil) {
+      if (this.xray.children.length) this.clearXray();
+      return;
+    }
+    if (now < this.xrayNext) return;
+    this.xrayNext = now + 200;
+    this.xray.clear();
+    const parking = this.parking;
+    const pool = this.pool instanceof PoolLevel ? this.pool : undefined;
+    const targets = parking ? parking.level.xrayTargets(parking.position.floor) : pool ? pool.pickups.xrayTargets() : this.items?.xrayTargets() ?? [];
+    if (this.mission?.exit && !parking) {
+      if (pool) targets.push(pool.exitModel);
+      else if (this.world) targets.push(this.world.elevator);
+    }
+    const scene = parking?.level.scene ?? pool?.scene ?? this.scene;
+    scene.add(this.xray);
+    const box = new THREE.Box3(), distance = new THREE.Vector3();
+    for (const target of targets) {
+      if (box.setFromObject(target).clampPoint(player.pos, distance).distanceToSquared(player.pos) > 25 ** 2) continue;
+      target.traverse(object => {
+        const mesh = object as THREE.Mesh;
+        if (!mesh.isMesh || !mesh.geometry) return;
+        let edges = this.xrayEdges.get(mesh.geometry);
+        if (!edges) {
+          edges = new THREE.EdgesGeometry(mesh.geometry, 28);
+          this.xrayEdges.set(mesh.geometry, edges);
+        }
+        const outline = new THREE.LineSegments(edges, this.xrayMaterial);
+        outline.matrix.copy(mesh.matrixWorld);
+        outline.matrixAutoUpdate = false;
+        outline.renderOrder = 50;
+        this.xray.add(outline);
+      });
+    }
+  }
   readonly renderer: THREE.WebGLRenderer;
   readonly scene = new THREE.Scene();
   readonly camera = new THREE.PerspectiveCamera(70, 1, 0.05, 60);
@@ -455,7 +534,14 @@ export class BackroomsGame {
   onDeath?: () => void;
   // el Tótem de la vida: el selector abierto, quién corre «Run for your life» (id → nombre), un aviso suelto y la inmunidad al volver
   private run?: RunLevel;
+  /** El Player del nivel de antes, mientras dura «Run for your life» (el de la carrera es otro). */
+  private runSaved?: Player;
   private pool?: PoolTest | PoolLevel;
+  private parking?: ParkingRound;
+  private parkingBoardRequest = 0;
+  private parkingToken = 0;
+  private disposed = false;
+  get inParking() { return !!this.parking; }
   private fx?: { ao: GTAOPass; smaa: SMAAPass };
   private bloom?: UnrealBloomPass;
   private nextDraw = 0;
@@ -507,6 +593,12 @@ export class BackroomsGame {
     this.fx.ao.camera = p.camera;
   }
   private totemOpen = false;
+  /** El selector abierto es el del Nokia (llamar a un compañero), no el del Tótem. */
+  private phone = false;
+  /** Con quién hablo por el Nokia ahora (ids). */
+  private callPeers = new Set<string>();
+  /** Efectos sueltos (proyectiles, humo): cada uno recibe `dt` y devuelve false al acabar. */
+  private fxList: ((dt: number) => boolean)[] = [];
   private runners = new Map<string, string>();
   private note = { text: '', until: 0 };
   private immuneUntil = 0;
@@ -614,6 +706,9 @@ export class BackroomsGame {
     resize();
     addEventListener('resize', resize);
     this.offs.push(() => removeEventListener('resize', resize));
+    const resumeParkingAudio = () => this.parking?.audio?.resume();
+    canvas.addEventListener('pointerdown', resumeParkingAudio);
+    this.offs.push(() => canvas.removeEventListener('pointerdown', resumeParkingAudio));
   }
 
   /** Quitar o devolver el sonido (vale también antes de empezar: se aplica al crear el audio). */
@@ -625,6 +720,7 @@ export class BackroomsGame {
   setMuted(m: boolean) {
     this.muted = m;
     this.audio?.setMuted(m);
+    this.parking?.audio?.setLocalMute(m);
   }
 
   /**
@@ -760,6 +856,14 @@ export class BackroomsGame {
   }
 
   start(seed: number, mp?: Mp) {
+    if (mp?.level === 'parking') {
+      void this.startParking(seed, mp).catch(error => {
+        console.error('Habitable Zone failed to load', error);
+        this.onLevelError?.();
+      });
+      return;
+    }
+    this.endParking();
     this.seed0 = seed;
     this.fadeIn = this.waiting ? 0.9 : 0; // de la sala de espera a la partida: el negro de la entrada se abre
     this.leaveWaiting();
@@ -874,11 +978,16 @@ export class BackroomsGame {
 
   private frame() {
     if (this.capped()) return;
-    const dt = Math.min(this.clock.getDelta(), 0.05) * (this.mp ? 1 : this.cheats.slow); // (cámara lenta: solo en solitario)
+    const realDt = this.clock.getDelta();
+    const dt = Math.min(realDt, 0.05) * (this.mp ? 1 : this.cheats.slow); // (cámara lenta: solo en solitario)
     this.lastFrame = performance.now();
     // en una sala la pausa no detiene el mundo (los demás siguen jugando): solo se sueltan los mandos
     if (this.paused && (!this.mp || this.run)) return;
     const c = this.input.read();
+    this.itemEffects();
+    if (this.fxList.length) this.fxList = this.fxList.filter((f) => f(dt));
+    if (this.player?.charging || this.arc) this.arcFrame();
+    if (this.parking) return this.parkingFrame(dt, c);
     if (this.run) return this.runFrame(dt, c);
     this.vhs.uniforms.uPool.value = this.film.uniforms.uVhs.value = this.pool instanceof PoolLevel ? 1 : 0; // (el aspecto de cinta de las Poolrooms: sin amarillo, con barrido y croma)
     this.film.uniforms.uWarm.value = this.caps.hotel && !this.run ? 1 : 0; // (Las Suites: el color cálido del hotel)
@@ -929,13 +1038,13 @@ export class BackroomsGame {
       }
       if (this.world && this.mp && this.caps.hotel && this.player && !this.player.dead && !this.doorAct && !this.tvs?.hint && !this.items?.hint && !this.items?.close()) {
         // Las Suites: la tienda de recepción; con la misión del encargo en marcha, el mostrador recoge los artefactos. Cumplida una misión, cualquier Faceling (mostrador o paseando) da otra
-        const { x, z } = this.player.pos, counter = this.world.nearCounter(x, z, this.player.yaw), talk = !!this.mission?.done, walker = talk && !counter && this.staffNear(x, z, this.player.yaw);
+        const { x, z } = this.player.pos, counter = this.world.nearCounter(x, z, this.player.yaw), talk = !!this.mission?.done, hand = this.mission?.kind === 'order' && !talk, walker = (talk || hand) && !counter && this.staffNear(x, z, this.player.yaw);
         if (counter || walker) {
-          const order = counter && this.mission?.kind === 'order' && !talk;
+          const order = hand; // (el encargo se entrega a cualquier Faceling: el vestíbulo se cierra y no se puede volver)
           this.doorAct = order ? 'HAND OVER AN ARTIFACT' : talk ? 'ASK THE FACELING FOR ANOTHER MISSION' : 'TALK TO THE FACELING';
           if (cc.grab) {
             const say = (text: string) => (this.note = { text, until: performance.now() + 2000 });
-            if (order) this.mp.sock.emit('deliver', (ok) => (ok ? (this.audio?.cue('equip'), say('ORDER RECEIVED')) : this.openShop()));
+            if (order) this.mp.sock.emit('deliver', (ok) => (ok ? (this.audio?.cue('equip'), say('ORDER RECEIVED')) : counter ? this.openShop() : say('YOU HAVE NO ARTIFACT TO HAND OVER')));
             else if (talk) this.mp.sock.emit('nextMission', -1, (n) => (n > 1 ? this.openTalk(n) : n === 1 ? this.pickMission(0) : counter ? this.openShop() : say('NO MORE MISSIONS')));
             else this.openShop();
             cc = { ...cc, grab: false };
@@ -1034,7 +1143,7 @@ export class BackroomsGame {
   get hud(): Hud {
     const p = this.player;
     const battery = Math.max(0.15, 1 - this.t / 900);
-    const inv: Inv = { left: p?.left ?? 'none', belt: p?.belt ?? 'none', stamina: p?.stamina ?? 1, sanity: p?.sanity ?? 1, escaped: this.winning, hand: p?.hand ?? 'none', camera: !!p?.has.camera, gun: !!p?.has.gun, ammo: p?.ammo ?? 0, spare: p?.spare ?? 0, tapes: this.items?.tapes ?? 0, photos: this.items?.photos ?? 0, thumbs: this.items?.thumbs ?? this.pics.thumbs, full: this.items?.full ?? this.pics.full, flashOn: !!p?.flashOn, battery, charge: p?.charge ?? 1, spares: p?.spares ?? 0, uno: !!p?.uno, monster: p?.monster ?? 0, rainbow: !!p?.rainbow, water: p?.water ?? 0, hot: p?.hot ?? [], hotSel: p?.hotSel ?? 0, gadget: p?.gadget ?? 'none', totem: p?.totem ?? 0, radar: !!p?.radar, caution: !!p?.caution, tape: (this.gadgets?.left ?? ROLL) / ROLL };
+    const inv: Inv = { left: p?.left ?? 'none', belt: p?.belt ?? 'none', stamina: p?.stamina ?? 1, sanity: p?.sanity ?? 1, escaped: this.winning, hand: p?.hand ?? 'none', camera: !!p?.has.camera, gun: !!p?.has.gun, ammo: p?.ammo ?? 0, spare: p?.spare ?? 0, tapes: this.items?.tapes ?? 0, photos: this.items?.photos ?? 0, thumbs: this.items?.thumbs ?? this.pics.thumbs, full: this.items?.full ?? this.pics.full, flashOn: !!p?.flashOn, battery, charge: p?.charge ?? 1, spares: p?.spares ?? 0, uno: !!p?.uno, monster: p?.monster ?? 0, pokeball: !!p?.pokeball, nokia: !!p?.nokia, bat: !!p?.bat, grenade: p?.grenade ?? 0, glasses: p?.glasses, pills: p?.pills, steelcard: p?.steelcard, beer: p?.beer, rainbow: !!p?.rainbow, water: p?.water ?? 0, hot: p?.hot ?? [], hotSel: p?.hotSel ?? 0, gadget: p?.gadget ?? 'none', totem: p?.totem ?? 0, radar: !!p?.radar, caution: !!p?.caution, tape: (this.gadgets?.left ?? ROLL) / ROLL };
     // la pistola de agua y el tanque se conservan en el nivel 0 (aunque no sirvan allí): siguen en la mochila y en la ranura de equipo
     const gear = p?.inventory;
     if (gear) Object.assign(inv, { tank: gear.tank, tankOn: p!.tankOn, watergun: gear.watergun, squirt: p!.squirt });
@@ -1042,7 +1151,10 @@ export class BackroomsGame {
     if (pl && this.mp?.inv?.tank) inv.tank = true;
     const hidden = !!p && p.hideState !== 'out';
     const ms = this.mission, up = this.ascent;
-    return { effects: this.effects(), talk: this.talkN, lift: this.liftOpen, mission: ms ? { kind: ms.kind, text: ms.text, line: missionLine(ms), progress: ms.progress, goal: ms.goal, done: ms.done, exit: ms.exit } : null, ascent: up ? { boarded: !!this.mp && up.boarded.includes(this.mp.id), left: Math.max(0, up.left - (performance.now() - up.at) / 1000) } : null, act: hidden || this.run ? null : this.tvs?.hint ?? this.doorAct ?? (pl ? p?.refillAct : null) ?? null, totem: this.totemHud(), needClick: this.input.needClick, bag: this.bagOpen && !this.shopOpen, shop: this.bagOpen && this.shopOpen, note: this.gadgets?.note ?? null, hint: hidden || this.run || this.tvs?.hint ? null : this.gadgets?.hint ?? this.items?.hint ?? pl?.pickups.hint ?? null, hide: this.dying >= 0 || this.winning || this.spectating ? null : hidden ? (p!.hideState === 'hidden' ? 'leave' : null) : this.hideNear() ? 'hide' : null, breath: p?.concealed ? { air: this.breath.air, warn: this.inspected, held: this.holding } : null, drink: p?.dead ? 0 : p?.drinking || p?.drinkingMonster || p?.drinkingUno || 0, drinkName: p?.prop === 'monster' ? 'MONSTER' : p?.prop === 'uno' ? 'UNO REVERSE' : 'ALMOND WATER', refill: p?.fill ?? 0, inv, aiming: !!p?.aiming, scoped: !!p?.scoped && !this.spectating, zoom: p?.zoom ?? 1, focus: !!this.items?.focus, tapes: this.items?.tapes ?? 0, photos: this.items?.photos ?? 0, ammo: p?.has.gun ? p.ammo : null, spare: p?.spare ?? 0, battery, time: this.t, hp: p?.hp ?? HP_MAX, hps: this.hps, spectating: this.spectating && !this.run ? (this.remotes.get(this.watching)?.name ?? '') : null, watchList: this.spectating && !this.run ? [...this.remotes.values()].map((r) => ({ name: r.name, on: r.id === this.watching && this.specView !== 'free', dead: r.dead })) : undefined, specView: this.spectating && !this.run ? this.specView : undefined };
+    const pr = this.parking;
+    if (pr) inv.tapes = pr.level.tapesCollected;
+    const parking = pr ? { floor: pr.floorLabel, pendingFloors: pr.pendingFloors, prompt: pr.prompt, repair: pr.level.repair.active ? pr.level.repair.progress : null, open: pr.level.elevatorOpen } : undefined;
+    return { parking, parkingItemHeld: p && PARKING_ITEM_IDS.includes(p.prop as ParkingItemId) ? p.prop as ParkingItemId : undefined, steelRoll: this.steelRoll && this.steelRoll.until > performance.now() ? this.steelRoll : undefined, effects: this.effects(), talk: this.talkN, lift: this.liftOpen, mission: ms ? { kind: ms.kind, text: ms.text, line: missionLine(ms), progress: ms.progress, goal: ms.goal, done: ms.done, exit: ms.exit } : null, ascent: up ? { boarded: !!this.mp && up.boarded.includes(this.mp.id), left: Math.max(0, up.left - (performance.now() - up.at) / 1000) } : null, act: hidden || this.run ? null : this.tvs?.hint ?? this.doorAct ?? (pl ? p?.refillAct : null) ?? null, totem: this.totemHud(), needClick: this.input.needClick, bag: this.bagOpen && !this.shopOpen, shop: this.bagOpen && this.shopOpen, note: this.gadgets?.note ?? null, hint: hidden || this.run || this.tvs?.hint ? null : this.gadgets?.hint ?? this.items?.hint ?? pl?.pickups.hint ?? null, hide: this.dying >= 0 || this.winning || this.spectating ? null : hidden ? (p!.hideState === 'hidden' ? 'leave' : null) : this.hideNear() ? 'hide' : null, breath: p?.concealed ? { air: this.breath.air, warn: this.inspected, held: this.holding } : null, drink: p?.dead ? 0 : p?.drinking || p?.drinkingMonster || p?.drinkingUno || 0, drinkName: p?.prop === 'monster' ? 'MONSTER' : p?.prop === 'uno' ? 'UNO REVERSE' : 'ALMOND WATER', refill: p?.fill ?? 0, inv, aiming: !!p?.aiming, scoped: !!p?.scoped && !this.spectating, zoom: p?.zoom ?? 1, focus: !!this.items?.focus, tapes: this.items?.tapes ?? 0, photos: this.items?.photos ?? 0, ammo: p?.has.gun ? p.ammo : null, spare: p?.spare ?? 0, battery, time: this.t, hp: p?.hp ?? HP_MAX, hps: this.hps, spectating: this.spectating && !this.run ? (this.remotes.get(this.watching)?.name ?? '') : null, watchList: this.spectating && !this.run ? [...this.remotes.values()].map((r) => ({ name: r.name, on: r.id === this.watching && this.specView !== 'free', dead: r.dead })) : undefined, specView: this.spectating && !this.run ? this.specView : undefined };
   }
 
   /** Los efectos que tiene ahora el personaje, para el HUD (Effects.tsx). */
@@ -1051,6 +1163,8 @@ export class BackroomsGame {
     if (!p || this.run) return out;
     const now = performance.now(), dead = p.dead || this.spectating;
     if (!dead) {
+      if (p.pillSpeed) out.push({ id: 'pills', icon: 'speed', label: 'PILLS', kind: 'good', frac: (p.pillsUntil - performance.now()) / 60_000 });
+      if (p.glassesUntil > performance.now()) out.push({ id: 'glasses', icon: 'speed', label: 'X-RAY', kind: 'good', frac: (p.glassesUntil - performance.now()) / 60_000 });
       if (p.buffT > 0) out.push({ id: 'monster', icon: 'speed', label: 'MONSTER', kind: 'good', frac: p.buffT / (MONSTER.time * boostOf(perks, 'monster')) });
       if (now < this.immuneUntil) out.push({ id: 'immune', icon: 'shield', label: 'IMMUNE', kind: 'good', frac: (this.immuneUntil - now) / REVIVE_IMMUNE });
       if (p.concealed) out.push({ id: 'hide', icon: 'hide', label: 'HIDDEN', kind: 'good' });
@@ -1335,6 +1449,16 @@ export class BackroomsGame {
     const was = !!this.mission?.exit, wasDone = !!this.mission?.done && this.mission.id === r.mission?.id;
     this.mission = r.mission;
     this.ascent = r.ascent ? { left: r.ascent.left, at: performance.now(), boarded: r.ascent.boarded } : null;
+    if (this.parking && r.mission?.kind === 'survive') {
+      const level = this.parking.level;
+      level.advanceSurvival(Math.max(0, r.mission.progress - (r.mission.goal - level.survivalRemaining)));
+    }
+    if (this.parking && this.mp && r.ascent?.boarded.includes(this.mp.id) && !this.winning) {
+      this.winning = true;
+      this.player!.frozen = this.player!.lookFree = true;
+      this.bagOpen = false;
+      this.parking.level.boardElevator();
+    }
     if (r.mission?.done && !wasDone) this.missionDone(!was);
     if (this.items) this.items.ready = !!r.mission?.exit;
   }
@@ -1343,7 +1467,8 @@ export class BackroomsGame {
   private missionDone(first: boolean) {
     if (this.items) this.items.ready = true;
     this.note = { text: this.caps.hotel ? 'MISSION COMPLETE · TALK TO A FACELING FOR ANOTHER, OR LEAVE' : 'MISSION COMPLETE · GO TO THE ELEVATOR', until: performance.now() + 6000 };
-    this.audio?.done();
+    if (this.parking) this.parking.objectiveComplete();
+    else this.audio?.done();
   }
 
   /** Y: suelta una unidad del objeto elegido de la barra rápida. */
@@ -1473,6 +1598,7 @@ export class BackroomsGame {
   /** Congela la partida (el último fotograma se queda) y avisa al caparazón. */
   pause() {
     if (this.paused) return;
+    this.parking?.interrupt();
     this.paused = true;
     this.input.active = false;
     this.input.clear();
@@ -1483,6 +1609,7 @@ export class BackroomsGame {
     this.paused = false;
     this.input.active = true;
     this.input.lock();
+    this.parking?.audio?.resume();
     this.clock.getDelta();
   }
 
@@ -1638,6 +1765,7 @@ export class BackroomsGame {
    */
   async warmLevel(seed: number, players: number, level = 'level0', floor = 1) {
     const a = this.assets;
+    if (level === 'parking') return void (await import('./parking-round'));
     if (level === 'poolrooms') return void (await loadPoolKit()); // (el nivel se arma al empezar; las piezas ya están bajadas y leídas)
     if (!a) return;
     const tick = () => new Promise((r) => setTimeout(r, 30));
@@ -1849,16 +1977,19 @@ export class BackroomsGame {
     const onPlayers = (all: Record<string, PlayerState & { name: string; dead: boolean }>) => {
       for (const id in all) this.hps[id] = all[id].hp ?? HP_MAX;
       if (this.player && all[mp.id]?.hp !== undefined) {
-        if (all[mp.id].hp! < this.player.hp) this.audio?.cue('hurt');
+        if (!this.parking && all[mp.id].hp! < this.player.hp) this.audio?.cue('hurt');
         this.player.hp = all[mp.id].hp!;
       }
-      this.syncRemotes(all, mp.id, this.pool instanceof PoolLevel ? this.pool.scene : this.scene);
+      this.syncRemotes(all, mp.id, this.parking?.level.scene ?? (this.pool instanceof PoolLevel ? this.pool.scene : this.scene));
     };
     const onWorld = (w: WorldSnapshot) => this.applyWorld(w);
     const onBlast = (m: { id: string; x: number; y: number; z: number }) => this.blastFx(m);
     s.on('blastFx', onBlast);
+    const onSeal = () => this.world?.sealGrand();
+    s.on('seal', onSeal);
     const onDead = (id: string) => {
       if (id !== mp.id) return this.remotes.get(id)?.die();
+      if (this.parking && this.player) return void (this.player.hp = 0);
       if (this.pool instanceof PoolLevel) return this.poolDied(this.pool);
       if (this.dying >= 0 || this.winning || !this.player) return;
       // quien te ha pillado: la entidad más cerca (el servidor lo sabe antes de que llegue el siguiente snapshot)
@@ -1906,7 +2037,11 @@ export class BackroomsGame {
       this.black = 0;
       this.corrupt(0);
       this.immuneUntil = performance.now() + REVIVE_IMMUNE;
-      this.player?.revive(new THREE.Vector3(m.x, 0, m.z), m.yaw);
+      this.player?.revive(new THREE.Vector3(m.x, this.parking ? m.y : 0, m.z), m.yaw);
+      if (this.parking) {
+        const point = this.parking.level.fits(m.x, m.z, m.y);
+        if (point) Object.assign(this.parking.position, point);
+      }
       for (const r of this.remotes.values()) r.setFirstPerson(false);
       this.input.suspend = false;
       this.input.soft();
@@ -1914,7 +2049,23 @@ export class BackroomsGame {
     };
     // la sala cambia (misión, progreso, ascensor): lo que el servidor dice manda
     const onRoom = (r: RoomView) => this.roomUpdate(r);
+    const onInv = (inventory: Inventory) => {
+      this.player?.apply(this.parking ? this.parkingInventory(inventory) : inventory);
+    };
     s.on('room', onRoom);
+    s.on('inv', onInv);
+    const onBottle = (points: { x: number; y: number; z: number }[], duration: number) => {
+      const model = itemModel('beer');
+      if (!points.length) return;
+      const scene = this.parking?.level.scene ?? (this.pool instanceof PoolLevel ? this.pool.scene : this.scene);
+      const mesh = model ? fit(model.clone(true), .24) : new THREE.Group();
+      const path = points.map(point => new THREE.Vector3(point.x, point.y, point.z));
+      mesh.position.copy(path[0]);
+      scene.add(mesh);
+      this.throws.add({ mesh, path, duration: Math.max(1, duration * 1000), start: performance.now() });
+    };
+    s.on('beerThrow', onBottle);
+    this.offNet.push(() => s.off('beerThrow', onBottle));
     s.on('players', onPlayers);
     s.on('world', onWorld);
     s.on('dead', onDead);
@@ -1930,7 +2081,11 @@ export class BackroomsGame {
     const onFx = (fx: AdminFx) => this.adminFx(fx); // (también los jugadores normales: la carta Uno Reverse los teletransporta)
     s.on('adminFx', onFx);
     this.offNet.push(() => s.off('adminFx', onFx));
-    this.offNet.push(() => (s.off('room', onRoom), s.off('players', onPlayers), s.off('world', onWorld), s.off('dead', onDead), s.off('blastFx', onBlast), s.off('reviving', onReviving), s.off('revived', onRevived), s.off('runFailed', onRunFailed), removeEventListener('keydown', key)));
+    const onTool = (m: ToolFx) => this.toolFx(m);
+    s.on('toolFx', onTool);
+    voice.calls = this.callPeers;
+    this.offNet.push(() => (s.off('toolFx', onTool), this.callPeers.clear()));
+    this.offNet.push(() => (s.off('room', onRoom), s.off('inv', onInv), s.off('players', onPlayers), s.off('world', onWorld), s.off('dead', onDead), s.off('blastFx', onBlast), s.off('seal', onSeal),s.off('reviving', onReviving), s.off('revived', onRevived), s.off('runFailed', onRunFailed), removeEventListener('keydown', key)));
     if (items) {
       items.claim = (id, done) => {
         if (id.includes(':')) s.emit('lockerTake', id.split(':')[0], Number(id.split(':')[1]), done);
@@ -1955,7 +2110,10 @@ export class BackroomsGame {
         r.setLook(this.looks.get(id) ?? DEFAULT_LOOK);
         // en la sala de espera: sombra falsa y pasos (con volumen y lado según dónde esté respecto a mí)
         r.floorShadow = !!this.waiting && parent === this.waiting.scene;
-        r.onStep = r.floorShadow ? (rr, run) => this.remoteStep(rr, run) : undefined;
+        r.stepRunSpeed = this.parking ? 4 : 2.4;
+        r.onStep = this.parking
+          ? (rr, run) => this.parking?.teammateStep(rr.pos, run)
+          : r.floorShadow ? (rr, run) => this.remoteStep(rr, run) : undefined;
         parent.add(r.root);
         this.remotes.set(id, r);
       }
@@ -1994,6 +2152,10 @@ export class BackroomsGame {
   /** El snapshot del servidor: las entidades (las nuevas se crean, las que faltan han muerto) y los objetos. */
   private applyWorld(w: WorldSnapshot) {
     const world = this.world ?? this.poolWorld, mp = this.mp;
+    if (this.parking && mp) {
+      if (w.parking) this.parking.sync(w.parking, mp.id);
+      return;
+    }
     if (!world || !mp) return;
     const pl = this.pool instanceof PoolLevel ? this.pool : undefined;
     const here = new Set<number>(), now = performance.now(), t = w.t ?? now;
@@ -2030,7 +2192,8 @@ export class BackroomsGame {
     if (!fs.length) this.staffMad = false;
     else if (mad && !this.staffMad) {
       this.staffMad = true;
-      this.note = { text: 'YOU KILLED ONE OF THEM · THE STAFF IS HUNTING YOU · HIDE IN A WARDROBE (E)', until: performance.now() + 6000 };
+      const why = w.vengeance ? 'SOMEONE KILLED ONE OF THEM' : this.mission?.kind === 'eeh' ? 'THE EVAPORATOR FAILED' : 'THE STAFF SPOTTED YOU';
+      this.note = { text: `${why} · THE STAFF IS HUNTING YOU · HIDE IN A WARDROBE (E) AND HOLD YOUR BREATH`, until: performance.now() + 6000 };
       this.audio?.cue('hurt');
     }
     this.items?.sync(w.taken, w.tapes);
@@ -2048,7 +2211,15 @@ export class BackroomsGame {
   /** Cada fotograma en una sala: los demás, lo que yo mando (15 Hz) y, si estoy muerto, la cámara del compañero. */
   private netFrame(dt: number, c: Controls) {
     const hall = this.caps.hotel && this.player ? { x: this.player.pos.x, span: SUITE_L * CELL } : undefined;
-    for (const r of this.remotes.values()) ((r.hall = hall), r.update(dt));
+    for (const r of this.remotes.values()) ((r.hall = hall), r.update(dt), r.talk(voice.speaking.has(r.id)));
+    // el chat de voz según la distancia (voice.ts): cuánto y hacia qué lado oigo a cada compañero; muerto o espectando, a todos por igual
+    const me = this.player, ears = new Map<string, { d: number; pan: number }>();
+    if (me && !me.dead && !this.spectating)
+      for (const r of this.remotes.values()) {
+        const dx = r.pos.x - me.pos.x, dz = r.pos.z - me.pos.z, d = Math.hypot(dx, dz);
+        ears.set(r.id, { d: Math.hypot(d, (r.pos.y - me.pos.y) * 0.5), pan: d > 0.01 ? (dx * Math.cos(me.yaw) - dz * Math.sin(me.yaw)) / d : 0 });
+      }
+    voice.listen(ears);
     for (const e of this.entities) e.hall = e.kind === 'faceling' ? hall : undefined;
     if (!this.spectating) {
       this.sendT += dt;
@@ -2139,7 +2310,7 @@ export class BackroomsGame {
     this.flash.intensity = 0;
   }
 
-  private sendState() {
+  private sendState(reliable = false) {
     const p = this.player;
     if (!p || !this.mp) return;
     // volatile: si el túnel va atascado, este estado se pierde en vez de encolarse (el siguiente lleva lo último); t: la hora de ahora, para que
@@ -2150,7 +2321,8 @@ export class BackroomsGame {
     const at = pl ? pl.state : { x: this.caps.hotel ? wrapX(p.pos.x) : p.pos.x, y: p.pos.y, z: p.pos.z, yaw: p.yaw, pitch: p.pitch };
     if (Math.abs(at.x - this.sentX) > 10) this.tp++; // (un teletransporte —Uno Reverse, admin, bucle de Las Suites— se cuenta aparte: el servidor no lo recorta)
     this.sentX = at.x;
-    this.mp.sock.volatile.emit('state', { x: at.x, tp: this.tp, y: at.y, z: at.z, yaw: at.yaw, pitch: at.pitch, anim: 'Neutral Idle', dance: p.dancing || undefined, variant: p.variant || undefined, light: p.lightOn, duck: p.duck, tank: pl ? p.tankWorn : undefined, held: p.concealed || p.hand === 'watergun' ? 'none' : p.hand, jam: pl ? Math.round(pl.jam) : undefined, hiding: p.concealed, holding: this.holding, t: performance.now() });
+    const socket = reliable ? this.mp.sock : this.mp.sock.volatile;
+    socket.emit('state', { x: at.x, tp: this.tp, y: at.y, z: at.z, yaw: at.yaw, pitch: at.pitch, anim: 'Neutral Idle', dance: p.dancing || undefined, variant: p.variant || undefined, light: p.lightOn, duck: p.duck, tank: pl ? p.tankWorn : undefined, held: p.concealed || p.hand === 'watergun' ? 'none' : p.hand, jam: pl ? Math.round(pl.jam) : undefined, hiding: p.concealed, holding: this.holding, t: performance.now() });
   }
 
   /** Estado de la red para depurar (consola: `__game.netInfo()`): ping, jitter y retraso de dibujo de cada jugador y del mundo. */
@@ -2181,9 +2353,10 @@ export class BackroomsGame {
   // ── el Tótem de la vida ──────────────────────────────────────────────────
 
   /** Clic con el tótem en la mano: el selector de compañeros caídos (vacío: «NO ONE TO REVIVE», y no se gasta). El puntero queda suelto como con el inventario. */
-  private openTotem() {
+  private openTotem(phone = false) {
     if (this.totemOpen || this.run || this.spectating || this.dying >= 0) return;
     this.totemOpen = true;
+    this.phone = phone;
     this.input.clear();
     this.input.suspend = true;
     this.input.unlock();
@@ -2197,6 +2370,12 @@ export class BackroomsGame {
   /** Elegido un compañero: el servidor comprueba que lo llevo y que está muerto; solo entonces se gasta. */
   useTotem(id: string) {
     const p = this.player;
+    if (this.phone) {
+      // el Nokia: llamar a ese compañero (el servidor lo conecta y manda `toolFx` a los dos)
+      this.closeTotem();
+      if (p) this.mp?.sock.emit('tool', { k: 'nokia', yaw: p.yaw, pitch: p.pitch, to: id }, (r) => !r.ok && r.why && (this.note = { text: r.why, until: performance.now() + 3000 }));
+      return;
+    }
     this.closeTotem();
     this.mp?.sock.emit('totem', id, (ok) => {
       if (!ok || !p) return;
@@ -2212,7 +2391,7 @@ export class BackroomsGame {
     const now = performance.now(), me = this.mp?.id;
     const notes = [...this.runners].filter(([id]) => id !== me && this.remotes.has(id)).map(([, n]) => `${n.toUpperCase()} IS RUNNING FOR THEIR LIFE`);
     if (now < this.note.until) notes.push(this.note.text);
-    return { pick: this.totemOpen ? this.deadMates() : null, run: this.run?.hud ?? null, notes, immune: Math.max(0, (this.immuneUntil - now) / 1000) };
+    return { pick: this.totemOpen ? (this.phone ? [...this.remotes.values()].filter((r) => !r.dead).map((r) => ({ id: r.id, name: r.name })) : this.deadMates()) : null, phone: this.phone, run: this.run?.hud ?? null, notes, immune: Math.max(0, (this.immuneUntil - now) / 1000) };
   }
 
   /** Empieza «Run for your life» (runlevel.ts): su escena y su cámara sustituyen a las del juego en el compositor hasta que se acaba. */
@@ -2224,6 +2403,15 @@ export class BackroomsGame {
     const r = (this.run = new RunLevel(this.assets, this.audio, this.opts.reduced, this.camera.aspect));
     r.onDone = () => this.mp?.sock.emit('runDone'); // el servidor lo comprueba y manda `revived`; hasta entonces, la imagen se queda en negro
     r.onFail = () => (this.mp ? this.mp.sock.emit('runFail') : this.endRun()); // una sola oportunidad: el servidor lo da por muerto (`runFailed`)
+    // el controlador de siempre (cuerpo, manos con IK, linterna, barra rápida, inventario, latas, Monster...): el nivel solo le mueve el cuerpo
+    const stub = { root: r.scene, solid: () => false, furniture: () => false, voidAt: () => false } as unknown as World;
+    const me = new Player(stub, this.assets, r.camera, this.flash, this.opts.reduced);
+    me.load(this.mp?.inv ?? START_INV);
+    this.hookGear(me);
+    r.attach(me);
+    r.camera.add(this.flash, this.flash.target); // (endRun la devuelve a la cámara del juego)
+    this.runSaved = this.player;
+    this.player = me;
     const rp = this.composer.passes[0] as RenderPass;
     rp.scene = r.scene;
     rp.camera = r.camera;
@@ -2255,6 +2443,10 @@ export class BackroomsGame {
     const r = this.run;
     if (!r) return;
     this.run = undefined;
+    this.player?.dispose();
+    this.player = this.runSaved;
+    this.runSaved = undefined;
+    this.camera.add(this.flash, this.flash.target);
     r.dispose();
     const rp = this.composer.passes[0] as RenderPass;
     rp.scene = this.pool?.scene ?? this.scene; // (de vuelta al nivel en el que se estaba, también las Poolrooms)
@@ -2296,6 +2488,7 @@ export class BackroomsGame {
     if (pl instanceof PoolLevel && me) {
       // el mismo Player de siempre mueve el cuerpo (con las constantes de locomotion.ts y a través del mundo, que sabe de agua, tubos y plantas) y pone la cámara
       pl.speedK = perks.stats.speed * me.speedMul;
+      pl.speedAdd = me.pillSpeed;
       pl.jumpK = me.jumpMul;
       pl.slowMul = (me.aiming ? CAM_AIM_SLOW : 1) * me.buffSpeed; // enfocar con la camcorder frena (igual que en el laberinto)
       const cc = pl.pre(dt, me.winded && c.run ? { ...c, run: false } : c); // sin aguante no se corre (el Player lo gasta)
@@ -2357,10 +2550,37 @@ fps ${(1 / Math.max(dt, 1e-3)).toFixed(0)}`;
   }
   /** Lo nuevo del jugador que avisa al servidor: la Monster (se gasta) y la carta Uno Reverse (cambia de sitio con otro al azar). */
   private hookGear(p: Player) {
+    // los objetos de las Suites: el clic los usa y el servidor decide (nokia: sin llamada abre la lista de compañeros; con ella, cuelga)
+    p.onTool = (k) => {
+      if (!this.mp) return;
+      if (k === 'nokia' && !this.callPeers.size) return this.openTotem(true);
+      this.mp.sock.emit('tool', { k, yaw: p.yaw, pitch: p.pitch }, (r) => {
+        if (r.why) this.note = { text: r.why, until: performance.now() + 3000 };
+        if (r.ok) this.audio?.cue('equip');
+        if (r.used) p.lose(k);
+      });
+    };
     p.onMonster = () => (this.audio?.drink(), this.mp?.sock.emit('monster'));
     p.onUno = (done) => {
       if (!this.mp) return done(false);
       this.mp.sock.emit('uno', (ok) => (ok && this.audio?.cue('equip'), done(ok)));
+    };
+    p.onParkingItem = (id, done) => {
+      if (!this.mp) return done(false);
+      this.sendState(true);
+      this.mp.sock.timeout(3000).emit('useParkingItem', id, (error, result) => {
+        if (error || !result || this.player !== p) return done(false);
+        if (id === 'pills') this.audio?.drink();
+        else if (id !== 'beer') this.audio?.cue('equip');
+        if (id === 'steelcard') {
+          const winner = result.item ? ITEMS[result.item].name : 'ENTITY SPEED +0.5 M/S';
+          const names = Object.values(ITEMS).map(item => item.name);
+          const labels = Array.from({ length: 15 }, () => names[Math.floor(Math.random() * names.length)]);
+          labels.push(winner);
+          this.steelRoll = { winner, labels, serial: ++this.rollSerial, until: performance.now() + 4600 };
+        }
+        done(true);
+      });
     };
   }
   /** Fotos de las Poolrooms (no hay Items allí): miniaturas y grandes, y el pedido de captura al pintar. */
@@ -2369,9 +2589,146 @@ fps ${(1 / Math.max(dt, 1e-3)).toFixed(0)}`;
   private picAt = -9;
   private poolStat?: { n: number; ms: number; el: HTMLPreElement };
 
+  private parkingInventory(inventory: Inventory): Inventory {
+    return { ...inventory, gun: false, ammo: 0, watergun: false, tank: false, totem: 0, caution: false, radar: false };
+  }
+
+  private async startParking(seed: number, mp: Mp) {
+    this.stop();
+    const token = this.parkingToken;
+    this.seed0 = seed;
+    this.caps = levelCaps('parking');
+    this.hides = [];
+    this.hideIdx = -1;
+    this.onLevelLoad?.(.02);
+    const still = holdStill();
+    const look = this.lookOf(mp.id);
+    let round: ParkingRound | undefined;
+    try {
+      await new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
+      const { ParkingRound } = await import('./parking-round');
+      if (this.disposed || token !== this.parkingToken) return false;
+      if (!mp.mission) throw new Error('The Habitable Zone room has no selected mission');
+      round = this.parking = new ParkingRound(seed, parkingOptionsForMission(mp.mission), mp.index ?? 0, this.renderer, this.opts.low);
+      await round.load(this.assets!, look, f => {
+        if (this.parking === round) this.onLevelLoad?.(f);
+      });
+      if (this.parking !== round) return false;
+      const { player, audio } = round.start(this.assets!, look, this.parkingInventory(mp.inv ?? START_INV), mp.life ?? 90, this.camera, this.flash, this.opts.reduced);
+      this.player = player;
+      this.audio = audio;
+      audio.setLocalMute(this.muted);
+      audio.setVolume(this.volume);
+      audio.resume();
+      this.mission = mp.mission ?? null;
+      player.onDrink = () => {
+        audio.drink();
+        mp.sock.emit('drink');
+      };
+      this.hookGear(player);
+      const pass = this.composer.passes[0] as RenderPass;
+      pass.scene = round.level.scene;
+      round.level.scene.add(this.camera);
+      this.onLevelLoad?.(.87);
+      await compileGently(this.renderer, round.level.scene, this.camera, undefined, f => {
+        if (this.parking === round) this.onLevelLoad?.(.87 + f * .13);
+      });
+      if (this.parking !== round) return false;
+      this.t = 0;
+      this.paused = false;
+      this.parkingBoardRequest = 0;
+      this.sendT = 0;
+      this.input.suspend = false;
+      this.input.tabInventory = true;
+      this.wire(mp);
+      this.input.begin();
+      this.clock.start();
+      this.renderer.setAnimationLoop(() => this.frame());
+      return true;
+    } catch (error) {
+      if (token !== this.parkingToken || this.disposed) return false;
+      this.stop();
+      this.onLevelLoad?.(null);
+      throw error;
+    } finally {
+      still();
+      if (this.parking === round) this.onLevelLoad?.(null);
+    }
+  }
+
+  private parkingFrame(dt: number, c: Controls) {
+    const round = this.parking!, player = this.player!;
+    if (c.pause && !this.winning && !this.paused) this.pause();
+    const active = !this.paused && !document.hidden && (!this.input.suspend || this.bagOpen);
+    if (active && !this.winning && this.dying < 0) {
+      if (this.bagOpen && (c.bag || c.inventory)) {
+        this.input.clear();
+        this.closeBag();
+        c.bag = c.grab = c.bagHeld = false;
+      } else if (!this.bagOpen && (c.inventory || (c.bag && !c.grab && !round.level.roomInteraction(this.camera, round.position)))) {
+        this.openBag();
+      }
+    }
+    if (!active || this.bagOpen) c = { ...c, move: _none, look: _none, bag: false, grab: false, bagHeld: false, flash: false, slot: -1, wheel: 0, use: false, useHeld: false, fire: false, fireHeld: false, aim: false };
+    this.t += dt;
+    round.setListening(!this.paused && !document.hidden);
+    const aboard = round.update(dt, c, this.camera, active, this.t, action => {
+      this.sendState(true);
+      this.mp?.sock.emit('parkingInteract', action);
+    });
+    if (aboard && !this.winning && this.t >= this.parkingBoardRequest) {
+      this.parkingBoardRequest = this.t + .25;
+      this.sendState(true);
+      this.mp?.sock.emit('ascend', { ...(this.mp.inv ?? START_INV), ...player.inventory, gun: this.mp.inv?.gun ?? false, ammo: this.mp.inv?.ammo ?? 0, watergun: this.mp.inv?.watergun ?? false, tank: this.mp.inv?.tank ?? false, totem: this.mp.inv?.totem ?? 0, caution: this.mp.inv?.caution ?? false, radar: this.mp.inv?.radar ?? false });
+    }
+    if (player.hp <= 0 && this.dying < 0 && !this.winning) {
+      player.dead = true;
+      this.flash.intensity = 0;
+      if (this.bagOpen) this.closeBag();
+      this.dying = this.t;
+    }
+    if (this.dying >= 0 && !this.spectating && this.t - this.dying >= 2) this.spectate();
+    this.netFrame(dt, c);
+    if (this.spectating) {
+      const pos = this.camera.position;
+      const floor = THREE.MathUtils.clamp(Math.round((EYE - pos.y) / PARKING_HEIGHT), 0, round.level.map.floors.length - 1);
+      const viewer = { x: pos.x, y: pos.y - EYE, z: pos.z, floor };
+      round.render(dt, this.t, this.camera, viewer);
+    } else round.render(dt, this.t, this.camera);
+    if (this.winning && !this.opts.reduced) this.camera.position.y += round.level.elevatorShake;
+    const uniforms = this.vhs.uniforms;
+    uniforms.uTime.value = this.film.uniforms.uTime.value = this.t;
+    uniforms.uAspect.value = this.camera.aspect;
+    uniforms.uPool.value = 1;
+    uniforms.uFlash.value = 0;
+    uniforms.uCorrupt.value = this.dying >= 0 && !this.spectating ? Math.min(.9, (this.t - this.dying) * .55) : round.gaze * (this.opts.reduced ? .35 : .85);
+    uniforms.uBlack.value = 0;
+    this.vhs.enabled = player.aiming || uniforms.uCorrupt.value > 0 || this.winning;
+    this.composer.render(dt);
+  }
+
+  private endParking() {
+    this.parkingToken++;
+    const round = this.parking;
+    if (!round) return;
+    this.parking = undefined;
+    this.input.tabInventory = false;
+    this.player?.dispose();
+    this.player = undefined;
+    this.audio?.dispose();
+    this.audio = undefined;
+    round.dispose();
+    this.scene.add(this.camera);
+    const pass = this.composer.passes[0] as RenderPass;
+    pass.scene = this.scene;
+    this.vhs.uniforms.uCorrupt.value = this.vhs.uniforms.uBlack.value = 0;
+    this.onLevelLoad?.(null);
+  }
+
   /** Una ronda de las Poolrooms con compañeros: el mapa y el movimiento son de PoolLevel; la sala (misión, ascensor, compañeros) funciona como siempre. */
   /** La carga de un nivel al empezar la ronda: cuánto lleva (0–1), o null al acabar. */
   onLevelLoad?: (f: number | null) => void;
+  onLevelError?: () => void;
 
   private async startPool(seed: number, mp: Mp) {
     const tok = ++this.poolTok;
@@ -2577,13 +2934,111 @@ fps ${(1 / Math.max(dt, 1e-3)).toFixed(0)}`;
   // Aquí solo lo que es de este cliente (o de la partida en solitario). Lo que toca a la sala lo decide el servidor (`admin` en server/src/index.ts)
   // y llega por los canales de siempre más `adminFx` (teletransporte, objeto, curación).
 
+  // ── los objetos de las Suites ─────────────────────────────────────────────
+  private throwS = 0.6;
+  private arc?: { line: THREE.Line; dots: THREE.Points };
+  /** El arco del lanzamiento (pokeball y granada) mientras se mantiene el clic: la trayectoria con sus rebotes (shared/throw.ts, la misma del servidor). */
+  private arcFrame() {
+    const p = this.player, w = this.world;
+    if (!this.arc) {
+      const line = new THREE.Line(new THREE.BufferGeometry().setAttribute('position', new THREE.BufferAttribute(new Float32Array(102 * 3), 3)), new THREE.LineBasicMaterial({ color: 0xffe08a, transparent: true, opacity: 0.85, depthTest: false }));
+      const dots = new THREE.Points(new THREE.BufferGeometry().setAttribute('position', new THREE.BufferAttribute(new Float32Array(12 * 3), 3)), new THREE.PointsMaterial({ color: 0xff5a3c, size: 0.22, depthTest: false }));
+      for (const o of [line, dots]) (o.frustumCulled = false), (o.renderOrder = 10), (o.visible = false), this.scene.add(o);
+      this.arc = { line, dots };
+    }
+    const { line, dots } = this.arc, on = !!p?.charging && !!w && !p.dead;
+    line.visible = dots.visible = on;
+    if (!on || !p || !w) return;
+    const fl = flight((x, z) => w.solid(x, z), [p.pos.x, p.pos.y + 1.5, p.pos.z], p.yaw, p.pitch, 11 * Math.sqrt(perks.stats.reach));
+    const lp = line.geometry.getAttribute('position') as THREE.BufferAttribute, n = Math.min(102, fl.pts.length / 3);
+    lp.array.set(fl.pts.slice(0, n * 3));
+    lp.needsUpdate = true;
+    line.geometry.setDrawRange(0, n);
+    const dp = dots.geometry.getAttribute('position') as THREE.BufferAttribute, nb = Math.min(12, fl.bounces.length + 1);
+    [...fl.bounces, fl.end].slice(0, nb).forEach((b, i) => dp.setXYZ(i, b[0], b[1], b[2]));
+    dp.needsUpdate = true;
+    dots.geometry.setDrawRange(0, nb);
+  }
+  private smokeTex?: THREE.Texture;
+  private smokeTexture() {
+    if (!this.smokeTex) {
+      const c = Object.assign(document.createElement('canvas'), { width: 64, height: 64 }), x = c.getContext('2d')!, g = x.createRadialGradient(32, 32, 2, 32, 32, 32);
+      g.addColorStop(0, 'rgba(210,210,210,0.9)');
+      g.addColorStop(1, 'rgba(210,210,210,0)');
+      x.fillStyle = g;
+      x.fillRect(0, 0, 64, 64);
+      this.smokeTex = new THREE.CanvasTexture(c);
+    }
+    return this.smokeTex;
+  }
+  /** Lo que ven todos de un objeto de las Suites: la bola o la granada en el aire, la nube de humo, la llamada del Nokia. */
+  private toolFx(m: ToolFx) {
+    const note = (text: string) => (this.note = { text, until: performance.now() + 3500 });
+    if (m.k === 'note') return note(m.text);
+    if (m.k === 'call') {
+      m.on ? this.callPeers.add(m.peer) : this.callPeers.delete(m.peer);
+      return note(m.on ? `${m.name.toUpperCase()} · CALL CONNECTED: YOU CAN HEAR EACH OTHER ANYWHERE` : `CALL WITH ${m.name.toUpperCase()} ENDED`);
+    }
+    if (m.k === 'bat') return void this.audio?.cue('equip');
+    if (m.k === 'throw') {
+      const o = new THREE.Mesh(new THREE.SphereGeometry(0.1, 12, 8), new THREE.MeshStandardMaterial({ color: m.what === 'pokeball' ? 0xd32f2f : 0x59684a }));
+      this.scene.add(o);
+      this.throwS = m.s;
+      let t = 0;
+      this.fxList.push((dt) => {
+        t += dt;
+        const i = Math.min(m.path.length / 3 - 1, Math.floor(t / FLIGHT_DT));
+        o.position.set(m.path[i * 3], m.path[i * 3 + 1], m.path[i * 3 + 2]);
+        if (t < m.s) return true;
+        o.removeFromParent();
+        o.geometry.dispose();
+        (o.material as THREE.Material).dispose();
+        return false;
+      });
+      return;
+    }
+    // el humo: sprites blandos que se hinchan donde cae la granada (tras lo que tarda en llegar) y se van apagando
+    const puffs = Array.from({ length: Math.round(m.r * 7) }, () => {
+      const a = Math.random() * Math.PI * 2, d = Math.sqrt(Math.random()) * m.r;
+      const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: this.smokeTexture(), color: 0xbfbfbf, transparent: true, depthWrite: false, opacity: 0 }));
+      sp.scale.setScalar(2.2 + Math.random() * 2.2);
+      this.scene.add(sp);
+      return { sp, x: m.x + Math.cos(a) * d, y: 0.3 + Math.random() * 2.1, z: m.z + Math.sin(a) * d, ph: Math.random() * 6 };
+    });
+    let t = -this.throwS; // (el humo sale cuando la granada acaba de rebotar)
+    this.fxList.push((dt) => {
+      t += dt;
+      const a = Math.max(0, Math.min(1, t / 0.8, (m.s - t) / 3));
+      for (const q of puffs) {
+        (q.sp.material as THREE.SpriteMaterial).opacity = a * 0.55;
+        q.sp.position.set(q.x + Math.sin(t * 0.4 + q.ph) * 0.4, q.y + Math.sin(t * 0.3 + q.ph) * 0.15, q.z + Math.cos(t * 0.35 + q.ph) * 0.4);
+      }
+      if (t < m.s) return true;
+      for (const q of puffs) (q.sp.removeFromParent(), q.sp.material.dispose());
+      return false;
+    });
+  }
+
   /** Efecto que manda el servidor a este jugador. */
   adminFx(fx: AdminFx) {
     const p = this.player, pl = this.pool instanceof PoolLevel ? this.pool : undefined;
     if (fx.k === 'ammo') return void (this.cheats.ammo = fx.on); // (el servidor lo ordena a este cliente: también si está muerto)
     if (!p || p.dead) return;
-    if (fx.k === 'tp') pl ? (pl.teleport(fx.x, fx.z, fx.yaw, fx.y), (p.yaw = fx.yaw)) : p.spawn(new THREE.Vector3(fx.x, 0, fx.z), fx.yaw);
-    else if (fx.k === 'give') (p.receive(fx.item), this.poolInv());
+    if (fx.k === 'tp') {
+      const parking = this.parking;
+      if (parking) {
+        const position = parking.level.fits(fx.x, fx.z, fx.y);
+        if (!position) return;
+        Object.assign(parking.position, position);
+        p.spawn(new THREE.Vector3(position.x, position.y, position.z), fx.yaw);
+      } else if (pl) (pl.teleport(fx.x, fx.z, fx.yaw, fx.y), (p.yaw = fx.yaw));
+      else p.spawn(new THREE.Vector3(fx.x, 0, fx.z), fx.yaw);
+    } else if (fx.k === 'give') {
+      if (this.parking && !['flashlight', 'water', 'camera'].includes(fx.item)) return;
+      p.receive(fx.item);
+      this.poolInv();
+    } else if (fx.k === 'take') p.lose(fx.item);
+    else if (fx.k === 'push') p.shove(fx.x, fx.z);
     else ((p.hp = perks.stats.hp), (p.stamina = 1), (p.sanity = 1), pl && (pl.o2 = 1));
   }
 
@@ -2719,7 +3174,7 @@ fps ${(1 / Math.max(dt, 1e-3)).toFixed(0)}`;
     const pl = this.pool instanceof PoolLevel ? this.pool : undefined, p = this.player;
     const s = pl ? pl.state : p ? { x: p.pos.x, y: p.pos.y, z: p.pos.z, yaw: p.yaw, pitch: 0 } : { x: 0, y: 0, z: 0, yaw: 0, pitch: 0 };
     const seed = pl ? pl.seed : this.seed0, f = (n: number) => n.toFixed(3);
-    const txt = `seed ${seed}  level ${this.mp?.level ?? (pl ? 'poolrooms' : 'level0')}
+    const txt = `seed ${seed}  level ${this.mp?.level ?? (this.parking ? 'parking' : pl ? 'poolrooms' : 'level0')}
 x ${f(s.x)}  y ${f(s.y)}  z ${f(s.z)}  yaw ${f(s.yaw)}  pitch ${f(s.pitch)}`;
     this.composer.render(0);
     const png = new Promise<Blob>((ok, no) => this.renderer.domElement.toBlob((b) => (b ? ok(b) : no(new Error('toBlob'))), 'image/png'));
@@ -2739,7 +3194,7 @@ x ${f(s.x)}  y ${f(s.y)}  z ${f(s.z)}  yaw ${f(s.yaw)}  pitch ${f(s.pitch)}`;
     const pl = this.pool instanceof PoolLevel ? this.pool : undefined, p = this.player;
     const s = pl ? pl.state : p ? { x: p.pos.x, y: p.pos.y, z: p.pos.z, yaw: p.yaw } : undefined;
     return [
-      `level ${this.mp?.level ?? (pl ? 'poolrooms' : 'level0')}  seed ${pl ? pl.seed : this.seed0}${s ? `  pos ${f(s.x)} ${f(s.y)} ${f(s.z)}  yaw ${f(s.yaw)}` : ''}`,
+      `level ${this.mp?.level ?? (this.parking ? 'parking' : pl ? 'poolrooms' : 'level0')}  seed ${pl ? pl.seed : this.seed0}${s ? `  pos ${f(s.x)} ${f(s.y)} ${f(s.z)}  yaw ${f(s.yaw)}` : ''}`,
       `gpu ${gl.getParameter(ext ? ext.UNMASKED_RENDERER_WEBGL : gl.RENDERER)}  ${gl.getParameter(gl.VERSION)}${gl.isContextLost() ? '  CONTEXT LOST' : ''}  gl.getError ${gl.getError()}`,
       `canvas ${this.canvas.width}x${this.canvas.height}  dpr ${devicePixelRatio}  low ${this.opts.low}  resScale ${settings.resScale}  ao ${!!this.fx?.ao.enabled}  smaa ${!!this.fx?.smaa.enabled}`,
       `programs ${i.programs?.length ?? '-'}  geometries ${i.memory.geometries}  textures ${i.memory.textures}  calls ${i.render.calls}  tris ${i.render.triangles}`,
@@ -2804,12 +3259,18 @@ x ${f(s.x)}  y ${f(s.y)}  z ${f(s.z)}  yaw ${f(s.yaw)}  pitch ${f(s.pitch)}`;
   /** Solo: lo que enseña el panel de depuración. */
   adminInfo() {
     const m = this.mission;
-    return { level: 'level0', seed: this.seed0, t: Math.round(this.t), ents: this.entities.filter((e) => e.alive).length, mission: m ? `${m.text} ${m.progress}/${m.goal}${m.done ? ' DONE' : ''}` : '-', hp: Math.round(this.player?.hp ?? 0), rtt: netStats.rtt };
+    return { level: this.parking ? 'parking' : 'level0', seed: this.seed0, t: Math.round(this.t), ents: this.parking?.enemies?.ai.agents.length ?? this.entities.filter((e) => e.alive).length, mission: m ? `${m.text} ${m.progress}/${m.goal}${m.done ? ' DONE' : ''}` : '-', hp: Math.round(this.player?.hp ?? 0), rtt: netStats.rtt };
   }
 
   /** Saca al jugador de la partida (la sala vuelve al lobby): se para todo y queda el lienzo en negro. */
   stop() {
+    this.clearXray();
+    this.xray.removeFromParent();
+    for (const shot of this.throws) shot.mesh.removeFromParent();
+    this.throws.clear();
+    this.steelRoll = undefined;
     this.renderer.setAnimationLoop(null);
+    this.endParking();
     (this.eehVeil?.remove(), (this.eehVeil = undefined), (this.eehRed = false));
     this.endRun();
     this.endPool();
@@ -2850,7 +3311,9 @@ x ${f(s.x)}  y ${f(s.y)}  z ${f(s.z)}  yaw ${f(s.yaw)}  pitch ${f(s.pitch)}`;
   }
 
   dispose() {
+    this.disposed = true;
     this.renderer.setAnimationLoop(null);
+    this.endParking();
     this.eehVeil?.remove();
     this.endPool();
     this.endRun();
@@ -2863,6 +3326,7 @@ x ${f(s.x)}  y ${f(s.y)}  z ${f(s.z)}  yaw ${f(s.yaw)}  pitch ${f(s.pitch)}`;
     this.shatters.forEach((s) => s.dispose());
     this.snap?.dispose();
     this.audio?.dispose();
+    this.xrayMaterial.dispose();
     this.composer.dispose();
     this.gadgets?.dispose();
 

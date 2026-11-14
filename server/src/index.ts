@@ -3,13 +3,13 @@ import { readFileSync } from 'node:fs';
 import { Server } from 'socket.io';
 import {
   SERVER_PORT, MAX_PLAYERS, DEFAULT_PLAYERS, DEFAULT_LOOK, cosmetic, lookAllowed, HP_MAX, NAME_MAX, CHAT_MAX, CHAT_GAP, ROOM_NAME_MAX, DIFFICULTY, START_DELAY, VOTE_TIME, LOAD_GRACE, WAIT_HALF, WAIT_SPAWNS, EMOTES, EMOTE_GAP, STRIP_MAX, STRIP_PTS, STRIP_GAP, REVIVE_IMMUNE, REVIVE_MIN,
-  START_BANK, AMMO_PACK, HIT_DAMAGE, START_INV, EMPTY_INV, INV_MAX, ASCENT_GRACE, DROP_MAX, DROP_TTL, DROP_GAP, offerMissions, poolMissions, suitesMissions, contractOffers, SUITE_FLOORS, SUITE_FALL, pickLevel, tvCount, generateMaze, cleanInv, addItem, canHold, hasItem, removeItem, purchase, shopItem, penaltyOf, ITEM_IDS, LEVELS, centerOf,
-  type ItemId, type Inventory, type Mission, type MissionOffer, type RoundResult, type Fate, type Drop, type ActiveMission,
+  START_BANK, AMMO_PACK, HIT_DAMAGE, START_INV, EMPTY_INV, INV_MAX, ASCENT_GRACE, DROP_MAX, DROP_TTL, DROP_GAP, offerMissions, poolMissions, parkingMissions, parkingSpawn, parkingFits, suitesMissions, contractOffers, SUITE_FLOORS, SUITE_FALL, pickLevel, tvCount, generateMaze, cleanInv, addItem, canHold, hasItem, removeItem, purchase, shopItem, penaltyOf, ITEM_IDS, LEVELS, centerOf,
+  type ItemId, type ToolFx, flight, FLIGHT_DT, BALL_KINDS, CELL, type Maze, type Inventory, type Mission, type MissionOffer, type RoundResult, type Fate, type Drop, type ActiveMission,
   type AdminAction, type AdminInfo, type AdminReply, type ClientToServer, type ServerToClient, type Status, type PlayerState, type Room, type RoomView, type RoomInfo, type Look, type Strip,
 } from '@backrooms/shared';
 import { Match, type Player } from './match';
 import { ACHIEVEMENT_KEYS, WATER_HEAL, NOISE_SHOT, NOISE_DROP, NOISE_PHOTO, NOISE_PICK, levelCaps, solidAt, startOffset } from '@backrooms/shared';
-import { lockerContents, facelingStock, type LockerItem, ITEMS, RARITIES, SCALE, UPGRADES, UP_IDS, boostOf, itemOpen, levelsOpen, cleanUps, hasRoom, lootPrice, rarity, rollRarity, sellPrice, spotRarity, statsOf, upCost, upLevel, wearInv, type Qual, type SaveInfo, type Ups } from '@backrooms/shared';
+import { lockerContents, facelingStock, type LockerItem, ITEMS, PARKING_ITEM_IDS, RARITIES, SCALE, UPGRADES, UP_IDS, boostOf, itemOpen, levelsOpen, cleanUps, hasRoom, lootPrice, rarity, rollRarity, sellPrice, spotRarity, statsOf, subOf, upCost, upLevel, wearInv, type Qual, type SaveInfo, type Ups } from '@backrooms/shared';
 import { allowedOrigins, handleApi, isAdminName, originOk, userFromCookie } from './auth';
 import { MONEY_LIMIT, parseAdmin } from './admin';
 import { achievementsOf, avatarRef, deleteSave, loadoutOf, saveOf, savesOf, writeSave } from './db';
@@ -120,7 +120,7 @@ const view = (r: RoomState): RoomView => {
   const lobby = r.phase === 'lobby', boarded = [...r.players.values()].filter((p) => p.boarded).map((p) => p.id);
   return {
     code: r.code, tape: r.tape, name: r.name, public: r.public, ownerId: r.ownerId, max: r.max, difficulty: r.difficulty, fixedSeed: r.fixedSeed, phase: r.phase, seed: r.seed,
-    bank: r.bank, round: r.round, levelId: r.levelId, floor: r.floor, quota: r.quota ?? 0, jobs: r.jobs, caps: levelCaps(r.levelId), ...(r.phase === 'starting' ? offers(r) : { offers: [], leading: '' }), mission: lobby ? null : active(r),
+    bank: r.bank, round: r.round, levelId: r.levelId, openLevels: [...openOf(r)], floor: r.floor, quota: r.quota ?? 0, jobs: r.jobs, caps: levelCaps(r.levelId), ...(r.phase === 'starting' ? offers(r) : { offers: [], leading: '' }), mission: lobby ? null : active(r),
     vote: r.phase === 'starting' && r.voteEnd ? { left: r.chosen ? 0 : Math.max(0, r.voteEnd - Date.now()), loaded: [...r.loaded].filter((s) => r.players.has(s)) } : null,
     ascent: r.boardAt ? { left: Math.max(0, Math.round(ASCENT_GRACE - (Date.now() - r.boardAt) / 1000)), boarded } : null,
     players: [...r.players.values()].map((p) => ({ id: p.id, name: p.name, dead: p.dead, look: p.look, avatar: avatarRef(p.uid), ready: !!p.ready, boarded: !!p.boarded, ups: p.ups })),
@@ -130,7 +130,12 @@ const push = (r: RoomState) => (r.phase === 'lobby' && save(r), io.to(r.code).em
 /** Lo que dan las mejoras de un jugador (casillas, vida máxima...). */
 const st = (p: Player) => statsOf(p.ups);
 /** Los niveles abiertos en la sala: el 0 y los que ha desbloqueado alguno de sus jugadores con el árbol. */
-const openOf = (r: RoomState) => levelsOpen([...r.players.values()].map((p) => p.ups));
+const openOf = (r: RoomState) => {
+  const players = [...r.players.values()];
+  const open = levelsOpen(players.map(p => p.ups));
+  if (players.some(p => p.uid && achievementsOf(p.uid).deep_end !== undefined)) open.add('parking');
+  return open;
+};
 /** Guarda la sala (si es de una cuenta): ajustes, banco, ronda y lo de cada cuenta. Se llama con cada cambio en el lobby y al irse alguien. */
 function save(r: RoomState) {
   if (!r.ownerUid) return;
@@ -184,6 +189,7 @@ function leave(id: string) {
   io.sockets.sockets.get(id)?.leave(code!);
   save(r); // (con quien se va todavía dentro: lo suyo queda guardado)
   r.players.delete(id);
+  if (r.phase === 'lobby' && r.levelId === 'parking' && r.players.size && !openOf(r).has('parking')) prepare(r, r.nextSeed);
   r.votes.delete(id);
   r.loaded.delete(id);
   autoStart(r);
@@ -202,7 +208,7 @@ function leave(id: string) {
 function checkOver(r: RoomState) {
   if (r.phase !== 'playing') return;
   const grace = !!r.boardAt && Date.now() - r.boardAt >= ASCENT_GRACE * 1000;
-  if (!grace && [...r.players.values()].some((p) => (!p.dead && !p.boarded) || p.reviving)) return; // (quien corre «Run for your life» aún puede volver)
+  if (!grace && [...r.players.values()].some((p) => (!p.dead && !p.boarded) || p.reviving || p.ball)) return; // (quien corre «Run for your life» aún puede volver)
   finish(r);
 }
 
@@ -210,7 +216,8 @@ function checkOver(r: RoomState) {
 function prepare(r: RoomState, seed = 0, level?: string) {
   r.nextSeed = seed || r.fixedSeed || 1 + ((Math.random() * 2 ** 31) | 0);
   r.levelId = level ?? (r.floor > 1 || r.quota ? 'suites' : pickLevel(r.nextSeed, openOf(r))); // (a medio hotel, la ronda es la planta siguiente)
-  const lc = levelCaps(r.levelId), pool = lc.hotel ? suitesMissions(r.nextSeed, r.round, r.floor) : lc.pool ? poolMissions(r.nextSeed, r.round) : offerMissions(r.nextSeed, r.round, tvCount(generateMaze(r.nextSeed))); // (el mapa dice cuántas televisiones hay)
+  const lc = levelCaps(r.levelId);
+  const pool = r.levelId === 'parking' ? parkingMissions(r.nextSeed, r.round) : lc.hotel ? suitesMissions(r.nextSeed, r.round, r.floor) : lc.pool ? poolMissions(r.nextSeed, r.round) : offerMissions(r.nextSeed, r.round, tvCount(generateMaze(r.nextSeed))); // (el mapa dice cuántas televisiones hay)
   r.pool = pool.map((m) => ({ ...m, reward: Math.round((m.reward * DIFFICULTY[r.difficulty].money) / 5) * 5 })); // la dificultad escala el dinero que da cada misión
   r.votes.clear();
 }
@@ -234,7 +241,7 @@ function backToLobby(r: RoomState, ps: Player[]) {
   r.lockers.clear();
   prepare(r);
   // de vuelta a la sala de espera: cada uno en su sitio
-  ps.forEach((p, i) => ((p.dead = false), (p.boarded = false), (p.seen = false), (p.hp = st(p).hp), (p.water = 0), (p.totem = 0), (p.reviving = p.immuneUntil = undefined), (p.ready = false), (p.st = waitSpot(i)), (p.cap = { ...p.inv })));
+  ps.forEach((p, i) => ((p.dead = false), (p.boarded = false), (p.seen = false), (p.hp = st(p).hp), (p.water = 0), (p.totem = 0), (p.reviving = p.immuneUntil = p.ball = p.call = undefined), (p.ready = false), (p.st = waitSpot(i)), (p.cap = { ...p.inv })));
   push(r);
   for (const p of ps) io.to(p.id).emit('inv', p.inv);
 }
@@ -282,7 +289,7 @@ function gain(p: Player, id: string, r: number) {
   bag(p);
 }
 /** Con lo soltado `d` de vuelta en el inventario. */
-const withDrop = (inv: Inventory, d: Drop): Inventory => (d.kind === 'loot' ? { ...inv, loot: [...(inv.loot ?? []), d.q ?? { r: 0, w: 0 }] } : addItem(inv, d.kind, d.q?.r, d.q?.w));
+const withDrop = (inv: Inventory, d: Drop): Inventory => (d.kind === 'loot' ? { ...inv, loot: [...(inv.loot ?? []), d.q ?? { r: 0, w: 0 }] } : addItem(inv, d.kind, d.q?.r, d.q?.w, d.q?.c));
 const fitsDrop = (inv: Inventory, d: Drop, p: Player) => (d.kind === 'loot' ? hasRoom(inv, st(p), 'loot') : canHold(inv, d.kind, st(p)));
 /** Sin una unidad de `kind` (la pieza `i` si es botín): lo que queda y la calidad de lo que sale; undefined si no lo lleva. */
 function without(inv: Inventory, kind: ItemId | 'loot', i: number): { inv: Inventory; q: Qual } | undefined {
@@ -405,6 +412,7 @@ function closeVote(r: RoomState): Mission {
 function play(r: RoomState) {
   r.match = new Match(r.seed, r.difficulty, r.players.size, r.levelId, r.floor);
   r.match.setMission(r.chosen!);
+  r.match.onSeal = () => io.to(r.code).emit('seal');
   r.match.onHeld = (p) => p.uid && (count(p.uid, 'holds'), award(p.uid, 'held_breath'));
   r.strips = [];
   r.size0 = r.players.size;
@@ -414,24 +422,67 @@ function play(r: RoomState) {
   r.startedAt = Date.now();
   let slot = 0;
   for (const p of r.players.values()) {
-    const [ox, oz] = startOffset(slot++);
-    (p.dead = false), (p.seen = false), (p.hp = st(p).hp), (p.water = 0), (p.totem = 0), (p.reviving = p.immuneUntil = undefined), (p.st = { ...START, x: r.match.start.x + ox, z: r.match.start.z + oz });
+    const [ox, oz] = startOffset(slot);
+    const parking = r.match.parking;
+    const start = parking ? parkingSpawn(parking.map, slot) : { x: r.match.start.x + ox, y: 0, z: r.match.start.z + oz };
+    p.pillsUntil = p.glassesUntil = undefined;
+    slot++;
+    (p.dead = false), (p.seen = false), (p.hp = st(p).hp), (p.water = 0), (p.totem = 0), (p.reviving = p.immuneUntil = p.ball = p.call = undefined), (p.st = { ...START, x: start.x, y: start.y, z: start.z });
   }
   push(r);
 }
 
-/** Un caído vuelve a la partida junto a `at` (a 0,7 m por el primer lado libre; si no, encima), con la vida llena e inmune un rato. */
+/** La celda abierta más cercana a (x, z) donde se puede vivir: no es pared ni mueble, ni un nicho, ni el ascensor, y ni ella ni las vecinas son un hueco (no se cae uno). */
+function safeSpot(m: Maze, x: number, z: number) {
+  const bad = new Set<number>(), idx = (c: { x: number; y: number }) => c.y * m.w + c.x;
+  for (const v of m.voids) for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) bad.add((v.y + dy) * m.w + v.x + dx);
+  bad.add(idx(m.elevator));
+  m.props.forEach((q) => bad.add(idx(q.cell)));
+  m.hides.forEach((q) => bad.add(idx(q.cell)));
+  const cx = Math.floor(x / CELL), cy = Math.floor(z / CELL);
+  let best: { x: number; z: number } | undefined, bd = Infinity;
+  for (let dy = -10; dy <= 10; dy++)
+    for (let dx = -10; dx <= 10; dx++) {
+      const X = cx + dx, Y = cy + dy;
+      if (X < 0 || Y < 0 || X >= m.w || Y >= m.h || !m.open[Y * m.w + X] || bad.has(Y * m.w + X)) continue;
+      const c = centerOf({ x: X, y: Y }), d = Math.hypot(c.x - x, c.z - z);
+      if (d < bd) (bd = d), (best = c);
+    }
+  return best;
+}
+/** Un caído vuelve a la partida junto a `at`, siempre en suelo firme y despejado (nunca dentro de una pared, en el aire ni al borde de un hueco), con la vida llena e inmune un rato. */
 function revive(r: RoomState, p: Player, at: PlayerState) {
-  const m = r.match!.maze, o = [[0.7, 0], [-0.7, 0], [0, 0.7], [0, -0.7]].find(([dx, dz]) => !solidAt(m, at.x + dx, at.z + dz)) ?? [0, 0];
+  const m = r.match!.maze, parking = r.match!.parking?.map, y = parking ? at.y : 0, pool = levelCaps(r.levelId).pool, sp = pool || parking ? undefined : safeSpot(m, at.x, at.z); // (las Poolrooms y el parking tienen agua y alturas propias: ahí, como antes)
+  const o = sp ? [sp.x - at.x, sp.z - at.z] : ([[0.7, 0], [-0.7, 0], [0, 0.7], [0, -0.7]].find(([dx, dz]) => parking ? !!parkingFits(parking, at.x + dx, at.z + dz, y) : !solidAt(m, at.x + dx, at.z + dz)) ?? [0, 0]);
   p.dead = false;
   p.hp = st(p).hp;
   p.seen = false;
   p.reviving = undefined;
   p.immuneUntil = Date.now() + REVIVE_IMMUNE;
-  p.st = { ...START, x: at.x + o[0], y: at.y, z: at.z + o[1], yaw: at.yaw };
+  p.st = { ...START, x: at.x + o[0], y: pool || parking ? at.y : 0, z: at.z + o[1], yaw: at.yaw };
+  const match = r.match!.parking;
+  if (match && !match.teleport(p,p.st)) match.teleport(p,match.map.spawn);
   io.to(r.code).emit('revived', { id: p.id, name: p.name, x: p.st.x, y: p.st.y, z: p.st.z, yaw: p.st.yaw });
   push(r);
 }
+
+/** Pokeball: el caído por una bola vuelve junto a donde estaba la bola (recuperada o perdida). */
+function freeBall(r: RoomState, q: Player) {
+  const at = q.ballAt;
+  q.ball = q.ballAt = undefined;
+  if (q.dead && r.match) revive(r, q, { ...START, x: at?.[0] ?? q.st.x, z: at?.[1] ?? q.st.z });
+}
+/** Nokia: cuelga la llamada de `p` (a los dos). */
+function endCall(r: RoomState, p: Player) {
+  const q = p.call ? r.players.get(p.call) : undefined;
+  for (const [a, b] of [[p, q], [q, p]] as const) {
+    if (!a) continue;
+    a.call = undefined;
+    a.caller = false;
+    if (b) io.to(a.id).emit('toolFx', { k: 'call', peer: b.id, name: b.name, on: false });
+  }
+}
+const TOOLS = ['pokeball', 'grenade', 'bat', 'nokia'];
 
 const roomOf = (id: string) => rooms.get(where.get(id) ?? '');
 
@@ -443,7 +494,9 @@ io.on('connection', (sock) => {
   const uid = acct?.user.id ?? 0;
   if (uid) (sockets.get(uid) ?? sockets.set(uid, new Set()).get(uid)!).add(sock.id);
   const join = (r: RoomState, name: string, cb: (x: { id: string; room: RoomView }) => void) => {
+    const parkingWasOpen = openOf(r).has('parking');
     addPlayer(r, sock.id, acct ? acct.user.username : name, uid);
+    if (!parkingWasOpen && openOf(r).has('parking')) prepare(r, r.nextSeed);
     sock.join(r.code);
     cb({ id: sock.id, room: view(r) });
     sock.emit('inv', r.players.get(sock.id)!.inv);
@@ -572,6 +625,12 @@ io.on('connection', (sock) => {
       p.st = st;
       return;
     }
+    if (r.match?.parking) {
+      r.match.parking.move(p, st, Date.now(), isAdmin());
+      p.st = st;
+      p.seen = true;
+      return;
+    }
     // velocidad: el cliente manda su posición, así que se limita lo que puede avanzar entre mensajes (correr son 3,6 m/s; margen para el retraso).
     // Quien pasa de ahí (teletransporte, velocidad x2 desde la consola) se queda a lo máximo alcanzable. El admin queda fuera: tiene sus trucos de velocidad y tp.
     const now2 = Date.now(), prev = moveAt.get(sock.id) ?? now2;
@@ -579,7 +638,8 @@ io.on('connection', (sock) => {
     // un salto de `jam` al alza es un túnel sin fondo (teletransporte legítimo): no se recorta
     // (y el salto del bucle de Las Suites, `tp`: si no, el servidor te cree 24 m atrás y no te deja coger nada)
     if (!isAdmin() && !((st.jam ?? 0) > (p.st.jam ?? 0)) && !((st.tp ?? 0) > (p.st.tp ?? 0))) {
-      const reach = Math.min(2, (now2 - prev) / 1000) * MAX_SPEED + MOVE_SLACK, dx = st.x - p.st.x, dz = st.z - p.st.z, d = Math.hypot(dx, dz);
+      const speed = MAX_SPEED + (now2 < (p.pillsUntil ?? 0) ? .8 : 0);
+      const reach = Math.min(2, (now2 - prev) / 1000) * speed + MOVE_SLACK, dx = st.x - p.st.x, dz = st.z - p.st.z, d = Math.hypot(dx, dz);
       if (d > reach) (st.x = p.st.x + (dx / d) * reach), (st.z = p.st.z + (dz / d) * reach);
     }
     if (st.hiding && !r.match?.hideOk(p, st)) st.hiding = st.holding = false; // solo en un nicho libre
@@ -700,7 +760,7 @@ io.on('connection', (sock) => {
         if (!need(playing)) return;
         for (const p of targets) {
           if (!p.dead || p.boarded) continue;
-          const at = [...r.players.values()].find((q) => q !== p && !q.dead && !q.boarded)?.st ?? { ...START, x: m!.start.x, z: m!.start.z };
+          const at = [...r.players.values()].find((q) => q !== p && !q.dead && !q.boarded)?.st ?? { ...START, x: m!.start.x, y: m!.parking?.map.spawn.y ?? 0, z: m!.start.z };
           revive(r, p, at);
         }
         return reply({ ok: true });
@@ -719,16 +779,20 @@ io.on('connection', (sock) => {
       }
       case 'tp': {
         if (!need(playing)) return;
-        const dest = a.to === 'elevator' ? centerOf(m!.maze.elevator) : a.to === 'start' ? m!.start : r.players.get(a.who === 'me' ? sock.id : (a.who ?? ''))?.st;
+        const parking = m!.parking?.map, e = parking?.elevator;
+        const dest = a.to === 'elevator' ? e ? { x:e.x+e.inward*1.6,y:e.y,z:e.z } : centerOf(m!.maze.elevator) : a.to === 'start' ? m!.start : r.players.get(a.who === 'me' ? sock.id : (a.who ?? ''))?.st;
         if (!dest) return reply({ ok: false, error: 'NO SUCH PLAYER' });
+        const position = { x:dest.x, y:'y' in dest ? dest.y : 0, z:dest.z };
         for (const p of targets) {
           if (p.dead || p.boarded || p.st === dest) continue;
-          io.to(p.id).emit('adminFx', { k: 'tp', x: dest.x, y: 0, z: dest.z, yaw: p.st.yaw });
+          if (m!.parking && !m!.parking.teleport(p,position)) return reply({ ok:false,error:'INVALID PARKING DESTINATION' });
+          io.to(p.id).emit('adminFx', { k:'tp', ...(m!.parking ? { x:p.st.x,y:p.st.y,z:p.st.z } : position), yaw:p.st.yaw });
         }
         return reply({ ok: true });
       }
       case 'mission':
         if (!need(playing && !!r.chosen)) return;
+        m!.parking?.complete();
         if (!r.cur) complete(r);
         push(r);
         return reply({ ok: true });
@@ -757,6 +821,14 @@ io.on('connection', (sock) => {
     }
   });
 
+  sock.on('parkingInteract', (action, cb) => {
+    const r = roomOf(sock.id), p = r?.players.get(sock.id), parking = r?.match?.parking;
+    const got = !!r && !!p && !!parking && r.phase === 'playing' && parking.interact(p, action, [...r.players.values()]);
+    if (got && action.kind === 'tape' && p!.uid) count(p!.uid, 'tapes');
+    if (typeof got === 'string') sock.emit('inv', p!.cap);
+    if (typeof cb === 'function') cb(!!got);
+  });
+
   sock.on('pickup', (id, cb) => {
     const r = roomOf(sock.id), p = r?.players.get(sock.id), now = Date.now();
     const k = String(id);
@@ -777,7 +849,7 @@ io.on('connection', (sock) => {
     }
     const cell = r?.match?.cellOf(k), rar = cell ? spotRarity(k, cell, LEVELS[r!.levelId]?.luck) : 0; // (la rareza del objeto del mapa sale de su celda: la misma que pinta el cliente)
     const room = !p || (k[0] === 'v' ? hasRoom(p.cap, st(p), 'loot') : !kind || canHold(p.cap, kind, st(p)));
-    const ok = !!r?.match && !!p && r.phase === 'playing' && !p.boarded && (k[0] === 'd' ? takeDrop(r, p, k) : room && r.match.pickup(p, k));
+    const ok = !!r?.match && !!p && r.phase === 'playing' && !p.boarded && !r.match.parking && (k[0] === 'd' ? takeDrop(r, p, k) : room && r.match.pickup(p, k));
     if (ok && p!.uid && k[0] === 't') count(p!.uid, 'tapes'); // las cintas (ids t...)
     if (ok) r!.match!.noise(p!.st.x, p!.st.z, NOISE_PICK);
     if (ok && k[0] !== 'd') gain(p!, k, rar); // lo que se lleva: hay que tenerlo para soltarlo, beberlo o declararlo al subir
@@ -1035,11 +1107,12 @@ io.on('connection', (sock) => {
 
   // soltar una unidad delante de uno: sale de lo que podía llevar y aparece en el suelo para todos
   sock.on('drop', (kind, index, cb) => {
+    if (kind === 'pills') return typeof cb === 'function' && cb(false);
     const r = roomOf(sock.id), p = r?.players.get(sock.id), now = Date.now();
     let ok = false;
     const free = !!r && !!p && now - (p.lastDrop ?? 0) >= DROP_GAP && [...r.drops.values()].filter((d) => d.by === p.id).length < DROP_MAX;
     // en la sala de espera también se suelta (de lo que se conserva, `inv`): lo del suelo vuelve a su dueño al empezar la ronda
-    const out = free && (r!.phase === 'lobby' ? without(p!.inv, kind, Number(index) || 0) : r!.match && r!.phase === 'playing' && !p!.dead && !p!.boarded ? without(p!.cap, kind, Number(index) || 0) : undefined);
+    const out = free && (r!.phase === 'lobby' ? without(p!.inv, kind, Number(index) || 0) : r!.match && !r!.match.parking && r!.phase === 'playing' && !p!.dead && !p!.boarded ? without(p!.cap, kind, Number(index) || 0) : undefined);
     if (out && r!.phase === 'lobby') {
       p!.lastDrop = now;
       p!.inv = out.inv;
@@ -1081,7 +1154,7 @@ io.on('connection', (sock) => {
   sock.on('drink', () => {
     const r = roomOf(sock.id), p = r?.players.get(sock.id);
     if (!r?.match || !p || r.phase !== 'playing' || p.dead || p.boarded || p.cap.water <= 0) return;
-    const heal = HP_MAX * WATER_HEAL * boostOf(p.cap, 'water'); // (la rareza de la lata cura más)
+    const heal = HP_MAX * WATER_HEAL * boostOf(p.cap, 'water') * st(p).heal; // (la rareza de la lata cura más)
     p.cap = removeItem(p.cap, 'water');
     p.hp = Math.min(st(p).hp, p.hp + heal);
     bag(p);
@@ -1118,9 +1191,82 @@ io.on('connection', (sock) => {
   sock.on('monster', () => {
     const r = roomOf(sock.id), p = r?.players.get(sock.id);
     if (!r?.match || !p || r.phase !== 'playing' || p.dead || p.boarded || p.cap.monster <= 0) return;
+    r.match.parking?.drinkMonster(p);
     p.cap = removeItem(p.cap, 'monster');
     if (p.uid) count(p.uid, 'monsters');
     bag(p);
+  });
+
+  sock.on('useParkingItem', (id, cb) => {
+    if (typeof cb !== 'function') return;
+    const r = roomOf(sock.id), p = r?.players.get(sock.id), match = r?.match;
+    if (!r || !p || !match || r.phase !== 'playing' || p.dead || p.boarded
+      || !PARKING_ITEM_IDS.includes(id) || !hasItem(p.cap, id)) return cb(null);
+    const now = Date.now();
+    if (id === 'glasses' && now < (p.glassesUntil ?? 0)) return cb(null);
+    let result: { item?: ItemId; curse?: boolean } = {};
+    const hurt = (q: Player, fraction: number) => {
+      q.hp = Math.max(0, q.hp - st(q).hp * fraction);
+      if (q.hp > 0 || q.dead) return;
+      q.dead = true;
+      r.deaths++;
+      io.to(r.code).emit('dead', q.id);
+      push(r);
+      checkOver(r);
+    };
+    if (id === 'pills') {
+      p.cap = (p.cap.pills ?? 0) > 1 ? { ...p.cap, pills: p.cap.pills! - 1 } : removeItem(p.cap, id);
+      p.pillsUntil = now + 60_000;
+      hurt(p, .15);
+    } else {
+      const remaining = removeItem(p.cap, id);
+      if (id === 'steelcard') {
+        const open = openOf(r);
+        const allowed = ITEM_IDS.filter(item => item !== 'steelcard' && itemOpen(item, open) && canHold(remaining, item, st(p))
+          && (!match.parking || !['gun', 'ammo', 'watergun', 'tank', 'totem', 'radar', 'caution'].includes(item)));
+        if (!allowed.length) return cb(null);
+        if (Math.random() < .05) {
+          match.curseUntil = now + 60_000;
+          result = { curse: true };
+        } else {
+          const item = allowed[Math.floor(Math.random() * allowed.length)];
+          result = { item };
+        }
+      }
+      p.cap = result.item ? addItem(remaining, result.item) : remaining;
+      if (id === 'glasses') p.glassesUntil = now + 60_000;
+      if (id === 'beer') {
+        const { x, y, z, yaw, pitch, duck } = p.st;
+        const vx = -Math.sin(yaw) * Math.cos(pitch) * 12, vz = -Math.cos(yaw) * Math.cos(pitch) * 12;
+        const vy = Math.sin(pitch) * 12 + 2, startY = y + (duck ? .95 : 1.5);
+        const path = [{ x, y: startY, z }];
+        let target: Player | undefined, duration = 0;
+        for (let t = .015; t <= 2; t += .015) {
+          duration = t;
+          const point = { x: x + vx * t, y: startY + vy * t - 8 * t * t, z: z + vz * t };
+          if (!match.openItemPath(point.x, point.z, point.y)) break;
+          path.push(point);
+          target = [...r.players.values()].find(q => q !== p && !q.dead && !q.boarded
+            && Math.hypot(point.x - q.st.x, point.z - q.st.z) < .32
+            && point.y >= q.st.y && point.y < q.st.y + (q.st.duck ? 1.05 : 1.7));
+          if (target) break;
+        }
+        io.to(r.code).emit('beerThrow', path, duration);
+        const impact = path[path.length - 1];
+        setTimeout(() => {
+          if (r.match !== match || r.phase !== 'playing') return;
+          if (match.parking) match.parking.lureAt(impact.x, impact.z, impact.y);
+          else match.noise(impact.x, impact.z, 18);
+          if (target && r.players.get(target.id) === target && !target.dead && !target.boarded
+            && (target.immuneUntil ?? 0) <= Date.now()
+            && Math.hypot(target.st.x - impact.x, target.st.z - impact.z) < .45
+            && impact.y >= target.st.y && impact.y < target.st.y + (target.st.duck ? 1.1 : 1.75)) hurt(target, .05);
+        }, duration * 1000);
+      }
+    }
+    sock.emit('inv', p.cap);
+    bag(p);
+    cb(result);
   });
 
   // la carta Uno Reverse: cambia de sitio con un compañero vivo al azar; una sola vez
@@ -1139,6 +1285,64 @@ io.on('connection', (sock) => {
     p.cap = removeItem(p.cap, 'uno');
     if (p.uid) count(p.uid, 'unos');
     bag(p);
+    reply(true);
+  });
+
+  // los objetos de las Suites: pokeball, granada de humo, bate y nokia (aquí se decide todo; el cliente solo pinta)
+  sock.on('tool', (a, cb) => {
+    const r = roomOf(sock.id), p = r?.players.get(sock.id), m = r?.match;
+    const reply = (ok: boolean, why?: string, used?: boolean) => typeof cb === 'function' && cb({ ok, why, used });
+    if (!r || !m || !p || r.phase !== 'playing' || p.dead || p.boarded || !a || !TOOLS.includes(a.k) || !hasItem(p.cap, a.k)) return reply(false);
+    const k = a.k, S = st(p), now = Date.now(), all = [...r.players.values()], yaw = Number.isFinite(a.yaw) ? a.yaw : p.st.yaw;
+    if (now - (p.toolAt?.[k] ?? 0) < (k === 'bat' ? subOf(p.cap, 'bat', 'cd') * 1000 : 700)) return reply(false, 'WAIT');
+    (p.toolAt ??= {})[k] = now;
+    const fx = (e: ToolFx) => io.to(r.code).emit('toolFx', e);
+    // pokeball y granada vuelan en parábola con rebotes (shared/throw.ts, la misma que dibuja el arco del cliente): `reach` les da más fuerza
+    const fl = k === 'pokeball' || k === 'grenade' ? flight((x, z) => solidAt(m.maze, x, z), [p.st.x, p.st.y + 1.5, p.st.z], yaw, Math.max(-1.45, Math.min(1.45, Number(a.pitch) || 0)), 11 * Math.sqrt(S.reach)) : undefined;
+    if (k === 'pokeball' && fl) {
+      // cada bola se lanza una vez: sale de la mano y cae donde acabe el vuelo; al recuperarla es otra bola, según lo que atrapó
+      const was = p.cap.q?.pokeball ?? { r: 0, w: 0 }, mul = was.c ? BALL_KINDS[was.c]?.mul ?? 1 : 1;
+      const o = m.ballHit(p, all, fl.pts, subOf(p.cap, 'pokeball', 'time') * mul);
+      const c = o.player ? 'player' : o.ent ?? was.c, id = 'd' + (++dropNo).toString(36);
+      fx({ k: 'throw', what: 'pokeball', path: fl.pts, s: (fl.pts.length / 3) * FLIGHT_DT });
+      p.cap = removeItem(p.cap, 'pokeball');
+      r.drops.set(id, { id, kind: 'pokeball', x: o.at[0], z: o.at[1], by: p.id, at: now, q: { r: was.r, w: was.w, ...(c ? { c } : {}) } });
+      if (o.player) {
+        // un compañero: queda caído hasta que alguien recupere la bola del suelo (o ésta desaparezca)
+        (o.player.ball = id), (o.player.ballAt = o.at), (o.player.dead = true);
+        io.to(r.code).emit('dead', o.player.id);
+        push(r);
+      }
+      bag(p);
+      return reply(true, o.player ? `${o.player.name.toUpperCase()} TRAPPED · PICK THE BALL UP TO FREE THEM` : o.ent ? `${o.ent.toUpperCase()} CAUGHT · PICK THE BALL UP AGAIN` : 'MISSED · PICK THE BALL UP', true);
+    }
+    if (k === 'grenade' && fl) {
+      const sub = (key: string) => subOf(p.cap, 'grenade', key);
+      m.grenade(p, fl.end[0], fl.end[2], { r: sub('range'), dmg: sub('dmg'), fog: sub('fog'), noise: sub('noise') });
+      fx({ k: 'throw', what: 'grenade', path: fl.pts, s: (fl.pts.length / 3) * FLIGHT_DT });
+      fx({ k: 'smoke', x: fl.end[0], z: fl.end[2], r: sub('range'), s: Match.SMOKE_S });
+      p.cap = removeItem(p.cap, 'grenade');
+      bag(p);
+      return reply(true, undefined, true);
+    }
+    if (k === 'bat') {
+      const force = subOf(p.cap, 'bat', 'force') * S.reach, o = m.bat(p, all, yaw, force);
+      fx({ k: 'bat', id: p.id });
+      for (const q of o.pushed) io.to(q.id).emit('adminFx', { k: 'push', x: o.fx * force, z: o.fz * force });
+      // cada golpe la desgasta (1 / durabilidad) y puede romperse antes de tiempo
+      const q0 = p.cap.q?.bat ?? { r: 0, w: 0 }, w = q0.w + 1 / subOf(p.cap, 'bat', 'dur'), broke = w >= 1 || Math.random() < subOf(p.cap, 'bat', 'snap');
+      p.cap = broke ? removeItem(p.cap, 'bat') : { ...p.cap, q: { ...p.cap.q, bat: { r: q0.r, w } } };
+      bag(p);
+      return reply(true, broke ? 'THE BAT BROKE' : undefined, broke);
+    }
+    // nokia: sin `to`, o con una llamada en curso, cuelga; con `to`, llama a un compañero vivo (se conecta al momento)
+    if (p.call) return (endCall(r, p), reply(true));
+    const q = r.players.get(String(a.to));
+    if (!q || q === p || q.dead || q.boarded) return reply(false, 'NO ONE TO CALL');
+    if (q.call) return reply(false, 'LINE BUSY');
+    (p.call = q.id), (q.call = p.id), (p.caller = true);
+    io.to(p.id).emit('toolFx', { k: 'call', peer: q.id, name: q.name, on: true });
+    io.to(q.id).emit('toolFx', { k: 'call', peer: p.id, name: p.name, on: true });
     reply(true);
   });
 
@@ -1216,6 +1420,22 @@ setInterval(() => {
       push(r);
     });
     roundTick(r);
+    for (const q of r.players.values()) {
+      // pokeball: el encerrado vuelve cuando la bola del suelo ya no está (la recuperó alguien o caducó)
+      if (q.ball && !r.drops.has(q.ball)) freeBall(r, q);
+      // nokia: la llamada se corta si alguno cae; la batería de quien llamó se gasta mientras habla y, a cero, el nokia desaparece
+      if (q.call && q.caller) {
+        const o = r.players.get(q.call), w = (q.cap.q?.nokia?.w ?? 0) + DT / subOf(q.cap, 'nokia', 'battery');
+        if (!o || q.dead || q.boarded || o.dead || o.boarded || !q.cap.nokia) endCall(r, q);
+        else if (w >= 1) {
+          q.cap = removeItem(q.cap, 'nokia');
+          io.to(q.id).emit('adminFx', { k: 'take', item: 'nokia' });
+          io.to(q.id).emit('toolFx', { k: 'note', text: 'THE NOKIA RAN OUT OF BATTERY' });
+          endCall(r, q);
+          bag(q);
+        } else q.cap = { ...q.cap, q: { ...q.cap.q, nokia: { r: q.cap.q?.nokia?.r ?? 0, w } } };
+      }
+    }
     checkOver(r);
   }
 }, DT * 1000);
@@ -1232,11 +1452,12 @@ setInterval(() => {
 
 // el estado de cada jugador a su sala, 15 veces por segundo; el del mundo, 10
 setInterval(() => {
+  const now = Date.now();
   for (const r of rooms.values()) {
     if (r.phase !== 'playing' && !inWait(r)) continue;
     // volatile: si el socket de alguien (un túnel lento) no ha terminado de vaciar lo anterior, este se descarta en vez de
     // encolarse: llega siempre lo último y no una ráfaga de estados viejos
-    io.to(r.code).volatile.emit('players', Object.fromEntries([...r.players].map(([id, p]) => [id, { ...p.st, name: p.name, dead: p.dead, hp: p.dead ? 0 : p.hp }])));
+    io.to(r.code).volatile.emit('players', Object.fromEntries([...r.players].map(([id, p]) => [id, { ...p.st, name: p.name, dead: p.dead, hp: p.dead ? 0 : p.hp, xrayGlasses: r.phase === 'playing' && !p.dead && !p.boarded && now < (p.glassesUntil ?? 0) }])));
   }
 }, 1000 / 15);
 const lobbyHad = new Set<string>(); // salas de espera a las que ya se mandó una lista con algo (para mandar también la vacía)

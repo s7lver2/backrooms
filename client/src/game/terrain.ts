@@ -18,4 +18,7 @@ export interface Terrain {
   liquidAt(x: number, z: number, y?: number): { surface: number; depth: number } | null;
   /** Hueco al vacío en ese punto (se cae). */
   voidAt(x: number, z: number): boolean;
+  /** Grounded levels can choose a pace and follow the terrain surface continuously. */
+  readonly groundPace?: { walk: number; run: number };
+  flashDistance?(from: THREE.Vector3, direction: THREE.Vector3, feet: THREE.Vector3): number;
 }

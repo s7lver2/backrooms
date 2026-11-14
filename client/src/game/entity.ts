@@ -19,6 +19,27 @@ export const CLIPS = Object.fromEntries(Object.entries(ENTITIES).map(([k, d]) =>
 /** Los estados en que la entidad va por el mapa (los demás: atacar, bailar, muerta). */
 const ROAM = new Set<EntState['state']>(['wander', 'search', 'stalk', 'chase', 'inspect']);
 
+/** El cuerpo de una entidad (el «prefab»: modelo a su altura, color de la bacteria, globo del partygoer); lo usan `Entity` y «Run for your life». */
+export function entityBody(kind: Kind, assets: Assets) {
+  const rig = new Rig(assets.gltf[kind === 'faceling' ? 'suites/faceling' : kind]);
+  if (kind === 'faceling') rig.root.scale.setScalar(ENTITIES[kind].height / new THREE.Box3().setFromObject(rig.root).getSize(new THREE.Vector3()).y);
+  rig.root.traverse((o) => void ((o as THREE.Mesh).isMesh && (o.castShadow = true)));
+  // la bacteria viene sin textura (gris): negra y algo brillante, como en el original
+  if (kind === 'bacteria')
+    rig.root.traverse((o) => {
+      const m = (o as THREE.Mesh).material as THREE.MeshStandardMaterial | undefined;
+      if (m?.isMeshStandardMaterial) m.color.setHex(0x111111), (m.roughness = 0.45);
+    });
+  let balloon: THREE.Object3D | undefined;
+  if (kind === 'partygoer') {
+    // el globo, con el cordel en la mano derecha (se coloca cada fotograma)
+    const b = assets.gltf.balloon.scene.clone(true), box = new THREE.Box3().setFromObject(b);
+    b.position.set(-(box.min.x + box.max.x) / 2, -box.min.y, -(box.min.z + box.max.z) / 2);
+    balloon = new THREE.Group().add(b);
+  }
+  return { rig, balloon };
+}
+
 export class Entity implements Target {
   readonly pos = new THREE.Vector3();
   readonly height: number;
@@ -49,27 +70,15 @@ export class Entity implements Target {
   constructor(readonly kind: Kind, private world: World, assets: Assets, at: Cell, public speed = 1, public hp = 1, readonly remote = false) {
     this.hp0 = hp;
     this.height = ENTITIES[kind].height;
-    this.rig = new Rig(assets.gltf[kind === 'faceling' ? 'suites/faceling' : kind]);
-    if (kind === 'faceling') this.rig.root.scale.setScalar(this.height / new THREE.Box3().setFromObject(this.rig.root).getSize(new THREE.Vector3()).y);
-    this.rig.root.traverse((o) => void ((o as THREE.Mesh).isMesh && (o.castShadow = true)));
-    // la bacteria viene sin textura (gris): negra y algo brillante, como en el original
-    if (kind === 'bacteria')
-      this.rig.root.traverse((o) => {
-        const m = (o as THREE.Mesh).material as THREE.MeshStandardMaterial | undefined;
-        if (m?.isMeshStandardMaterial) m.color.setHex(0x111111), (m.roughness = 0.45);
-      });
+    const body = entityBody(kind, assets);
+    this.rig = body.rig;
+    this.balloon = body.balloon;
     this.pos.copy(center(at));
     this.goal.copy(this.pos);
     this.rig.root.position.copy(this.pos);
     world.root.add(this.rig.root);
     if (!remote) this.sim = new EntitySim(kind, world.maze, (x, z) => world.solid(x, z), at, speed, hp, true); // recover: un golpe que no mata, y vuelve a lo suyo
-    if (kind === 'partygoer') {
-      // el globo, con el cordel en la mano derecha (se coloca cada fotograma: ver update)
-      const b = assets.gltf.balloon.scene.clone(true), box = new THREE.Box3().setFromObject(b);
-      b.position.set(-(box.min.x + box.max.x) / 2, -box.min.y, -(box.min.z + box.max.z) / 2);
-      this.balloon = new THREE.Group().add(b);
-      world.root.add(this.balloon);
-    }
+    if (this.balloon) world.root.add(this.balloon);
     this.rig.play(CLIPS[kind].walk, 0);
   }
 
@@ -130,7 +139,7 @@ export class Entity implements Target {
   private follow(dt: number) {
     const clip = CLIPS[this.kind], k = 1 - Math.exp(-dt * 28); // ya viene suave de la interpolación: solo un pulido corto
     if (this.track.sample(performance.now(), this.out)) (this.goal.set(this.out.x, 0, this.out.z), (this.goalYaw = this.out.yaw));
-    if (this.hall) {
+    if (this.hall && (this.hall.x < 3 * this.hall.span) === (this.goal.x < 3 * this.hall.span)) { // (el vestíbulo no es del bucle: el personal del pasillo no se pinta allí, ni al revés)
       const d = Math.round((this.hall.x - this.goal.x) / this.hall.span) * this.hall.span;
       if (d) (this.goal.x += d), (this.pos.x += d);
     }

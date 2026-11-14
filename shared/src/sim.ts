@@ -1,4 +1,6 @@
 import { bfs, CELL, DIRS as MAZE_DIRS, type Cell, type Maze } from './maze';
+import { runBehaviors } from './behaviors';
+import { beamReaches, faces, withinHearingRange } from './perception';
 import type { ItemKind } from './index';
 
 /*
@@ -47,7 +49,7 @@ export interface EntDef {
 export const ENTITIES: Record<Kind, EntDef> = {
   // el personal del hotel: de pie y en paz hasta que alguien mata a uno; entonces todos van a por quien no esté escondido (y no se rinden)
   faceling: {
-    height: 1.75, walk: 1.3, run: 3.1, sight: 2, hearing: 3, lose: 90, roam: 'dark', rest: [1, 2],
+    height: 1.75, walk: 1.1, run: 2.5, sight: 2, hearing: 3, lose: 90, roam: 'dark', rest: [1, 2],
     brain: ['inspect', 'chase', 'search', 'wander'],
     clips: { idle: 'idle', walk: 'walk', run: 'run', attack: 'attack', dances: ['strut'] },
   },
@@ -126,6 +128,8 @@ export interface SimTarget {
   duck?: boolean;
   /** Hacia dónde mira (yaw del jugador: -z es 0); para las que acechan. */
   yaw?: number;
+  /** Dentro de una nube de humo: fracción (0–1) de alcance que se pierde para verlo. */
+  fog?: number;
 }
 
 // persiguen más rápido de lo que andas y más despacio de lo que corres: escapar cuesta aguante
@@ -267,10 +271,13 @@ export class EntitySim {
   readonly def: EntDef;
   /** Lo último que oyó (o dónde te perdió acechando) y los segundos que le quedan de ir a mirar. */
   heard?: { x: number; z: number; t: number };
+  speedBonus = 0;
   loot: Cell[];
   /** En paz: no hace nada (el personal del hotel) hasta `rage()`; ya furioso, siempre sabe dónde está el jugador más cercano que no esté escondido. */
   passive = false;
   enraged = false;
+  /** Dentro de una nube de humo: fracción (0–1) de lo lejos que ve. */
+  blind = 0;
   /** Pasea en línea recta por el eje x (con la ficha en paz), por el carril `z` y a `v` m/s. */
   patrol?: { z: number; dir: number; v: number };
   /** Despertada por un ruido (un cuadro de luz): va a mirar; si te ve, te mata; si no, vuelve a su sitio en paz. */
@@ -414,7 +421,7 @@ export class EntitySim {
     const tx = goal.x - this.x, tz = goal.z - this.z, d = Math.hypot(tx, tz);
     if (d < 0.15 && !direct) this.path.shift();
     else if (d > 1e-6) {
-      const k = Math.min(d, v * dt) / d, nx = this.x + tx * k, nz = this.z + tz * k;
+      const k = Math.min(d, (v + this.speedBonus) * dt) / d, nx = this.x + tx * k, nz = this.z + tz * k;
       if (!this.solid(nx, nz) && (!direct || !this.blockedAt(nx, nz))) (this.x = nx), (this.z = nz);
       this.moving = true;
     }
@@ -423,10 +430,14 @@ export class EntitySim {
 
   /** ¿Le da el haz de la linterna de `t`? (a 0,3 rad de la línea del ojo a ella) */
   beamed(t: SimTarget) {
-    const tx = t.ex - this.x, ty = t.ey - this.height * 0.85, tz = t.ez - this.z, d = Math.hypot(tx, ty, tz);
-    if (!t.torch || d >= SIGHT_TORCH || d < 1e-6) return false;
-    const cos = -(t.torch[0] * tx + t.torch[1] * ty + t.torch[2] * tz) / d;
-    return Math.acos(Math.max(-1, Math.min(1, cos))) < BEAM;
+    const torch = t.torch;
+    return beamReaches(
+      { x: t.ex, y: t.ey, z: t.ez },
+      { x: this.x, y: this.height * 0.85, z: this.z },
+      torch && { x: torch[0], y: torch[1], z: torch[2] },
+      SIGHT_TORCH,
+      Math.cos(BEAM),
+    );
   }
 
   /**
@@ -480,9 +491,9 @@ export class EntitySim {
     if (chasing) range = Math.min(18, range * 2);
     // agachado cuesta más verte y seguirte: la mitad de alcance (incluso persiguiendo, así que puedes escabullirte)
     if (t.duck) range *= 0.5;
-    const beamed = this.beamed(t);
-    const ang = Math.abs(mod(Math.atan2(tx, tz) - this.facing + Math.PI, TAU) - Math.PI);
-    if (!beamed && !((chasing || ang < CONE || d < 2.5) && d < range)) return 0;
+    range *= (1 - this.blind) * (1 - (t.fog ?? 0));
+    const beamed = !this.blind && !t.fog && this.beamed(t); // (con humo de por medio, ni la linterna delata)
+    if (!beamed && !((chasing || faces(tx, tz, this.facing, Math.hypot(tx, tz), Math.cos(CONE)) || d < 2.5) && d < range)) return 0;
     if (!seesXZ(this.solid, this.x, this.z, t.ex, t.ez)) return 0;
     return beamed ? 2.5 : 0.4 + 1.6 * (1 - d / range);
   }
@@ -517,7 +528,7 @@ export class EntitySim {
       this.alert = s.rate > 0 ? Math.min(1, this.alert + s.rate * dt) : Math.max(0, this.alert - dt / 4);
       for (const n of noises) {
         const d = Math.hypot(n.x - this.x, n.z - this.z);
-        if (d > 1.5 && d < n.r * this.def.hearing) this.heard = { x: n.x, z: n.z, t: 25 };
+        if (withinHearingRange(d, n.r, this.def.hearing, 1.5)) this.heard = { x: n.x, z: n.z, t: 25 };
       }
     }
     if (this.enraged && this.state !== 'chase' && this.state !== 'inspect') {
@@ -527,7 +538,7 @@ export class EntitySim {
     this.repath -= dt;
     this.routeAge += dt;
     // el cerebro: manda el primer comportamiento de la ficha que quiere
-    for (const b of this.def.brain) if (BRAIN[b](this, s)) break;
+    runBehaviors(this.def.brain, BRAIN, this, s);
     if (this.roused && !this.enraged && this.state === 'wander' && !this.heard) (this.roused = false), (this.passive = true), (this.path = []); // (no encontró nada: vuelve a lo suyo)
     // atasco: yendo a un sitio y sin avanzar 1,5 s, se descarta el camino y se traza otro
     if (this.moving) {

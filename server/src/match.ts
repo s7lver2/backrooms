@@ -1,7 +1,9 @@
 import {
-  Breath, levelCaps, seesXZ, CELL, DIFFICULTY, EEH_HOLD, HIT_DAMAGE, EntitySim, TV_REACH, centerOf, generateMaze, poolMaze, generatePools, PK, suitesMaze, hideStates, itemSpots, solidAt, tickHides, totemSpot, tvPoint, tvSites, NOISE_RUN, NOISE_SHOT, SUITE_L, wrapX,
+  Breath, levelCaps, seesXZ, CELL, DIFFICULTY, EEH_HOLD, HIT_DAMAGE, EntitySim, TV_REACH, centerOf, generateMaze, poolMaze, generatePools, PK, suitesMaze, hideStates, itemSpots, subOf, solidAt, tickHides, totemSpot, tvPoint, tvSites, NOISE_RUN, NOISE_SHOT, NOISE_DROP, SUITE_L, wrapX,
   type Difficulty, type Inventory, type Ups, type Look, type Mission, type HideState, type EntState, type ItemSpot, type Kind, type Maze, type Noise, type PlayerState, type SimTarget, type WorldSnapshot,
 } from '@backrooms/shared';
+import { ParkingMatch } from './parking-match';
+import { POOL_CELL, poolFloorY, type PoolMap } from '@backrooms/shared';
 
 /*
  * Lo que el servidor sabe de una partida en marcha: el mapa de la semilla, los objetos que quedan, las
@@ -15,6 +17,8 @@ const PHOTO_REACH = 50; // m: 15 del visor por la raíz del zoom máximo, con ma
 const PHOTO_COS = Math.cos((24 * Math.PI) / 180); // el visor cierra 12° como mucho; aquí se perdona el doble por la red
 
 export interface Player {
+  pillsUntil?: number;
+  glassesUntil?: number;
   id: string;
   name: string;
   st: PlayerState;
@@ -62,6 +66,14 @@ export interface Player {
   vel?: number;
   /** Pistola de agua: estado de mojado/parada (ver applyWet). */
   wet?: WetState;
+  /** Pokeball: quién lo tiene encerrado (este jugador, caído, vuelve cuando su dueño la usa, la suelta o muere). */
+  ball?: string;
+  ballAt?: [number, number];
+  /** Nokia: con quién habla, y si él es quien llamó (gasta su batería). */
+  call?: string;
+  caller?: boolean;
+  /** Cuándo usó cada objeto de las Suites (ms) por última vez. */
+  toolAt?: Record<string, number>;
 }
 
 /** Mojado/parada de quien recibe el chorro (jugador; sirve igual para una entidad). Tiempos en ms de reloj. */
@@ -93,9 +105,14 @@ export function applyWet(w: WetState, now: number): { kind: 'wet' | 'stun'; ms: 
 interface Ent {
   id: number;
   sim: EntitySim;
+  /** Personal del vestíbulo (no sale de él, ni el del pasillo entra). */
+  lobby?: boolean;
+  /** Pokeball: las demás entidades son su enemigo hasta `until` (segundos de partida), salvo su dueño `by`; `prev` es lo que era antes. */
+  charm?: { until: number; by: string; prev: { passive: boolean; enraged: boolean; roused: boolean } };
 }
 
 export class Match {
+  parking?: ParkingMatch;
   readonly maze: Maze;
   private items = new Map<string, ItemSpot>();
   private taken = new Set<string>();
@@ -103,7 +120,21 @@ export class Match {
   /** Los ruidos de este paso (carreras, disparos, objetos que caen): los oyen las entidades. */
   private noises: Noise[] = [];
   noise(x: number, z: number, r: number) {
-    this.noises.push({ x, z, r });
+    if (!this.parking) this.noises.push({ x, z, r });
+  }
+
+  curseUntil = 0;
+  private poolGeometry?: PoolMap;
+
+  openItemPath(x: number, z: number, y: number) {
+    if (this.parking) return this.parking.openItemPath(x, z, y);
+    const pool = this.poolGeometry;
+    if (pool) {
+      const surface = poolFloorY(pool, x, z, y);
+      const index = Math.floor(z / POOL_CELL) * pool.w + Math.floor(x / POOL_CELL);
+      return !!surface && y >= surface.y && (surface.layer === 1 || y < pool.ceil[index]);
+    }
+    return !solidAt(this.maze, x, z) && y >= 0 && y < 3;
   }
   private nextId = 1;
   private age = 0;
@@ -133,7 +164,7 @@ export class Match {
   /** El mapa por el que andan las entidades (en las Poolrooms, sin la planta alta). */
   private emaze?: Maze;
 
-  constructor(readonly seed: number, difficulty: Difficulty = 'normal', players = 1, levelId = 'level0', floor = 1) {
+  constructor(readonly seed: number, difficulty: Difficulty = 'normal', players = 1, readonly levelId = 'level0', floor = 1) {
     this.speed = DIFFICULTY[difficulty].speed;
     this.grace = DIFFICULTY[difficulty].grace;
     const caps = levelCaps(levelId);
@@ -143,7 +174,7 @@ export class Match {
     this.maze.totem = this.noEnts ? null : totemSpot(this.maze, seed, players);
     this.hides = hideStates(this.maze);
     const D = DIFFICULTY[difficulty];
-    for (const it of itemSpots(this.maze)) this.items.set(it.id, it);
+    if (levelId !== 'parking') for (const it of itemSpots(this.maze)) this.items.set(it.id, it);
     // el loot según la dificultad: solo lo prescindible (latas, linternas, rifles extra); lo que pide una misión o da una ventaja grande no. Lo quitado cuenta como ya cogido: el cliente no lo pinta
     for (const it of [...this.items.values()]) {
       const n = Number(it.id.slice(1)) || 0;
@@ -154,7 +185,7 @@ export class Match {
     if (caps.pool) {
       // Poolrooms: una sola entidad, al azar (según la semilla), y solo por la planta baja (la alta no se pisa desde el suelo)
       // la planta baja entera, agua honda incluida (la cruzan nadando); `lay` no sirve: también marca celdas con objeto arriba y suelo abajo
-      const gp = generatePools(seed);
+      const gp = this.poolGeometry = generatePools(seed);
       if (m.lay) this.emaze = { ...m, open: gp.kind.map((k) => (k === PK.floor ? 1 : 0)) as unknown as Uint8Array };
       this.spawn(((seed >>> 3) & 1 ? 'partygoer' : 'bacteria') as Kind, m.spawns[0]);
     }
@@ -174,6 +205,7 @@ export class Match {
         this.spawn('faceling', { x: Math.floor(x / CELL), y: Math.floor(z / CELL) }, 1, 3);
         const e = this.ents[this.ents.length - 1].sim;
         (e.x = x), (e.z = z), (e.facing = Math.atan2(dx, dz)), (e.passive = true);
+        this.ents[this.ents.length - 1].lobby = x >= 3 * span;
       }
     }
     if (!this.noEnts) for (let i = 0; i < D.ents; i++) this.spawn(i % 2 ? 'partygoer' : 'bacteria', m.spawns[i] ?? m.spawns[i % Math.max(1, m.spawns.length)] ?? m.spawns[0]);
@@ -182,6 +214,7 @@ export class Match {
   /** Se juega esta misión (la elegida en la pizarra). */
   setMission(m: Mission) {
     this.mission = m;
+    if (this.levelId === 'parking') { this.parking = new ParkingMatch(this.seed, m); return; }
     this.eehOn = false;
     this.base = this.raw(m);
     // las cintas solo hay si la misión es encontrarlas (en el hotel hay siempre, por si toca encadenar esa misión)
@@ -195,6 +228,15 @@ export class Match {
     for (const q of this.ents) if (q.sim.kind === 'faceling') (q.sim.enraged = q.sim.roused = false), (q.sim.passive = true), (q.sim.path = []), (q.sim.state = 'wander');
   }
   private vengeance = false;
+  /** Las nubes de humo de las granadas. */
+  private smokes: { x: number; z: number; r: number; fog: number; until: number }[] = [];
+  /** Cuánto dura una nube (s). */
+  static readonly SMOKE_S = 18;
+  private sealed = false;
+  private sealT = 0;
+  private readonly sealAt = 40 + Math.random() * 80;
+  /** La puerta del vestíbulo ha desaparecido. */
+  onSeal?: () => void;
 
   /** Segundos de partida. */
   get elapsed() {
@@ -203,6 +245,7 @@ export class Match {
 
   /** El progreso de la misión (fotos, cintas, segundos o televisiones apagadas), sin pasar de la meta. */
   get progress() {
+    if (this.parking) return this.parking.progress;
     const m = this.mission;
     if (!m) return 0;
     return Math.min(m.goal, this.raw(m) - this.base);
@@ -224,7 +267,7 @@ export class Match {
 
   /** Dónde empiezan todos. */
   get start() {
-    return centerOf(this.maze.start);
+    return this.parking?.map.spawn ?? centerOf(this.maze.start);
   }
 
   private spawn(kind: Kind, at: { x: number; y: number }, speed = 1, hp = 3) {
@@ -234,6 +277,7 @@ export class Match {
 
   /** Admin: una entidad en una celda abierta cerca de (x, z) (a 3–7 celdas), o en el arranque más lejano si no hay. */
   adminSpawn(kind: Kind, x: number, z: number) {
+    if (this.parking) return;
     const m = this.maze, cx = Math.floor(x / CELL), cy = Math.floor(z / CELL);
     const open: { x: number; y: number }[] = [];
     for (let y = Math.max(0, cy - 7); y <= Math.min(m.h - 1, cy + 7); y++)
@@ -265,12 +309,32 @@ export class Match {
   /** Un paso de la IA (la llaman 20 veces por segundo). `caught` se llama por cada jugador al que alcanza una. */
   tick(dt: number, players: Player[], caught: (p: Player, entityId: number) => void) {
     this.age += dt;
+    if (this.parking) {
+      const now = Date.now();
+      this.parking.frozen = this.frozen;
+      this.parking.skinwalkers.speedBonus = now < this.curseUntil ? .5 : 0;
+      this.parking.tick(dt, players, now, p => caught(p, -1));
+      return;
+    }
     // misión EEH: el evaporador falla a su hora y entran las entidades (partygoers y una bacteria, por los arranques más lejanos)
     if (this.mission?.kind === 'eeh' && !this.eehOn && this.age - this.base >= this.mission.goal - EEH_HOLD) {
       this.eehOn = true;
       for (const q of this.ents) q.sim.kind === 'faceling' && q.sim.rage(); // el evaporador falla: el personal, que estaba en paz, va a por todos
     }
+    // la puerta doble del vestíbulo desaparece a una hora al azar, cuando todos los vivos están ya en el pasillo: el bucle queda cerrado (ya no hay vuelta atrás)
+    if (this.hotel && !this.sealed) {
+      const alive = players.filter((p) => !p.dead && !p.boarded);
+      this.sealT = alive.length && alive.every((p) => p.st.x < 3 * SUITE_L * CELL - 3) ? this.sealT + dt : 0;
+      if (this.sealT >= this.sealAt) {
+        this.sealed = true;
+        for (const y of [8, 9]) this.maze.open[y * this.maze.w + SUITE_L * 3] = 0;
+        this.ents = this.ents.filter((e) => !e.lobby);
+        this.onSeal?.();
+      }
+    }
     const targets: SimTarget[] = [];
+    this.smokes = this.smokes.filter((q) => q.until > this.age);
+    const fogAt = (x: number, z: number) => this.smokes.reduce((f, q) => (this.far({ x, z }, q) < q.r ? Math.max(f, q.fog) : f), 0);
     this.hiding(dt, players);
     const hidden = this.age > this.grace ? this.hides.filter((h) => h.occ) : [];
     if (this.age > this.grace) {
@@ -282,20 +346,43 @@ export class Match {
           id: p.id, x: s.x, y: s.y, z: s.z, yaw: s.yaw, ex: s.x, ey: s.y + EYE - (s.duck ? 0.6 : 0), ez: s.z, duck: !!s.duck,
           torch: s.light ? [-Math.sin(s.yaw) * cp, Math.sin(s.pitch), -Math.cos(s.yaw) * cp] : null,
           exposed: cx >= 0 && cy >= 0 && cx < m.w && cy < m.h && !!m.lit[cy * m.w + cx],
+          fog: fogAt(s.x, s.z) || undefined,
         });
       }
     }
     const noises = this.age > this.grace ? this.noises : [];
     this.noises = [];
-    for (const e of this.frozen ? [] : this.ents) {
-      const id = e.sim.update(dt, targets, false, hidden, noises);
+    for (const e of this.frozen ? [] : [...this.ents]) {
+      if (!this.ents.includes(e)) continue; // (otra entidad, hechizada, acaba de matarla)
+      e.sim.blind = fogAt(e.sim.x, e.sim.z);
+      let tg = targets;
+      if (e.charm) {
+        if (this.age >= e.charm.until) (Object.assign(e.sim, e.charm.prev), (e.sim.path = []), (e.charm = undefined));
+        else {
+          // hechizada: a por todo lo que no sea su dueño, entidades incluidas
+          const by = e.charm.by;
+          e.sim.passive = false;
+          e.sim.enraged = true;
+          tg = [...targets.filter((t) => t.id !== by), ...this.ents.filter((o) => o !== e && o.sim.alive).map((o) => ({ id: '#' + o.id, x: o.sim.x, y: 0, z: o.sim.z, ex: o.sim.x, ey: o.sim.height * 0.85, ez: o.sim.z, torch: null, exposed: true }))];
+        }
+      }
+      e.sim.speedBonus = Date.now() < this.curseUntil ? .5 : 0;
+      const id = e.sim.update(dt, tg, false, hidden, noises);
       if (this.hotel) {
-        const x = wrapX(e.sim.x);
-        if (x !== e.sim.x) (e.sim.x = x), (e.sim.path = []); // (como los jugadores: siempre en la copia del medio)
+        const x = e.lobby ? Math.max(e.sim.x, 3 * SUITE_L * CELL + 0.6) : wrapX(e.sim.x); // (el del vestíbulo no pasa al pasillo; el del pasillo, como los jugadores, siempre en la copia del medio)
+        if (x !== e.sim.x) (e.sim.x = x), (e.sim.path = []);
       }
       if (id === undefined) continue;
+      if (id[0] === '#') {
+        // una hechizada alcanza a otra entidad: 2 de daño
+        const i = this.ents.findIndex((o) => o.id === Number(id.slice(1)));
+        e.sim.state = 'attack';
+        if (i >= 0 && (this.ents[i].sim.hit(), this.ents[i].sim.hit() || !this.ents[i].sim.alive)) this.down(i, { st: e.sim });
+        continue;
+      }
       const p = players.find((q) => q.id === id);
       if (!p || p.dead || p.boarded) continue;
+      if (e.sim.kind === 'faceling') console.log(`[staff] un Faceling mata a ${p.id}: enraged=${e.sim.enraged} roused=${e.sim.roused} vengeance=${this.vengeance} eehOn=${this.eehOn} estado=${e.sim.state} mision=${this.mission?.kind}`);
       // un golpe quita vida; muere con la vida a cero o si lo pillan en un nicho (sin salida)
       p.hp = (p.hide ?? -1) >= 0 || e.sim.kind === 'faceling' ? 0 : Math.max(0, p.hp - HIT_DAMAGE); // (el personal no deja heridos)
       e.sim.state = 'attack'; // ataca y vuelve a lo suyo (ver recover)
@@ -306,10 +393,15 @@ export class Match {
   }
 
   snapshot(): WorldSnapshot {
+    if (this.parking) {
+      const parking = this.parking.snapshot();
+      return { parking, ents: [], taken: parking.tapes, tapes: parking.tapes.length };
+    }
     return {
       ents: this.ents.map((e) => ({ id: e.id, kind: e.sim.kind, x: e.sim.x, z: e.sim.z, yaw: e.sim.facing, state: e.sim.state, hp: e.sim.hp, speed: e.sim.speed }) satisfies EntState),
       taken: [...this.taken],
       tapes: this.tapes,
+      ...(this.vengeance ? { vengeance: true } : {}),
       insp: this.hides.filter((h) => h.by && h.occ).map((h) => h.occ!.id),
       ...(this.tvs.length ? { tvOff: [...this.tvOff] } : {}),
     };
@@ -442,8 +534,67 @@ export class Match {
     return ev && { to: best, ev };
   }
 
+  // ── los cuatro objetos de las Suites ──
+
+  /** Pokeball: lo primero que toca en su vuelo (`pts`). Una entidad queda hechizada `secs` s (devuelve su tipo); un jugador, en `player`. `at` es dónde cae. */
+  ballHit(p: Player, players: Player[], pts: number[], secs: number) {
+    for (let i = 0; i < pts.length; i += 3) {
+      const x = pts[i], y = pts[i + 1], z = pts[i + 2];
+      for (const q of players) if (q !== p && !q.dead && !q.boarded && q.seen && Math.hypot(q.st.x - x, q.st.z - z) < 0.8 && y - q.st.y > 0 && y - q.st.y < 2) return { player: q, at: [x, z] as [number, number] };
+      for (const e of this.ents)
+        if (e.sim.alive && Math.hypot(e.sim.x - x, e.sim.z - z) < 0.9 && y < 2.2) {
+          e.charm = { until: this.age + secs, by: p.id, prev: e.charm?.prev ?? { passive: e.sim.passive, enraged: e.sim.enraged, roused: e.sim.roused } };
+          return { ent: e.sim.kind, at: [e.sim.x, e.sim.z] as [number, number] };
+        }
+    }
+    return { at: [pts[pts.length - 3], pts[pts.length - 1]] as [number, number] };
+  }
+
+  /** Granada de humo caída en (x, z): nube de radio `r`, ruido de `noise` m y daño de impacto `dmg` a lo que esté debajo. */
+  grenade(p: Player, x: number, z: number, o: { r: number; dmg: number; fog: number; noise: number }) {
+    this.smokes.push({ x, z, r: o.r, fog: o.fog, until: this.age + Match.SMOKE_S });
+    this.noise(x, z, o.noise);
+    for (const e of [...this.ents])
+      if (this.far({ x, z }, e.sim) < 1.6 && (e.sim.hp -= o.dmg) <= 0) {
+        e.sim.hp = 1;
+        if (e.sim.hit()) this.down(this.ents.indexOf(e), p);
+      }
+  }
+
+  /** Bate: lo que hay delante a ≤ 2,6 m sale despedido `force` m. Las entidades se mueven aquí (y caen al vacío si lo pisan); a los jugadores los empuja su cliente. */
+  bat(p: Player, players: Player[], yaw: number, force: number) {
+    const fx = -Math.sin(yaw), fz = -Math.cos(yaw), pushed: Player[] = [];
+    let hit = false;
+    const inCone = (x: number, z: number) => {
+      const dx = x - p.st.x, dz = z - p.st.z, d = Math.hypot(dx, dz);
+      return d <= 2.6 && (d < 0.4 || (dx * fx + dz * fz) / d >= 0.55);
+    };
+    for (const q of players) if (q !== p && !q.dead && !q.boarded && inCone(q.st.x, q.st.z)) (pushed.push(q), (hit = true));
+    for (const e of [...this.ents]) {
+      if (!e.sim.alive || !inCone(e.sim.x, e.sim.z)) continue;
+      hit = true;
+      if (this.shove(e, fx, fz, force)) this.down(this.ents.indexOf(e), p);
+    }
+    this.noise(p.st.x, p.st.z, NOISE_DROP);
+    return { pushed, hit, fx, fz };
+  }
+
+  /** Empuja una entidad `len` m hacia (dx, dz) hasta una pared; true si acaba sobre un hueco (cae). */
+  private shove(e: Ent, dx: number, dz: number, len: number) {
+    const m = this.maze, n = Math.ceil(len / 0.3);
+    for (let i = 0; i < n; i++) {
+      const x = e.sim.x + (dx * len) / n, z = e.sim.z + (dz * len) / n;
+      if (solidAt(m, x, z)) break;
+      (e.sim.x = x), (e.sim.z = z);
+    }
+    e.sim.path = [];
+    const c = e.sim.cellOf(e.sim.x, e.sim.z);
+    return m.voids.some((v) => v.x === c.x && v.y === c.y);
+  }
+
   /** Entrar en el ascensor (abierto: la misión está cumplida). */
   canBoard(p: Player) {
+    if (this.parking) return this.parking.canBoard(p);
     const c = centerOf(this.maze.elevator);
     return !p.dead && !p.boarded && Math.hypot(p.st.x - c.x, p.st.z - c.z) < 2.5;
   }

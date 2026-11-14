@@ -3,7 +3,8 @@ import type { Assets } from './game';
 import type { Controls } from './input';
 import type { GameAudio } from './audio';
 import { Rig } from './rig';
-import { CLIPS, type Kind } from './entity';
+import { CLIPS, entityBody, type Kind } from './entity';
+import type { Player } from './player';
 import { settings } from '../settings';
 import { H, HW, OPEN, Hospital, fit, mulberry, type Slot } from './hospital';
 
@@ -35,6 +36,7 @@ const LIM = HW - 0.45, BACK = 26, TAIL = 10, EARLY = 1.8; // EARLY: lo que sale 
 const PACK: { kind: Kind; dz: number; ox: number }[] = [
   { kind: 'bacteria', dz: 0, ox: 0 }, { kind: 'partygoer', dz: 1.4, ox: -1.7 }, { kind: 'bacteria', dz: 2.6, ox: 1.6 }, { kind: 'partygoer', dz: 4.4, ox: -3 },
   { kind: 'bacteria', dz: 6, ox: 3 }, { kind: 'partygoer', dz: 7.8, ox: -0.9 }, { kind: 'bacteria', dz: 10, ox: 1 },
+  { kind: 'faceling', dz: 3.4, ox: 0.2 }, { kind: 'faceling', dz: 9, ox: -2.2 }, // (el personal del hotel: todas las entidades del juego van tras de ti)
 ];
 
 interface Obstacle {
@@ -151,6 +153,29 @@ export class RunLevel {
   private owned: { dispose(): void }[] = [];
   private hand = new THREE.Vector3();
   private shake = 0;
+  /** El Player de siempre (cuerpo, manos, linterna, inventario, barra rápida): el nivel solo le mueve el cuerpo (`terrain.drive`), como las Poolrooms. */
+  private pl?: Player;
+  private waiting = false;
+  private readonly terrain: NonNullable<Player['terrain']> = {
+    drive: (dt, c, yaw, pitch) => {
+      this.yaw = THREE.MathUtils.clamp(yaw, Math.PI - 2.6, Math.PI + 2.6); // (mirar también hacia atrás, para ver lo que viene)
+      this.pitch = THREE.MathUtils.clamp(pitch, -1.2, 1.2);
+      if (!this.waiting) this.move(dt, c);
+      return { x: this.px, y: this.py, z: this.pz, yaw: this.yaw, pitch: this.pitch, speed: this.sp, air: this.py > 0, vy: this.vy, swim: false, eye: EYE, jetOk: false };
+    },
+    jetProbe: () => null,
+    splash: () => {},
+    refillNear: () => false,
+  };
+  /** Le da el cuerpo al Player: la cámara del nivel pasa a ser suya (sus manos y objetos cuelgan de ella). */
+  attach(pl: Player) {
+    this.pl = pl;
+    pl.poolMode = true;
+    pl.terrain = this.terrain;
+    pl.yaw = Math.PI;
+    pl.pitch = 0;
+    this.scene.add(this.camera);
+  }
 
   constructor(private assets: Assets, private audio: GameAudio | undefined, private reduced: boolean, aspect: number) {
     this.camera = new THREE.PerspectiveCamera(settings.fov, aspect, 0.05, 90);
@@ -203,12 +228,7 @@ export class RunLevel {
 
     // los monstruos: los modelos de las entidades del juego, corriendo hacia delante (+z)
     for (const c of PACK) {
-      const rig = new Rig(assets.gltf[c.kind as 'bacteria' | 'partygoer']);
-      if (c.kind === 'bacteria')
-        rig.root.traverse((o) => {
-          const m = (o as THREE.Mesh).material as THREE.MeshStandardMaterial | undefined;
-          if (m?.isMeshStandardMaterial) m.color.setHex(0x111111), (m.roughness = 0.45);
-        });
+      const { rig, balloon } = entityBody(c.kind, assets); // (el mismo cuerpo que en los demás niveles: entity.ts)
       const a = rig.play(CLIPS[c.kind].run, 0);
       if (a) a.timeScale = 1.15;
       sc.add(rig.root);
@@ -218,14 +238,8 @@ export class RunLevel {
         eye.position.set(ex, hh * 0.9, 0.14);
         rig.root.add(eye);
       }
-      const ch: Chaser = { ...c, rig, x: c.ox };
-      if (c.kind === 'partygoer') {
-        const b = assets.gltf.balloon.scene.clone(true), box = new THREE.Box3().setFromObject(b);
-        b.position.set(-(box.min.x + box.max.x) / 2, -box.min.y, -(box.min.z + box.max.z) / 2);
-        ch.balloon = new THREE.Group().add(b);
-        sc.add(ch.balloon);
-      }
-      this.pack.push(ch);
+      if (balloon) sc.add(balloon);
+      this.pack.push({ ...c, rig, x: c.ox, balloon });
     }
     this.restart();
   }
@@ -558,7 +572,12 @@ export class RunLevel {
     const gap = this.pz - this.lead, near = THREE.MathUtils.clamp((7 - gap) / 5, 0, 1);
     const shake = this.reduced ? 0 : this.stumble > 0 ? 0.05 : near * near * 0.022;
     this.shake = shake;
-    if (this.state === 'go' || this.state === 'won') {
+    if (this.pl && this.state === 'go') {
+      // la cámara es del Player: solo se le suma la vibración
+      cam.position.x += (Math.random() - 0.5) * shake;
+      cam.position.y += (Math.random() - 0.5) * shake;
+      cam.rotation.z = this.reduced ? 0 : Math.sin(this.t * 6.5) * 0.012 + (Math.random() - 0.5) * shake * 0.3;
+    } else if (this.state === 'go' || this.state === 'won') {
       cam.position.set(this.px + (Math.random() - 0.5) * shake, eye + (Math.random() - 0.5) * shake, this.pz);
       cam.rotation.set(this.pitch, this.yaw, this.reduced ? 0 : Math.sin(this.t * 6.5) * 0.012 + (Math.random() - 0.5) * shake * 0.3, 'YXZ');
     }
@@ -568,6 +587,24 @@ export class RunLevel {
     this.ahead.position.set(this.px * 0.5, 2.4, this.pz + 6);
     this.ahead.intensity = 5 * (this.reduced ? 1 : 0.8 + 0.2 * Math.sin(this.t * 23) * Math.sin(this.t * 7.3) + (Math.random() < near * 0.15 ? -0.5 : 0));
     this.torch.intensity = 2.6 + near * 3;
+  }
+
+  /** Esquivar, saltar y agacharse (a la derecha es -x: se corre hacia +z). Los mismos controles que en las Backrooms: WASD relativo a hacia dónde miras, Shift corre, C agacha (correr manda). */
+  private move(dt: number, c: Controls) {
+    const duck = !!c.crouch && !c.run && this.py <= 0;
+    this.duck += ((duck ? 1 : 0) - this.duck) * Math.min(1, dt * 14);
+    const mv = Math.min(1, c.move.length()), want = mv * (c.run ? V0 : duck ? 1.5 : 3) * (this.stumble > 0 ? 0.35 : 1);
+    const fx = -Math.sin(this.yaw), fz = -Math.cos(this.yaw); // hacia delante (yaw = π mira a +z); la derecha es (-fz, fx)
+    const dx = c.move.y * fx - c.move.x * fz, dz = c.move.y * fz + c.move.x * fx, dl = Math.hypot(dx, dz) || 1;
+    this.px = THREE.MathUtils.clamp(this.px + (dx / dl) * want * dt, -LIM, LIM);
+    if (c.jump && this.py <= 0 && !duck) this.vy = JUMP;
+    this.vy -= G * dt;
+    this.py = Math.max(0, this.py + this.vy * dt);
+    if (this.py === 0) this.vy = 0;
+    // la velocidad: un golpe la frena un momento (el hueco con ellos se come ~2 m)
+    this.stumble = Math.max(0, this.stumble - dt);
+    this.pz = Math.max(0, this.pz + (dz / dl) * want * dt);
+    this.sp += (Math.max(0, (dz / dl) * want) - this.sp) * Math.min(1, dt * 7);
   }
 
   update(dt: number, c: Controls) {
@@ -587,33 +624,23 @@ export class RunLevel {
       if (this.ct > 1.9 && !this.done) (this.done = true), this.onDone?.();
       return;
     }
-    // mirar: también hacia atrás, para ver lo que viene
-    this.yaw = THREE.MathUtils.clamp(this.yaw - c.look.x, Math.PI - 2.6, Math.PI + 2.6);
-    this.pitch = THREE.MathUtils.clamp(this.pitch - c.look.y, -1.2, 1.2);
     // el aviso (WARN s) y la cuenta atrás (3, 2, 1): se puede mirar pero no correr, y ellos esperan
-    if (this.intro > 0) {
+    this.waiting = this.intro > 0;
+    if (this.waiting) {
       this.intro -= dt;
       if (this.intro <= 0) this.audio?.boom();
+    }
+    if (this.pl) this.pl.update(dt, c); // (el Player mira y, por `terrain.drive`, nos pide el movimiento)
+    else {
+      this.yaw = THREE.MathUtils.clamp(this.yaw - c.look.x, Math.PI - 2.6, Math.PI + 2.6);
+      this.pitch = THREE.MathUtils.clamp(this.pitch - c.look.y, -1.2, 1.2);
+      if (!this.waiting) this.move(dt, c);
+    }
+    if (this.waiting) {
       this.place(dt);
       return;
     }
     this.go += dt;
-    // esquivar, saltar y agacharse (a la derecha es -x: se corre hacia +z)
-    // los mismos controles que en las Backrooms: WASD relativo a hacia dónde miras, Shift corre, C agacha (correr manda)
-    const duck = !!c.crouch && !c.run && this.py <= 0;
-    this.duck += ((duck ? 1 : 0) - this.duck) * Math.min(1, dt * 14);
-    const mv = Math.min(1, c.move.length()), want = mv * (c.run ? V0 : duck ? 1.5 : 3) * (this.stumble > 0 ? 0.35 : 1);
-    const fx = -Math.sin(this.yaw), fz = -Math.cos(this.yaw); // hacia delante (yaw = π mira a +z); la derecha es (-fz, fx)
-    const dx = c.move.y * fx - c.move.x * fz, dz = c.move.y * fz + c.move.x * fx, dl = Math.hypot(dx, dz) || 1;
-    this.px = THREE.MathUtils.clamp(this.px + (dx / dl) * want * dt, -LIM, LIM);
-    if (c.jump && this.py <= 0 && !duck) this.vy = JUMP;
-    this.vy -= G * dt;
-    this.py = Math.max(0, this.py + this.vy * dt);
-    if (this.py === 0) this.vy = 0;
-    // la velocidad: un golpe la frena un momento (el hueco con ellos se come ~2 m)
-    this.stumble = Math.max(0, this.stumble - dt);
-    this.pz = Math.max(0, this.pz + (dz / dl) * want * dt);
-    this.sp += (Math.max(0, (dz / dl) * want) - this.sp) * Math.min(1, dt * 7);
     // ellos: aprietan si te alejas, aflojan si se acercan demasiado
     const gap = this.pz - this.lead;
     // la embestida: cada 8–13 s avisan (golpe seco + estática) y un segundo después se lanzan; luego aflojan. Nunca te alcanzan solo por ella

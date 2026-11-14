@@ -17,6 +17,7 @@ const LEVEL0: LevelCaps = { pool: false, ents: true, fall: true, insane: true, s
 export const LEVEL_CAPS: Record<string, LevelCaps> = {
   level0: LEVEL0,
   poolrooms: { pool: true, ents: false, fall: false, insane: false, swim: true },
+  parking: { pool: false, ents: false, fall: false, insane: false, swim: false },
   suites: { pool: false, ents: false, fall: false, insane: false, swim: false, hotel: true },
 };
 /** Un nivel desconocido se comporta como el nivel 0. */

@@ -1,13 +1,19 @@
+import type { ParkingInteraction, ParkingSnapshot } from './parking';
 /** Lo que comparten el cliente y el servidor: los puertos fijos, el protocolo de las salas y la lógica de la partida. */
 export * from './maze';
 export * from './pools';
 export * from './suites';
 export * from './lockers';
 export * from './sim';
+export * from './behaviors';
 export * from './progress';
 export * from './missions';
 export * from './caps';
+export * from './parking';
+export * from './parking-skinwalker-ai';
+export * from './parking-smiler-ai';
 export * from './upgrades';
+export * from './throw';
 import type { EntState, Kind } from './sim';
 import type { Look } from './progress';
 import type { LevelCaps } from './caps';
@@ -86,6 +92,7 @@ export interface PlayerState {
   t?: number;
   /** Vida (0–100). La pone el servidor al repartir los estados; lo que mande el cliente se ignora. */
   hp?: number;
+  xrayGlasses?: boolean;
 }
 /** Emotes de la sala de espera (teclas 1–4) y los ms mínimos entre dos cambios de uno. */
 export const EMOTES: readonly string[] = ['', ...EMOTE_DEFS.map((e) => e.name)];
@@ -139,6 +146,7 @@ export interface Room extends RoomSettings {
   round: number;
   /** El nivel de la ronda (clave de LEVELS en shared/missions.ts). */
   levelId: string;
+  openLevels?: string[];
   /** Las Suites: la planta de la ronda (1-5). */
   floor?: number;
   /** Las Suites: encargos del contrato votado (1, 3 o 5; 0 = aún sin contrato) y los ya cumplidos. El -1 del ascensor solo sale con `jobs >= quota`. */
@@ -213,6 +221,7 @@ export type Joined = { id: string; room: RoomView } | { error: string };
 /** Un objeto de la partida: cinta, linterna, cámara o rifle. */
 export type ItemKind = 'tape' | 'flashlight' | 'camera' | 'gun' | 'water' | 'totem' | 'radar' | 'tank' | 'watergun' | 'loot' | 'locker' | 'gen' | 'ammo';
 export interface WorldSnapshot {
+  parking?: ParkingSnapshot;
   /** Reloj del servidor (Date.now()) al tomar el snapshot: las entidades se interpolan con él, no con la hora de llegada. */
   t?: number;
   ents: EntState[];
@@ -222,6 +231,8 @@ export interface WorldSnapshot {
   tapes: number;
   /** Jugadores a los que una entidad inspecciona ahora en su nicho (hay que contener la respiración). */
   insp?: string[];
+  /** Alguien del equipo mató a uno del personal (Las Suites): todos van a por vosotros. */
+  vengeance?: boolean;
   /** Objetos soltados que hay ahora en el suelo (ids `d…`); los pickups del cliente se sincronizan con esta lista. */
   drops?: Drop[];
   /** Índices (de tvSites) de las televisiones ya apagadas; solo con la misión «TURN OFF THE TVS». */
@@ -260,7 +271,28 @@ export interface AdminInfo {
 }
 export type AdminReply = { ok: boolean; error?: string; info?: AdminInfo };
 /** Efectos de admin que el servidor manda a un cliente (el resto de la consola usa los canales de siempre: room, dead, revived, inv...). */
-export type AdminFx = { k: 'tp'; x: number; y: number; z: number; yaw: number } | { k: 'give'; item: ItemId } | { k: 'heal' } | { k: 'ammo'; on: boolean };
+export type AdminFx = { k: 'tp'; x: number; y: number; z: number; yaw: number } | { k: 'give'; item: ItemId } | { k: 'heal' } | { k: 'ammo'; on: boolean } | { k: 'take'; item: ItemId } | { k: 'push'; x: number; z: number };
+/** Las Suites: usar pokeball, granada, bate o nokia. `yaw` y `pitch`, hacia donde mira; `to`, a quién llama (nokia; sin él, cuelga). */
+export interface ToolMsg {
+  k: 'pokeball' | 'grenade' | 'bat' | 'nokia';
+  yaw: number;
+  pitch: number;
+  to?: string;
+}
+export interface ToolReply {
+  ok: boolean;
+  /** Por qué no (en inglés, para el aviso). */
+  why?: string;
+  /** Se ha gastado el objeto (una unidad): el cliente lo quita de lo que lleva. */
+  used?: boolean;
+}
+/** Lo que ven todos de un objeto de las Suites. */
+export type ToolFx =
+  | { k: 'throw'; what: 'pokeball' | 'grenade'; path: number[]; s: number }
+  | { k: 'smoke'; x: number; z: number; r: number; s: number }
+  | { k: 'bat'; id: string }
+  | { k: 'call'; peer: string; name: string; on: boolean }
+  | { k: 'note'; text: string };
 
 export interface ClientToServer {
   /** Consola de admin: el servidor rechaza (ok = false) a cualquiera que no sea la cuenta de admin. */
@@ -298,6 +330,7 @@ export interface ClientToServer {
   lockerTake: (id: string, i: number, cb: (ok: boolean) => void) => void;
   /** Beber una Monster (se gasta; el servidor da el margen de velocidad) y usar la carta Uno Reverse (cambia de sitio con un compañero vivo al azar; responde si pudo). */
   monster: () => void;
+  useParkingItem: (id: import('./missions').ParkingItemId, cb: (result: { item?: import('./missions').ItemId; curse?: boolean } | null) => void) => void;
   uno: (cb: (ok: boolean) => void) => void;
   /** Chat de voz: un mensaje de señalización WebRTC (oferta, respuesta o candidato ICE) para un compañero de la sala; el servidor solo lo reenvía. */
   rtc: (to: string, data: unknown) => void;
@@ -308,6 +341,7 @@ export interface ClientToServer {
    * `floor` es la planta (1-5) a la que se va, la que sea; sin él, la siguiente.
    */
   ascend: (inv: Inventory, floor?: number) => void;
+  parkingInteract: (action: ParkingInteraction, cb?: (ok: boolean) => void) => void;
   /** Las Suites, misión del encargo de recepción: entregar una pieza de botín al Faceling del mostrador (responde si la tenía y la misión la pide). */
   deliver: (cb: (ok: boolean) => void) => void;
   /** Suites: un Faceling ofrece otra misión tras cumplir la actual. `pick` < 0 solo pregunta cuántas quedan (n); `pick` ≥ 0 elige a ciegas una de ellas (n = las que había; 0 = ninguna). */
@@ -346,6 +380,8 @@ export interface ClientToServer {
   unstrip: (id: string) => void;
   /** Pistola de agua: un chorro desde (x, z) mirando a `yaw` (unos 20 mensajes/s como mucho mientras dispara). El servidor busca a quién moja. */
   squirt: (a: SquirtMsg) => void;
+  /** Las Suites: usar pokeball, granada de humo, bate o nokia (el servidor decide el efecto y lo reparte). */
+  tool: (a: ToolMsg, cb?: (r: ToolReply) => void) => void;
 }
 export interface SquirtMsg {
   x: number;
@@ -366,6 +402,7 @@ export interface Status {
 }
 
 export interface ServerToClient {
+  beerThrow: (path: { x: number; y: number; z: number }[], duration: number) => void;
   adminFx: (m: AdminFx) => void;
   status: (s: Status) => void;
   room: (r: RoomView) => void;
@@ -377,6 +414,8 @@ export interface ServerToClient {
   dead: (id: string) => void;
   /** El rifle de `id` ha explotado en (x, y, z): todos ven la explosión y a él salir volando. */
   blastFx: (m: { id: string; x: number; y: number; z: number }) => void;
+  /** La puerta doble del vestíbulo ha desaparecido (Las Suites). */
+  seal: () => void;
   /** Fin de la ronda (todos vuelven al lobby): el resultado completo (cobro o penalización, saldo, qué fue de cada uno). */
   over: (r: RoundResult) => void;
   /**
@@ -398,6 +437,8 @@ export interface ServerToClient {
   unstrip: (id: string) => void;
   /** Te ha mojado o parado alguien con la pistola de agua. */
   wet: (m: WetMsg) => void;
+  /** Un objeto de las Suites en acción (lanzamiento, humo, golpe, llamada). */
+  toolFx: (m: ToolFx) => void;
   /** En partida: la calidad de lo que llevas y tu botín según el servidor (al recoger, soltar y cada pocos segundos por el desgaste). */
   bag: (b: { q: NonNullable<Inventory['q']>; loot: Qual[] }) => void;
   /** Alguien ha vendido algo en la báscula. */

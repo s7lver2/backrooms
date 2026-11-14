@@ -2,6 +2,7 @@
  * El bucle de rondas: misiones (las que se votan en la pizarra), tienda, inventario por jugador, niveles y las constantes del dinero.
  * Todo puro: lo comparten el servidor (que decide) y el cliente (que pinta). El estado vive en la memoria del servidor mientras la sala exista.
  */
+import type { ParkingMinutes, ParkingOptions } from './parking';
 import { CELL, DIRS, type Cell, type Maze } from './maze';
 import { suitesMaze } from './suites';
 import type { Stats } from './upgrades';
@@ -34,11 +35,12 @@ export interface LevelDef {
 /** Los niveles que salen en el sorteo de una ronda. Para añadir uno basta otra entrada (el cliente y el servidor de momento solo generan el laberinto de siempre). */
 export const LEVELS: Record<string, LevelDef> = {
   level0: { id: 'level0', name: 'LEVEL 0', title: 'THE LOBBY', blurb: 'DAMP CARPET. FLUORESCENT HUM. NO WAY OUT BUT FORWARD.' },
+  parking: { id: 'parking', name: 'LEVEL 1', title: 'THE HABITABLE ZONE', blurb: 'CONCRETE DECKS. DARK AISLES. FIND THE HIDDEN ELEVATOR.', unlock: 'parking' },
   poolrooms: { id: 'poolrooms', name: 'LEVEL 37', title: 'THE POOLROOMS', blurb: 'WARM WATER. WHITE TILE. SOMETHING BREATHES UNDER THE SURFACE.', luck: 1.8, unlock: 'pool' },
-  suites: { id: 'suites', name: 'LEVEL -20', title: 'THE SUITES', blurb: 'WARM LIGHT. RED WALLPAPER. THE STAFF SMILES, AND THERE IS NO FACE TO SMILE WITH.', luck: 1.4 },
+  suites: { id: 'suites', name: 'LEVEL -20', title: 'THE SUITES', blurb: 'WARM LIGHT. RED WALLPAPER. THE STAFF SMILES, AND THERE IS NO FACE TO SMILE WITH.', luck: 1.4, unlock: 'suites' },
 };
 /** Niveles aún en desarrollo: solo salen si un admin los elige (no entran en el sorteo de rondas). Quitar el nombre de aquí cuando estén listos. */
-export const DEV_LEVELS = ['suites'] as readonly string[];
+export const DEV_LEVELS = [] as readonly string[];
 /** Las misiones de las Poolrooms: aguantar o encontrar jabones (aún no hay entidades que fotografiar). */
 export const poolMissions = (seed: number, round: number): Mission[] => {
   const r = rng(seed ^ Math.imul(round + 1, 0x9e3779b1));
@@ -74,8 +76,10 @@ export const pickLevel = (seed: number, open?: ReadonlySet<string>) => {
 // ── objetos: inventario y tienda ──────────────────────────────────────────
 
 /** Lo que se compra, se suelta y se recoge. `flashlight` es una linterna de repuesto (batería nueva); `ammo`, un cargador (AMMO_PACK balas). */
-export type ItemId = 'flashlight' | 'camera' | 'gun' | 'ammo' | 'water' | 'caution' | 'radar' | 'totem' | 'tank' | 'watergun' | 'uno' | 'monster';
-export const ITEM_IDS: ItemId[] = ['flashlight', 'camera', 'gun', 'ammo', 'water', 'caution', 'radar', 'totem', 'tank', 'watergun', 'uno', 'monster'];
+export const PARKING_ITEM_IDS = ['glasses', 'pills', 'steelcard', 'beer'] as const;
+export type ParkingItemId = typeof PARKING_ITEM_IDS[number];
+export type ItemId = 'flashlight' | 'camera' | 'gun' | 'ammo' | 'water' | 'caution' | 'radar' | 'totem' | 'tank' | 'watergun' | 'uno' | 'monster' | 'pokeball' | 'grenade' | 'nokia' | 'bat' | ParkingItemId;
+export const ITEM_IDS: ItemId[] = ['flashlight', 'camera', 'gun', 'ammo', 'water', 'caution', 'radar', 'totem', 'tank', 'watergun', 'uno', 'monster', 'pokeball', 'grenade', 'nokia', 'bat', ...PARKING_ITEM_IDS];
 /** Monster: segundos que se tarda en beberla, lo que dura el efecto, y lo que acelera. Uno Reverse: ver ITEMS.uno. */
 export const MONSTER = { drink: 3, time: 5, speed: 1.4 } as const;
 /** Un cargador suelto: 4 balas. El rifle monta 2 a la vez (`RIFLE_MAG`) y se pueden llevar 2 cargadores como mucho. */
@@ -103,6 +107,16 @@ export interface Inventory {
   /** Carta Uno Reverse (una sola, un solo uso) y latas de Monster. */
   uno: boolean;
   monster: number;
+  /** Las Suites: pokeball, nokia y bate (se tienen o no) y granadas de humo. */
+  pokeball: boolean;
+  nokia: boolean;
+  bat: boolean;
+  grenade: number;
+  /** El parking (Habitable Zone): gafas de rayos X, pastillas, tarjeta de acero y botella. */
+  glasses: boolean;
+  pills: number;
+  steelcard: boolean;
+  beer: number;
   /** La calidad de cada cosa que se lleva (rareza y desgaste; una por tipo: una pila comparte la suya). La lleva el servidor. */
   q?: Partial<Record<ItemId, Qual>>;
   /** El botín de valor recogido en los niveles: cada pieza ocupa una casilla y solo sirve para venderse en la báscula. */
@@ -112,19 +126,23 @@ export interface Inventory {
 export interface Qual {
   r: number;
   w: number;
+  /** Pokeball: lo que atrapó (un tipo de entidad o `player`); al recuperarla es otra bola. */
+  c?: string;
 }
-export const EMPTY_INV: Inventory = { spares: 0, water: 0, totem: 0, ammo: 0, radar: false, camera: false, gun: false, tank: false, watergun: false, caution: false, uno: false, monster: 0 };
+/** Lo que alarga el hechizo de una pokeball según lo que atrapó antes (y cómo se llama). */
+export const BALL_KINDS: Record<string, { name: string; mul: number }> = { bacteria: { name: 'BACTERIA', mul: 1.4 }, partygoer: { name: 'PARTYGOER', mul: 1.2 }, faceling: { name: 'FACELING', mul: 2 }, player: { name: 'TEAMMATE', mul: 1.3 } };
+export const EMPTY_INV: Inventory = { spares: 0, water: 0, totem: 0, ammo: 0, radar: false, camera: false, gun: false, tank: false, watergun: false, caution: false, uno: false, monster: 0, pokeball: false, nokia: false, bat: false, grenade: 0, glasses: false, pills: 0, steelcard: false, beer: 0 };
 /** Con lo que entra quien llega a una sala: una linterna de repuesto. */
 export const START_INV: Inventory = { ...EMPTY_INV, spares: 1 };
 /** Lo máximo que se puede llevar de cada cosa. */
-export const INV_MAX: Inventory = { spares: 6, water: 5, totem: 2, ammo: AMMO_PACK * 2, radar: true, camera: true, gun: true, tank: true, watergun: true, caution: true, uno: true, monster: 3 };
+export const INV_MAX: Inventory = { spares: 6, water: 5, totem: 2, ammo: AMMO_PACK * 2, radar: true, camera: true, gun: true, tank: true, watergun: true, caution: true, uno: true, monster: 3, pokeball: true, nokia: true, bat: true, grenade: 3, glasses: true, pills: 3, steelcard: true, beer: 3 };
 
 /** Un inventario saneado: lo que no es número o booleano, a cero; nada por encima de `cap` (por defecto, el máximo de INV_MAX). */
 export function cleanInv(x: unknown, cap: Inventory = INV_MAX): Inventory {
   const o = (x && typeof x === 'object' ? x : {}) as Record<string, unknown>;
-  const n = (k: 'spares' | 'water' | 'totem' | 'ammo' | 'monster') => (Number.isFinite(o[k]) ? Math.max(0, Math.min(Math.floor(o[k] as number), cap[k], INV_MAX[k])) : 0);
-  const b = (k: 'radar' | 'camera' | 'gun' | 'tank' | 'watergun' | 'caution' | 'uno') => o[k] === true && cap[k] && INV_MAX[k];
-  const out: Inventory = { spares: n('spares'), water: n('water'), totem: n('totem'), ammo: n('ammo'), radar: b('radar'), camera: b('camera'), gun: b('gun'), tank: b('tank'), watergun: b('watergun'), caution: b('caution'), uno: b('uno'), monster: n('monster') };
+  const n = (k: 'spares' | 'water' | 'totem' | 'ammo' | 'monster' | 'grenade' | 'pills' | 'beer') => (Number.isFinite(o[k]) ? Math.max(0, Math.min(Math.floor(o[k] as number), cap[k] ?? 0, INV_MAX[k] ?? 0)) : 0);
+  const b = (k: 'radar' | 'camera' | 'gun' | 'tank' | 'watergun' | 'caution' | 'uno' | 'pokeball' | 'nokia' | 'bat' | 'glasses' | 'steelcard') => o[k] === true && cap[k] === true && INV_MAX[k] === true;
+  const out: Inventory = { spares: n('spares'), water: n('water'), totem: n('totem'), ammo: n('ammo'), radar: b('radar'), camera: b('camera'), gun: b('gun'), tank: b('tank'), watergun: b('watergun'), caution: b('caution'), uno: b('uno'), monster: n('monster'), pokeball: b('pokeball'), nokia: b('nokia'), bat: b('bat'), grenade: n('grenade'), glasses: b('glasses'), pills: n('pills'), steelcard: b('steelcard'), beer: n('beer') };
   // la calidad y el botín no los declara el cliente: son los de `cap` (lo que el servidor sabe que lleva)
   if (cap.q) out.q = Object.fromEntries(ITEM_IDS.filter((id) => cap.q![id] && Number(out[ITEMS[id].slot]) > 0).map((id) => [id, cap.q![id]]));
   if (cap.loot) out.loot = cap.loot;
@@ -164,7 +182,7 @@ export const lootPrice = (q: Qual) => round5(LOOT_BASE * rarity(q.r).loot * (1 -
 export const WEAR_TIME = 2400, LOOT_WEAR_TIME = 1500, WEAR_USE = 0.03;
 /** Con `dt` segundos más de desgaste en todo lo que se lleva (y `use`, un uso de ese objeto). */
 export function wearInv(inv: Inventory, dt: number, use?: ItemId): Inventory {
-  const q = Object.fromEntries(Object.entries(inv.q ?? {}).map(([id, x]) => [id, { r: x.r, w: Math.min(1, x.w + dt / WEAR_TIME + (id === use ? WEAR_USE : 0)) }]));
+  const q = Object.fromEntries(Object.entries(inv.q ?? {}).map(([id, x]) => [id, { r: x.r, w: Math.min(1, x.w + dt / WEAR_TIME + (id === use ? WEAR_USE : 0)), ...(x.c ? { c: x.c } : {}) }]));
   return { ...inv, q, loot: inv.loot?.map((x) => ({ r: x.r, w: Math.min(1, x.w + dt / LOOT_WEAR_TIME) })) };
 }
 
@@ -202,10 +220,40 @@ export const ITEMS: Record<ItemId, ItemDef> = {
   watergun: { name: 'WATER GUN', price: 250, info: 'Soaks and stalls whoever it hits.', slot: 'watergun', hot: true, boost: 'WATER TANK', level: 'poolrooms' },
   uno: { name: 'UNO REVERSE', price: 450, info: 'Swap places with a random teammate. One use, one card at a time.', slot: 'uno', hot: true, level: 'poolrooms' },
   monster: { name: 'MONSTER', price: 180, info: '3 s to drink. Then 5 s of +40% speed and endless stamina.', slot: 'monster', hot: true, boost: 'BOOST TIME' },
+  pokeball: { name: 'POKEBALL', price: 650, info: 'Throw it at an enemy: it turns on the other entities for a few seconds. Throw it at a teammate: they are trapped until you use, drop it or die.', slot: 'pokeball', hot: true, boost: 'CHARM TIME', level: 'suites' },
+  grenade: { name: 'SMOKE GRENADE', price: 220, info: 'A cloud of smoke that blinds the entities. It is very loud.', slot: 'grenade', hot: true, boost: 'SMOKE RANGE', level: 'suites' },
+  nokia: { name: 'NOKIA', price: 400, info: 'Call any teammate and talk as if they were next to you. The battery runs out while you talk.', slot: 'nokia', hot: true, boost: 'BATTERY', level: 'suites' },
+  bat: { name: 'BASEBALL BAT', price: 350, info: 'Knocks entities and teammates far back. It can break.', slot: 'bat', hot: true, boost: 'KNOCKBACK', level: 'suites' },
   totem: { name: 'TOTEM OF LIFE', price: 650, info: 'Brings back a fallen teammate.', slot: 'totem', hot: true },
+  glasses: { name: 'X-RAY GLASSES', price: 400, info: 'Reveal nearby pickups, unfinished generators, and the unlocked exit for 60 seconds.', slot: 'glasses', hot: true, level: 'parking' },
+  pills: { name: 'PILLS', price: 260, info: 'Three doses. Each gives +0.8 m/s speed and +25% stamina for 60 seconds at a cost of 15% health.', slot: 'pills', pack: 3, hot: true, level: 'parking' },
+  steelcard: { name: 'STEEL CARD', price: 240, info: 'Roll for a shop item. A 5% chance speeds up entities by 0.5 m/s instead.', slot: 'steelcard', hot: true, level: 'parking' },
+  beer: { name: 'BEER BOTTLE', price: 100, info: 'Throw to lure entities to the impact. A direct hit deals 5% health damage to a player.', slot: 'beer', hot: true, level: 'parking' },
 };
-const qty = (inv: Inventory, id: ItemId) => Number(inv[ITEMS[id].slot]), pack = (id: ItemId) => ITEMS[id].pack ?? 1;
-const withQty = (inv: Inventory, id: ItemId, n: number): Inventory => ({ ...inv, [ITEMS[id].slot]: typeof inv[ITEMS[id].slot] === 'boolean' ? n > 0 : n });
+/** Los substats de un objeto (varios por objeto): cada uno parte de `base` y la rareza lo mejora (`down`: cuanto menos, mejor). */
+export interface Sub {
+  key: string;
+  name: string;
+  base: number;
+  /** Cómo se escribe: s, m, hp, hits o % (el valor 0–1 se muestra x100). */
+  unit: string;
+  down?: boolean;
+  max?: number;
+}
+export const SUBS: Partial<Record<ItemId, Sub[]>> = {
+  pokeball: [{ key: 'time', name: 'ENTITY CHARM TIME', base: 5, unit: 's' }],
+  grenade: [{ key: 'range', name: 'SMOKE RANGE', base: 4, unit: 'm' }, { key: 'dmg', name: 'IMPACT DAMAGE', base: 0.5, unit: 'hp' }, { key: 'fog', name: 'VISION CUT', base: 0.6, unit: '%', max: 0.95 }, { key: 'noise', name: 'SOUND FOOTPRINT', base: 40, unit: 'm' }],
+  nokia: [{ key: 'battery', name: 'BATTERY', base: 120, unit: 's' }],
+  bat: [{ key: 'force', name: 'KNOCKBACK', base: 7, unit: 'm' }, { key: 'cd', name: 'COOLDOWN', base: 1.6, unit: 's', down: true }, { key: 'dur', name: 'DURABILITY', base: 10, unit: 'hits' }, { key: 'snap', name: 'EARLY BREAK CHANCE', base: 0.04, unit: '%', down: true }],
+};
+/** El valor de un substat de `id` en lo que lleva `inv` (según su rareza). */
+export function subOf(inv: Pick<Inventory, 'q'> | undefined | null, id: ItemId, key: string): number {
+  const s = SUBS[id]!.find((x) => x.key === key)!, b = boostOf(inv, id), v = s.down ? s.base / b : s.base * b;
+  return s.max ? Math.min(s.max, v) : v;
+}
+export const fmtSub = (s: Sub, v: number) => (s.unit === '%' ? `${Math.round(v * 100)}%` : `${Math.round(v * 10) / 10} ${s.unit}`);
+const qty = (inv: Inventory, id: ItemId) => Number(inv[ITEMS[id].slot] ?? 0), pack = (id: ItemId) => ITEMS[id].pack ?? 1;
+const withQty = (inv: Inventory, id: ItemId, n: number): Inventory => ({ ...inv, [ITEMS[id].slot]: typeof INV_MAX[ITEMS[id].slot] === 'boolean' ? n > 0 : n });
 
 /**
  * ¿Hay sitio para una cosa más (un tipo nuevo `plus`, o una pieza de botín)? Cada tipo que se lleva ocupa una casilla de la mochila (las pilas, una
@@ -219,15 +267,15 @@ export function hasRoom(inv: Inventory, st: Stats, plus: ItemId | 'loot') {
 /** ¿Cabe uno más de `id`? Con `st` (lo que dan las mejoras del jugador) cuenta también el sitio de la mochila. */
 export const canHold = (inv: Inventory, id: ItemId, st?: Stats) => qty(inv, id) + pack(id) <= Number(INV_MAX[ITEMS[id].slot]) && (!st || qty(inv, id) > 0 || hasRoom(inv, st, id));
 /** Con uno más de `id` (comprado o recogido del suelo), de rareza `r`: una pila conserva la rareza que ya tenía y reparte el desgaste. */
-export function addItem(inv: Inventory, id: ItemId, r = 0, w = 0): Inventory {
+export function addItem(inv: Inventory, id: ItemId, r = 0, w = 0, c?: string): Inventory {
   const n = qty(inv, id), old = n > 0 ? inv.q?.[id] : undefined;
-  return { ...withQty(inv, id, n + pack(id)), q: { ...inv.q, [id]: old ? { r: old.r, w: (old.w * n + w * pack(id)) / (n + pack(id)) } : { r, w } } };
+  return { ...withQty(inv, id, n + pack(id)), q: { ...inv.q, [id]: old ? { r: old.r, w: (old.w * n + w * pack(id)) / (n + pack(id)), ...(old.c ? { c: old.c } : {}) } : { r, w, ...(c ? { c } : {}) } } };
 }
 /** ¿Se puede soltar una unidad de `id`? */
-export const hasItem = (inv: Inventory, id: ItemId) => qty(inv, id) >= pack(id);
+export const hasItem = (inv: Inventory, id: ItemId) => qty(inv, id) >= (id === 'pills' ? 1 : pack(id));
 /** Sin una unidad de `id` (soltada). El rifle se va sin sus balas: esas siguen en el inventario. */
 export function removeItem(inv: Inventory, id: ItemId): Inventory {
-  const o = withQty(inv, id, qty(inv, id) - pack(id));
+  const o = withQty(inv, id, Math.max(0, qty(inv, id) - pack(id)));
   if (qty(o, id) <= 0 && o.q?.[id]) (o.q = { ...o.q }), delete o.q[id];
   return o;
 }
@@ -280,7 +328,7 @@ export const DROP_GAP = 250;
 
 // ── misiones ─────────────────────────────────────────────────────────────
 
-export type MissionKind = 'photos' | 'tapes' | 'soaps' | 'survive' | 'tvs' | 'power' | 'order' | 'eeh' | 'climb' | 'contract';
+export type MissionKind = 'photos' | 'tapes' | 'soaps' | 'survive' | 'tvs' | 'generators' | 'power' | 'order' | 'eeh' | 'climb' | 'contract';
 /** Las Suites, misión EEH: segundos que hay que aguantar con el Evaporador de Entidades Hostiles roto (falla a los `goal - EEH_HOLD` s de partida). */
 export const EEH_HOLD = 90;
 export interface Mission {
@@ -306,13 +354,27 @@ export interface MissionOffer extends Mission {
   votes: string[];
 }
 
+export function parkingOptionsForMission(mission: Pick<Mission, 'kind' | 'goal'>): ParkingOptions {
+  if (mission.kind === 'generators' || mission.kind === 'tapes') return { mission: mission.kind };
+  const minutes: ParkingMinutes = mission.goal === 900 ? 15 : mission.goal === 600 ? 10 : 5;
+  return { mission: 'survive', minutes };
+}
+
+export function parkingMissions(seed: number, round: number): Mission[] {
+  const goals = [8, 5, [300, 600, 900][(seed >>> 0) % 3]];
+  return (['tapes', 'generators', 'survive'] as const).map((kind, i) => ({
+    id: `parking-${round}-${kind}`, kind, goal: goals[i], text: missionText(kind, goals[i]), reward: [80, 100, goals[2] / 5][i],
+  }));
+}
+
 export function missionText(kind: MissionKind, goal: number) {
   if (kind === 'photos') return `PHOTOGRAPH ${goal} ENTITIES`;
   if (kind === 'tapes') return `FIND ${goal} TAPES`;
   if (kind === 'soaps') return `FIND ${goal} SOAPS`;
   if (kind === 'survive') return `SURVIVE ${Math.round(goal / 60)} MINUTES`;
+  if (kind === 'generators') return `ACTIVATE ${goal} GENERATORS`;
   if (kind === 'power') return `SWITCH ON ${goal} POWER PANELS`;
-  if (kind === 'order') return `HAND ${goal} ARTIFACTS TO RECEPTION`;
+  if (kind === 'order') return `HAND ${goal} ARTIFACTS TO THE STAFF`;
   if (kind === 'eeh') return 'SURVIVE THE EVAPORATOR FAILURE';
   if (kind === 'climb') return 'CLIMB TO FLOOR 5 BY THE SERVICE STAIRS';
   if (kind === 'contract') return `${goal} JOBS`;
@@ -326,8 +388,9 @@ export function missionHint(kind: MissionKind) {
     soaps: 'PICK UP THE SOAP BARS LYING AROUND THE LEVEL',
     survive: 'STAY ALIVE UNTIL THE TIMER ENDS',
     tvs: 'WALK UP TO THE TVS AND TURN THEM OFF (G)',
+    generators: 'FIND AND ACTIVATE THE GENERATORS',
     power: 'FIND THE ELECTRIC PANELS ON THE WALLS AND SWITCH THEM ON (G)',
-    order: 'FIND ARTIFACTS AND HAND THEM IN AT A RECEPTION DESK (G)',
+    order: 'FIND ARTIFACTS AND HAND THEM TO ANY FACELING IN THE HALL (G)',
     eeh: 'THE ENTITY EVAPORATOR (EEH) KEEPS THE STAFF CALM. WHEN THE FIRST TIMER ENDS IT FAILS: ALARM, RED LIGHTS, AND THE STAFF HUNTS YOU. HIDE IN A WARDROBE (E) UNTIL THE SECOND TIMER ENDS',
     contract: 'COMPLETE JOBS ON ANY FLOOR, THEN TAKE THE ELEVATOR TO -1',
     climb: 'USE THE BACK STAIRS TO REACH FLOOR 5. STAIR DOORS OPEN ONLY ONCE A MISSION IS DONE',
@@ -344,7 +407,7 @@ export function missionLine(m: Pick<ActiveMission, 'kind' | 'goal' | 'progress'>
     const fail = m.goal - EEH_HOLD, t = m.progress < fail ? fail - m.progress : Math.max(0, m.goal - m.progress);
     return `${m.progress < fail ? 'EVAPORATOR FAILS IN' : 'STAFF LOOSE · SURVIVE'} ${Math.floor(t / 60)}:${String(Math.floor(t % 60)).padStart(2, '0')}`;
   }
-  return `${{ photos: 'PHOTOS', tapes: 'TAPES', soaps: 'SOAPS', tvs: 'TVS', power: 'PANELS', order: 'ORDER', climb: 'CLIMB', contract: 'JOBS' }[m.kind]} ${Math.min(m.progress, m.goal)}/${m.goal}`;
+  return `${{ photos: 'PHOTOS', tapes: 'TAPES', soaps: 'SOAPS', tvs: 'TVS', generators: 'GENERATORS', power: 'PANELS', order: 'ORDER', climb: 'CLIMB', contract: 'JOBS' }[m.kind]} ${Math.min(m.progress, m.goal)}/${m.goal}`;
 }
 
 function rng(seed: number) {
@@ -368,6 +431,7 @@ export function makeMission(kind: MissionKind, r: () => number, id: string, tvs:
   else if (kind === 'tapes') (goal = between(r, 3, 6)), (reward = 50 + 60 * goal);
   else if (kind === 'soaps') (goal = between(r, 3, 5)), (reward = 60 + 60 * goal);
   else if (kind === 'survive') (goal = between(r, 4, 8) * 60), (reward = 40 + 55 * (goal / 60));
+  else if (kind === 'generators') (goal = 5), (reward = 0);
   else if (kind === 'power') (goal = 3), (reward = 90 + 40 * goal);
   else if (kind === 'order') (goal = 2), (reward = 70 + 70 * goal);
   else if (kind === 'eeh') (goal = 60 + EEH_HOLD), (reward = 400);

@@ -25,7 +25,14 @@ interface Peer {
   pending: RTCIceCandidateInit[];
   level?: () => number;
   src?: MediaStreamAudioSourceNode;
+  /** Su tramo propio: volumen, filtro y balance según dónde esté respecto a ti (ver `listen`). */
+  gain?: GainNode;
+  lp?: BiquadFilterNode;
+  pan?: StereoPannerNode;
 }
+
+/** La voz según la distancia (m): entera hasta NEAR, nada a FAR; más lejos, también más apagada. */
+const NEAR = 3, FAR = 24;
 
 /** El sonido de la voz según dónde se esté: filtro de paso bajo, cantidad de eco (wet) y lo que dura. */
 const ENV: Record<string, { lp: number; wet: number; decay: number }> = {
@@ -128,6 +135,14 @@ class Voice {
     return this.bus;
   }
 
+  /** Con quién hay una llamada de Nokia: se oyen como si estuvieran al lado, estén donde estén. */
+  calls = new Set<string>();
+  private ears?: { t: number; m: Map<string, { d: number; pan: number }> };
+  /** El juego dice, cada fotograma, a qué distancia (m) y hacia qué lado (−1 izquierda, 1 derecha) está cada compañero. */
+  listen(m: Map<string, { d: number; pan: number }>) {
+    this.ears = { t: performance.now(), m };
+  }
+
   /** Los jugadores de la sala ahora: se abren las conexiones que faltan y se cierran las de quien se fue. */
   sync(me: string, ids: string[]) {
     if (!this.sock) return;
@@ -155,9 +170,13 @@ class Voice {
       void audio.play().catch(() => {});
       p.src?.disconnect();
       {
-        const b = this.chain();
-        p.src = this.ctx!.createMediaStreamSource(ms);
-        p.src.connect(b.inp);
+        const b = this.chain(), c = this.ctx!;
+        p.src = c.createMediaStreamSource(ms);
+        p.gain ??= c.createGain();
+        if (!p.lp) (p.lp = c.createBiquadFilter()), (p.lp.type = 'lowpass'), (p.lp.frequency.value = 16000);
+        p.pan ??= c.createStereoPanner();
+        p.gain.disconnect(), p.lp.disconnect(), p.pan.disconnect();
+        p.src.connect(p.gain).connect(p.lp).connect(p.pan).connect(b.inp);
       }
       p.level = this.meter(ms);
     };
@@ -179,7 +198,7 @@ class Voice {
     this.peers.delete(id);
     p.pc.close();
     p.audio.srcObject = null;
-    p.src?.disconnect();
+    p.src?.disconnect(), p.gain?.disconnect(), p.lp?.disconnect(), p.pan?.disconnect();
     this.speaking.delete(id);
   }
 
@@ -257,8 +276,18 @@ class Voice {
     const on = want && !!this.mic;
     const track = this.mic?.getAudioTracks()[0];
     if (track && track.enabled !== on) track.enabled = on;
-    const vol = settings.voiceVol;
-    if (this.bus) this.bus.inp.gain.value = Math.max(0, Math.min(1, vol));
+    if (this.ctx?.state === 'suspended') void this.ctx.resume().catch(() => {}); // (creado sin gesto, el contexto nace parado: sin esto las voces no sonaban hasta recrearse)
+    const vol = settings.voiceMode ? settings.voiceVol : 0;
+    if (this.bus) this.bus.inp.gain.value = Math.max(0, Math.min(1.5, vol));
+    // la distancia: volumen, filtro y balance de cada voz (la pone el juego cada fotograma; sin datos —sala de espera—, se oyen todos igual)
+    const live = this.ears && performance.now() - this.ears.t < 600 ? this.ears.m : undefined, now = this.ctx?.currentTime ?? 0;
+    for (const [id, p] of this.peers) {
+      if (!p.gain || !p.lp || !p.pan) continue;
+      const e = this.calls.has(id) ? undefined : live?.get(id), k = e ? Math.max(0, Math.min(1, 1 - (e.d - NEAR) / (FAR - NEAR))) ** 1.6 : 1;
+      p.gain.gain.setTargetAtTime(k, now, 0.08);
+      p.lp.frequency.setTargetAtTime(500 + 15500 * k ** 0.7, now, 0.08);
+      p.pan.pan.setTargetAtTime(e ? Math.max(-0.85, Math.min(0.85, e.pan)) * Math.min(1, e.d / 2) : 0, now, 0.08);
+    }
     const next = new Set<string>();
     for (const [id, p] of this.peers) if ((p.level?.() ?? 0) > 0.04) next.add(id);
     if (on && (this.micLevel?.() ?? 0) > 0.04) next.add(this.me);

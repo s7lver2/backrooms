@@ -1,0 +1,11 @@
+Model Information:
+* title:	Small Electric Generator
+* source:	https://sketchfab.com/3d-models/small-electric-generator-9bace223c69e4f4bb0e138b0d379ae37
+* author:	H10_Official (https://sketchfab.com/H10_Official)
+
+Model License:
+* license type:	CC-BY-ND-4.0 (http://creativecommons.org/licenses/by-nd/4.0/)
+* requirements:	Author must be credited. Modified versions can not be distributed. Commercial use is allowed.
+
+If you use this 3D model in your project be sure to copy paste this credit wherever you share it:
+This work is based on "Small Electric Generator" (https://sketchfab.com/3d-models/small-electric-generator-9bace223c69e4f4bb0e138b0d379ae37) by H10_Official (https://sketchfab.com/H10_Official) licensed under CC-BY-ND-4.0 (http://creativecommons.org/licenses/by-nd/4.0/)

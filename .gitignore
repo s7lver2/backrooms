@@ -3,6 +3,14 @@ dist/
 *.zip
 *.tsbuildinfo
 .env*
+*.pem
+*.key
+*.p12
+*.pfx
+.npmrc.local
+.aws/
+.ssh/
+/.codex-attachments/
 npm-debug.log*
 .DS_Store
 *.exe

@@ -1,6 +1,6 @@
 import type { Player } from './player';
 import type { IconKey } from './invIcons';
-import { AMMO_PACK } from '@backrooms/shared';
+import { AMMO_PACK, ITEMS, PARKING_ITEM_IDS, type ParkingItemId, type Inventory } from '@backrooms/shared';
 
 /*
  * La barra de acceso rápido: 4 ranuras (teclas 1–4; la rueda cambia la elegida, X usa la elegida) con el id de un objeto.
@@ -22,7 +22,7 @@ export interface Fracs {
 }
 
 /** Lo que hace falta saber de lo que se lleva (lo cumplen Player y el Inv del HUD). */
-export interface Own {
+export interface Own extends Partial<Pick<Inventory, ParkingItemId>> {
   water: number;
   totem: number;
   radar: boolean;
@@ -33,6 +33,11 @@ export interface Own {
   watergun?: boolean;
   uno?: boolean;
   monster?: number;
+  /** Las Suites. */
+  pokeball?: boolean;
+  nokia?: boolean;
+  bat?: boolean;
+  grenade?: number;
 }
 
 export interface HotDef {
@@ -61,7 +66,22 @@ const gear = (g: 'camera' | 'gun', name: string, info: string): HotDef => ({
   held: (p) => p.hand === g,
 });
 
+const tool = (k: 'pokeball' | 'nokia' | 'bat', name: string, info: string): HotDef => ({ name, icon: k, have: (o) => !!o[k], use: (p) => p.equipTool(k), held: (p) => p.prop === k, info });
+
 export const HOT: Record<string, HotDef> = {
+  pokeball: tool('pokeball', 'POKEBALL', 'Take it in hand and HOLD the click to see the arc and its bounces; release to throw (right click cancels). One throw per ball. At an enemy: the other entities turn on it for a few seconds. At a teammate: they are trapped until someone picks the ball up. A recovered ball carries what it caught and is stronger.'),
+  nokia: tool('nokia', 'NOKIA', 'Take it in hand and click to pick a teammate to call; they hear you as if you were next to them. Click again to hang up. The battery drains while you talk.'),
+  bat: tool('bat', 'BASEBALL BAT', 'Take it in hand and click to swing: entities and teammates in front of you fly back (into the void, even). It wears out and can break.'),
+  grenade: { name: 'SMOKE GRENADE', icon: 'grenade', have: (o) => (o.grenade ?? 0) > 0, count: (o) => o.grenade ?? 0, use: (p) => p.equipTool('grenade'), held: (p) => p.prop === 'grenade', info: 'Take it in hand and HOLD the click to see the arc and its bounces; release to throw (right click cancels). A cloud of smoke blinds the entities, and it makes a lot of noise.' },
+  ...Object.fromEntries(PARKING_ITEM_IDS.map(id => [id, {
+    name: ITEMS[id].name,
+    icon: id,
+    have: (o) => !!o[id],
+    count: id === 'pills' || id === 'beer' ? (o) => o[id] ?? 0 : undefined,
+    use: (p) => p.equipParkingItem(id),
+    held: (p) => p.prop === id,
+    info: ITEMS[id].info,
+  } satisfies HotDef])),
   camera: gear('camera', 'CAMCORDER', 'Take it in hand, or put it away.'),
   gun: gear('gun', 'RIFLE', 'Take it in hand, or put it away.'),
   caution: {

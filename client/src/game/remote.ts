@@ -8,6 +8,7 @@ import { Cosmetics } from './cosmetics';
 import { Timeline, Track, type Snap } from './interp';
 import { poolPart } from './poolmap';
 import { worn, wornModel, placeWorn } from './worn';
+import { itemModel } from './itemModels';
 
 /*
  * Otro jugador: el mismo hazmat (clonado) que el propio, con la linterna y lo que lleve en la mano. Se
@@ -83,6 +84,8 @@ export class Remote {
   private label: THREE.Sprite;
   private labelCtx: CanvasRenderingContext2D;
   private bones: Record<'LeftHand' | 'RightHand' | 'Head', THREE.Bone | undefined>;
+  private glasses?: THREE.Group;
+  private wearingGlasses = false;
   readonly pos = new THREE.Vector3();
   /** Las Suites: dónde estoy yo y lo que mide una copia del pasillo; el compañero se dibuja en la copia más cercana a mí (los dos envían el pasillo envuelto, pero quien acaba de entrar del vestíbulo recorre la última copia). */
   hall?: { x: number; span: number };
@@ -124,6 +127,7 @@ export class Remote {
   self = false;
   private shadow = new THREE.Mesh(new THREE.PlaneGeometry(0.95, 0.95).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ map: BLOB, transparent: true, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -2 }));
   onStep?: (r: Remote, run: boolean) => void;
+  stepRunSpeed = 2.4;
   private walked = 0;
 
   constructor(assets: Assets) {
@@ -167,20 +171,46 @@ export class Remote {
     this.track = new Track(); // un jugador nuevo en este clon: otro reloj, otro buffer
     this.base = undefined;
     this.deadT = 0;
+    this.wearingGlasses = false;
     this.cos.set(DEFAULT_LOOK);
     this.rig.root.rotation.set(0, 0, 0);
     this.rig.animator?.stopOver();
     this.emoting = 0;
-    const x = this.labelCtx;
+    this.speaking = false;
+    this.paintLabel();
+  }
+
+  private speaking = false;
+  /** Habla por el chat de voz: el altavoz junto al nombre. */
+  talk(on: boolean) {
+    if (on === this.speaking) return;
+    this.speaking = on;
+    this.paintLabel();
+  }
+  private paintLabel() {
+    const x = this.labelCtx, t = this.name.toUpperCase();
     x.clearRect(0, 0, 256, 64);
     x.font = 'bold 30px ui-monospace, Consolas, monospace';
     x.textAlign = 'center';
     x.lineWidth = 6;
     x.strokeStyle = '#000';
     x.fillStyle = '#f2f1ea';
-    const t = name.toUpperCase();
-    x.strokeText(t, 128, 42);
-    x.fillText(t, 128, 42);
+    const w = x.measureText(t).width, shift = this.speaking ? 14 : 0; // (con el altavoz, el nombre se corre un poco a la izquierda)
+    x.strokeText(t, 128 - shift, 42);
+    x.fillText(t, 128 - shift, 42);
+    if (this.speaking) {
+      const ix = 128 - shift + w / 2 + 8, iy = 29;
+      x.fillStyle = '#7dff9a';
+      x.strokeStyle = '#000';
+      x.lineWidth = 4;
+      x.beginPath();
+      x.moveTo(ix, iy - 5), x.lineTo(ix + 7, iy - 5), x.lineTo(ix + 15, iy - 12), x.lineTo(ix + 15, iy + 12), x.lineTo(ix + 7, iy + 5), x.lineTo(ix, iy + 5), x.closePath();
+      x.stroke();
+      x.fill();
+      x.strokeStyle = '#7dff9a';
+      x.lineWidth = 3;
+      for (const r of [8, 14]) (x.beginPath(), x.arc(ix + 15, iy, r, -0.9, 0.9), x.stroke());
+    }
     (this.label.material.map as THREE.Texture).needsUpdate = true;
   }
 
@@ -237,6 +267,7 @@ export class Remote {
       this.held = s.held;
       this.hiding = !!s.hiding;
       this.wantTank = !!s.tank;
+      this.wearingGlasses = !!s.xrayGlasses;
       this.emote = s.emote ?? 0;
       this.duck = !!s.duck;
       const A = this.rig.animator;
@@ -255,7 +286,7 @@ export class Remote {
       }
       if (this.fresh) (this.fresh = false), this.pos.copy(this.goal), (this.yaw = this.goalYaw), (this.pitch = this.goalPitch);
     }
-    if (this.hall) {
+    if (this.hall && (this.hall.x < 3 * this.hall.span) === (this.goal.x < 3 * this.hall.span)) {
       const d = Math.round((this.hall.x - this.goal.x) / this.hall.span) * this.hall.span;
       if (d) (this.goal.x += d), (this.pos.x += d);
     }
@@ -303,6 +334,16 @@ export class Remote {
     // la cabeza sigue a la mirada (hacia arriba o abajo)
     if (this.bones.Head && !this.dead) this.bones.Head.rotation.x -= THREE.MathUtils.clamp(this.pitch, -1, 1) * 0.7;
     body.updateMatrixWorld(true);
+    const head = this.bones.Head;
+    if (this.wearingGlasses && head && !this.glasses) {
+      const model = itemModel('glasses');
+      if (model) {
+        this.glasses = fit(model.clone(true), .19, Math.PI);
+        this.glasses.position.set(0, .105, .09);
+        head.add(this.glasses);
+      }
+    }
+    if (this.glasses) this.glasses.visible = this.wearingGlasses && !this.dead;
     this.cos.update(this.pitch, !this.bones.Head || this.bones.Head.scale.x > 0.5);
     const live = !this.dead;
     if (this.wantTank && !this.tank && poolPart('tank')) {
@@ -348,8 +389,9 @@ export class Remote {
     this.shadow.position.set(this.pos.x, this.pos.y + 0.012, this.pos.z);
     if (live && this.onStep && !this.emote && this.speed > 0.3) {
       this.walked += this.speed * dt;
-      const len = this.speed > 2.4 ? 1.1 : 0.7;
-      if (this.walked > len) (this.walked -= len), this.onStep(this, this.speed > 2.4);
+      const running = this.speed > this.stepRunSpeed;
+      const len = running ? 1.1 : 0.7;
+      if (this.walked > len) (this.walked -= len), this.onStep(this, running);
     }
     this.label.visible = live;
     this.label.position.set(this.pos.x, this.pos.y + 2.15 - 0.85 * this.crouch, this.pos.z);

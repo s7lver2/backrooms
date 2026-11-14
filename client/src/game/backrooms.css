@@ -109,6 +109,11 @@
 
 /* el aviso de recoger: abajo en el centro, una línea más del OSD */
 .br-hint { position: absolute; left: 50%; bottom: clamp(56px, 14vh, 120px); transform: translateX(-50%); z-index: 3; font-size: clamp(14px, 1.4vw, 18px); white-space: nowrap; pointer-events: none; }
+.br-item-use { position: absolute; left: 50%; top: calc(50% + 1rem); transform: translateX(-50%); font-size: .75rem; pointer-events: none; }
+.br-steel-reel { position: absolute; z-index: 8; top: 34%; left: 50%; transform: translateX(-50%); width: 14rem; overflow: hidden; border-block: 1px solid #cbccc3; background: #181b19eb; color: #e2e3d8; pointer-events: none; }
+.br-steel-reel__track { display: flex; animation: br-steel-roll 2.8s cubic-bezier(.12,.68,.15,1) forwards; }
+.br-steel-reel__track span { display: grid; place-items: center; padding: .6rem; min-height: 3rem; flex: 0 0 14rem; box-sizing: border-box; text-align: center; }
+@keyframes br-steel-roll { to { transform: translateX(var(--roll-shift)); } }
 
 /* el inventario: el menú de la camcorder sobre la imagen oscurecida, alineado arriba a la izquierda
    como la misión; las páginas son dos opciones, y las cosas, filas de icono, nombre y estado */
