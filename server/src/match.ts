@@ -3,7 +3,7 @@ import {
   type Difficulty, type Inventory, type Ups, type Look, type Mission, type HideState, type EntState, type ItemSpot, type Kind, type Maze, type Noise, type PlayerState, type SimTarget, type WorldSnapshot,
 } from '@backrooms/shared';
 import { ParkingMatch } from './parking-match';
-import { POOL_CELL, poolFloorY, type PoolMap } from '@backrooms/shared';
+import { POOL_CELL, poolFloorY, parkingSurface, type PoolMap } from '@backrooms/shared';
 
 /*
  * Lo que el servidor sabe de una partida en marcha: el mapa de la semilla, los objetos que quedan, las
@@ -614,6 +614,13 @@ export class Match {
     }
     this.noise(p.st.x, p.st.z, NOISE_DROP);
     return { pushed, hit, fx, fz };
+  }
+
+  /** La altura del suelo en (x, z) para unos pies a altura `y` (Poolrooms y Habitable Zone, que no tienen el suelo en 0); null: no se sabe. */
+  floorAt(x: number, z: number, y: number): number | null {
+    if (this.parking) return parkingSurface(this.parking.map, x, z, y)?.y ?? null;
+    if (this.poolGeometry) return poolFloorY(this.poolGeometry, x, z, y)?.y ?? null;
+    return null;
   }
 
   /** Entrar en el ascensor (abierto: la misión está cumplida). */

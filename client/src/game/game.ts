@@ -2,6 +2,9 @@ import { DEV_LOCAL } from '../devGate';
 import { claimPickup } from '../pickup-claim';
 import { dlog } from '../dlog';
 import * as THREE from 'three';
+import { Line2 } from 'three/examples/jsm/lines/Line2.js';
+import { LineGeometry } from 'three/examples/jsm/lines/LineGeometry.js';
+import { LineMaterial } from 'three/examples/jsm/lines/LineMaterial.js';
 import { glow, lootModel, pulse } from './rarityFx';
 import { itemModel, loadItemModels } from './itemModels';
 import { perks } from './perks';
@@ -3008,51 +3011,53 @@ fps ${(1 / Math.max(dt, 1e-3)).toFixed(0)}`;
 
   // ── los objetos de las Suites ─────────────────────────────────────────────
   private throwS = 0.6;
-  private arc?: { line: THREE.Line; dots: THREE.Points };
+  private arc?: { line: Line2; dots: THREE.Points; ring: THREE.Mesh };
   /** El arco del lanzamiento (pokeball y granada) mientras se mantiene el clic: la trayectoria con sus rebotes (shared/throw.ts, la misma del servidor). */
   private arcFrame() {
     const p = this.player, w = this.world;
     const scene = this.parking?.level.scene ?? (this.pool instanceof PoolLevel ? this.pool.scene : this.scene);
     if (!this.arc) {
-      const line = new THREE.Line(new THREE.BufferGeometry().setAttribute('position', new THREE.BufferAttribute(new Float32Array(102 * 3), 3)), new THREE.LineBasicMaterial({ color: 0xffe08a, transparent: true, opacity: 0.85, depthTest: false }));
-      const dots = new THREE.Points(new THREE.BufferGeometry().setAttribute('position', new THREE.BufferAttribute(new Float32Array(12 * 3), 3)), new THREE.PointsMaterial({ color: 0xff5a3c, size: 0.22, depthTest: false }));
-      for (const o of [line, dots]) (o.frustumCulled = false), (o.renderOrder = 10), (o.visible = false);
-      this.arc = { line, dots };
+      // la trayectoria: una línea blanca ancha (Line2: el ancho se da en píxeles), puntos blancos en cada rebote y un aro donde se queda
+      const line = new Line2(new LineGeometry(), new LineMaterial({ color: 0xffffff, linewidth: 4, transparent: true, opacity: 0.92, depthTest: false, depthWrite: false, toneMapped: false }));
+      const dots = new THREE.Points(new THREE.BufferGeometry().setAttribute('position', new THREE.BufferAttribute(new Float32Array(12 * 3), 3)), new THREE.PointsMaterial({ color: 0xffffff, size: 0.2, depthTest: false, toneMapped: false }));
+      const ring = new THREE.Mesh(new THREE.RingGeometry(0.2, 0.3, 28).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.9, depthTest: false, depthWrite: false, side: THREE.DoubleSide, toneMapped: false }));
+      for (const o of [line, dots, ring]) (o.frustumCulled = false), (o.renderOrder = 10), (o.visible = false);
+      this.arc = { line, dots, ring };
     }
-    const { line, dots } = this.arc, on = !!p?.charging && !p.dead;
-    for (const o of [line, dots]) if (o.parent !== scene) scene.add(o); // (la trayectoria se dibuja en la escena del nivel de ahora: laberinto, Poolrooms o Habitable Zone)
-    line.visible = dots.visible = on;
+    const { line, dots, ring } = this.arc, on = !!p?.charging && !p.dead;
+    for (const o of [line, dots, ring]) if (o.parent !== scene) scene.add(o); // (la trayectoria se dibuja en la escena del nivel de ahora: laberinto, Poolrooms o Habitable Zone)
+    line.visible = dots.visible = ring.visible = on;
     if (!on || !p) return;
-    // el trayecto: en el laberinto con sus paredes; en los demás niveles, sin choques pero sobre el suelo de donde se está (la altura de la planta)
-    const base = w ? 0 : p.pos.y;
+    // el trayecto, con el suelo del nivel (plantas, piscinas, garaje); la botella usa sus propias constantes (ver `useParkingItem`)
     let pts: number[], hits: [number, number, number][];
     if (p.prop === 'beer') {
-      // la botella del servidor: 12 m/s, g = 16 (ver `useParkingItem`)
       const cp = Math.cos(p.pitch), vx = -Math.sin(p.yaw) * cp * 12, vz = -Math.cos(p.yaw) * cp * 12, vy = Math.sin(p.pitch) * 12 + 2, y0 = p.pos.y + (p.duck ? 0.95 : 1.5);
       pts = [];
       hits = [];
-      for (let t = 0; t <= 2; t += 0.04) {
+      for (let t = 0; t <= 2; t += 0.03) {
         const y = y0 + vy * t - 8 * t * t;
         if (y < p.pos.y && t > 0) {
-          hits.push([p.pos.x + vx * t, p.pos.y, p.pos.z + vz * t]);
+          hits.push([p.pos.x + vx * t, p.pos.y + 0.03, p.pos.z + vz * t]);
           break;
         }
         pts.push(p.pos.x + vx * t, y, p.pos.z + vz * t);
       }
       if (!hits.length) hits.push([pts[pts.length - 3], pts[pts.length - 2], pts[pts.length - 1]]);
     } else {
-      const fl = flight(w ? (x, z) => w.solid(x, z) : () => false, [p.pos.x, w ? p.pos.y + 1.5 : 1.5, p.pos.z], p.yaw, p.pitch, 11 * Math.sqrt(perks.stats.reach));
-      pts = fl.pts.map((v, i) => (i % 3 === 1 ? v + base : v));
-      hits = [...fl.bounces, fl.end].map((b) => [b[0], b[1] + base, b[2]]);
+      const terr: { floorAt?: (x: number, z: number, y?: number) => number | null } | undefined = (this.parking?.level ?? (this.pool instanceof PoolLevel ? this.pool : w)) as { floorAt?: (x: number, z: number, y?: number) => number | null } | undefined;
+      const f = flight(w ? (x, z) => w.solid(x, z) : () => false, [p.pos.x, p.pos.y + 1.5, p.pos.z], p.yaw, p.pitch, 11 * Math.sqrt(perks.stats.reach), 2.9, w && !terr?.floorAt ? undefined : (x, z, y) => terr?.floorAt?.(x, z, y) ?? null);
+      pts = f.pts;
+      hits = [...f.bounces, f.end];
     }
-    const lp = line.geometry.getAttribute('position') as THREE.BufferAttribute, n = Math.min(102, pts.length / 3);
-    lp.array.set(pts.slice(0, n * 3));
-    lp.needsUpdate = true;
-    line.geometry.setDrawRange(0, n);
+    const n = Math.min(102, pts.length / 3);
+    (line.geometry as LineGeometry).setPositions(pts.slice(0, n * 3));
+    (line.material as LineMaterial).resolution.set(this.renderer.domElement.width, this.renderer.domElement.height);
     const dp = dots.geometry.getAttribute('position') as THREE.BufferAttribute, nb = Math.min(12, hits.length);
     hits.slice(0, nb).forEach((b, i) => dp.setXYZ(i, b[0], b[1], b[2]));
     dp.needsUpdate = true;
-    dots.geometry.setDrawRange(0, nb);
+    dots.geometry.setDrawRange(0, Math.max(0, nb - 1)); // (los rebotes; donde se queda lo marca el aro)
+    const end = hits[hits.length - 1];
+    ring.position.set(end[0], end[1] + 0.02, end[2]);
   }
   private smokeTex?: THREE.Texture;
   private smokeTexture() {
@@ -3077,7 +3082,7 @@ fps ${(1 / Math.max(dt, 1e-3)).toFixed(0)}`;
     if (m.k === 'bat') return void (this.audio?.cue('equip'), m.id !== this.mp?.id && this.remotes.get(m.id)?.swing());
     if (m.k === 'throw') {
       const o = new THREE.Mesh(new THREE.SphereGeometry(0.1, 12, 8), new THREE.MeshStandardMaterial({ color: m.what === 'pokeball' ? 0xd32f2f : 0x59684a }));
-      this.scene.add(o);
+      (this.parking?.level.scene ?? (this.pool instanceof PoolLevel ? this.pool.scene : this.scene)).add(o);
       this.throwS = m.s;
       let t = 0;
       this.fxList.push((dt) => {
@@ -3097,7 +3102,7 @@ fps ${(1 / Math.max(dt, 1e-3)).toFixed(0)}`;
       const a = Math.random() * Math.PI * 2, d = Math.sqrt(Math.random()) * m.r;
       const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: this.smokeTexture(), color: 0xbfbfbf, transparent: true, depthWrite: false, opacity: 0 }));
       sp.scale.setScalar(2.2 + Math.random() * 2.2);
-      this.scene.add(sp);
+      (this.parking?.level.scene ?? (this.pool instanceof PoolLevel ? this.pool.scene : this.scene)).add(sp);
       return { sp, x: m.x + Math.cos(a) * d, y: 0.3 + Math.random() * 2.1, z: m.z + Math.sin(a) * d, ph: Math.random() * 6 };
     });
     let t = -this.throwS; // (el humo sale cuando la granada acaba de rebotar)
