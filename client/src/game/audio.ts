@@ -222,6 +222,12 @@ export class GameAudio {
     return s;
   }
 
+  bottleBreak(gain: number) {
+    this.burst(.13, .24 * gain, 4600, .9);
+    this.burst(.23, .13 * gain, 7200, 1.2, 'bandpass', .025);
+    this.tone(2110, .08, .045 * gain, 'sine', .01, 1400);
+  }
+
   protected tone(f: number, dur: number, gain: number, type: OscillatorType = 'square', t0 = 0, f2?: number, dest: AudioNode = this.sfx) {
     const c = this.ctx, t = c.currentTime + t0, o = c.createOscillator(), g = c.createGain();
     o.type = type;

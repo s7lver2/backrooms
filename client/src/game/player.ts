@@ -7,7 +7,7 @@ import type { Terrain } from './terrain';
 import { FLASH } from './lightmap';
 import type { Assets } from './game';
 import { settings } from '../settings';
-import { RIFLE_MAG, HP_MAX, MONSTER, WATER_HEAL, addItem, hasItem, removeItem, type Inventory, type ItemId, type Look } from '@backrooms/shared';
+import { RIFLE_MAG, HP_MAX, MONSTER, WATER_HEAL, PARKING_ITEM_IDS, addItem, hasItem, removeItem, type Inventory, type ItemId, type Look, type ParkingItemId } from '@backrooms/shared';
 import { Rig } from './rig';
 import { Cosmetics } from './cosmetics';
 import { build } from './anim/core';
@@ -74,7 +74,7 @@ export class Player {
   /** Lo que se lleva en la mano sin ser camcorder ni rifle (cinta de acordonar, radar); con uno de ellos la mano derecha queda libre. */
   gadget: 'none' | 'caution' | 'radar' | 'totem' = 'none';
   /** Un objeto suelto en la mano derecha, sin función de juego (lo usa Anim Studio para colocar su agarre). */
-  prop: 'none' | 'water' | 'monster' | 'uno' | 'soap' | 'tape' | 'ammo' = 'none';
+  prop: 'none' | 'water' | 'monster' | 'uno' | 'soap' | 'tape' | 'ammo' | ParkingItemId = 'none';
   left: 'none' | 'flashlight' = 'none'; // la linterna es una del inventario (inv.spares): la mano la lleva si se equipa (y la primera que se tiene se equipa sola)
   belt: 'none' | 'camera' | 'gun' = 'none';
   readonly has = { camera: false, gun: false };
@@ -176,7 +176,7 @@ export class Player {
   onFall?: () => void;
   readonly rig: Rig;
   /** Lo que va en las manos, pegado a la cámara: la linterna a la izquierda y la cámara o la pistola a la derecha. */
-  readonly items = { flashlight: new THREE.Group(), camera: new THREE.Group(), gun: new THREE.Group(), caution: new THREE.Group(), radar: new THREE.Group(), totem: new THREE.Group(), watergun: new THREE.Group(), water: new THREE.Group(), monster: new THREE.Group(), uno: new THREE.Group(), soap: new THREE.Group(), tape: new THREE.Group(), ammo: new THREE.Group() };
+  readonly items = { flashlight: new THREE.Group(), camera: new THREE.Group(), gun: new THREE.Group(), caution: new THREE.Group(), radar: new THREE.Group(), totem: new THREE.Group(), watergun: new THREE.Group(), water: new THREE.Group(), monster: new THREE.Group(), uno: new THREE.Group(), soap: new THREE.Group(), tape: new THREE.Group(), ammo: new THREE.Group(), glasses: new THREE.Group(), pills: new THREE.Group(), steelcard: new THREE.Group(), beer: new THREE.Group() };
   speed = 0;
   /** Agachado (C o Ctrl): ojos más bajos, mitad de velocidad, sin correr; las entidades te ven de menos lejos. `duckK` es la transición (0–1). */
   duck = false;
@@ -198,6 +198,35 @@ export class Player {
   private monsterT = 0;
   private unoT = 0;
   buffT = 0;
+  private parkingItems: Pick<Inventory, ParkingItemId> = {};
+  private specialPending = false;
+  pillsUntil = 0;
+  glassesUntil = 0;
+  onParkingItem?: (id: ParkingItemId, receive: (accepted: boolean) => void) => void;
+  get glasses() { return this.parkingItems.glasses; }
+  get pills() { return this.parkingItems.pills; }
+  get steelcard() { return this.parkingItems.steelcard; }
+  get beer() { return this.parkingItems.beer; }
+  get pillSpeed() { return performance.now() < this.pillsUntil ? .8 : 0; }
+
+  equipParkingItem(id: ParkingItemId) {
+    if (!this.owns(id)) return;
+    this.empty();
+    this.prop = id;
+    const group = this.items[id], model = itemModel(id);
+    if (model && !group.children.length) group.add(fit(model.clone(true), id === 'beer' ? .24 : .16));
+  }
+
+  private activateParkingItem(id: ParkingItemId) {
+    if (this.dead || this.frozen || this.specialPending || !this.owns(id) || !this.onParkingItem) return;
+    this.specialPending = true;
+    this.onParkingItem(id, accepted => {
+      this.specialPending = false;
+      if (!accepted) return;
+      if (id === 'pills') this.pillsUntil = performance.now() + 60_000;
+      if (id === 'glasses') this.glassesUntil = performance.now() + 60_000;
+    });
+  }
   uno = false;
   onMonster?: () => void;
   onUno?: (done: (ok: boolean) => void) => void;
@@ -286,7 +315,7 @@ export class Player {
     this.items.ammo.add(new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.06, 0.06), new THREE.MeshStandardMaterial({ color: 0xb08d3a, roughness: 0.5, metalness: 0.5 })));
     this.placeItems(0);
     for (const it of Object.values(this.items)) camera.add(it);
-    for (const k of ['camera', 'gun', 'caution', 'radar', 'totem', 'watergun', 'water', 'monster', 'uno', 'soap', 'tape', 'ammo'] as const) this.items[k].visible = false;
+    for (const k of ['camera', 'gun', 'caution', 'radar', 'totem', 'watergun', 'water', 'monster', 'uno', 'soap', 'tape', 'ammo', ...PARKING_ITEM_IDS] as const) this.items[k].visible = false;
     // la pose de referencia: el primer fotograma de Neutral Idle. Con algo en las manos el torso y los dos brazos (hombros, brazos, manos y dedos)
     // vuelven a ella cada fotograma, después del mezclador: los hombros no se mueven con el paso, y el IK parte siempre del mismo sitio y no
     // hereda el giro del antebrazo del clip (que daba un salto en cada vuelta del ciclo de andar o correr)
@@ -317,7 +346,7 @@ export class Player {
       f.rotation.copy(g.rotation);
       f.rotateX(MOUNT.rot[0] * D), f.rotateY(MOUNT.rot[1] * D), f.rotateZ(MOUNT.rot[2] * D);
     }
-    for (const k of ['caution', 'radar', 'totem', 'water', 'monster', 'uno', 'soap', 'tape', 'ammo'] as const) put(this.items[k], grips[k].view, _rest.fromArray(grips[k].view.pos));
+    for (const k of ['caution', 'radar', 'totem', 'water', 'monster', 'uno', 'soap', 'tape', 'ammo', ...PARKING_ITEM_IDS] as const) put(this.items[k], grips[k].view, _rest.fromArray(grips[k].view.pos));
     const wv = grips.watergun.view;
     put(this.items.watergun, wv, _rest.fromArray(wv.pos).lerp(_eye.fromArray(wv.aim ?? wv.pos), k));
     const cv = grips.camera.view;
@@ -381,6 +410,7 @@ export class Player {
     if (c.slot >= 0 && c.slot < slots) (this.hotSel = c.slot), this.useHot(c.slot);
     if (c.wheel && slots) this.pickHot((Math.min(this.hotSel, slots - 1) + Math.sign(c.wheel) + slots) % slots);
     if (c.use && slots) this.useHot(this.hotSel);
+    if (c.fire && PARKING_ITEM_IDS.includes(this.prop as ParkingItemId)) this.activateParkingItem(this.prop as ParkingItemId);
     // la lata en la mano: mantener su tecla (o X, o el clic) medio segundo para beberla; soltar y volver a mantener para otra
     const wi = this.hot.indexOf('water');
     const held = !this.drinkOff && this.prop === 'water' && this.water > 0 && ((wi >= 0 && c.slotHeld === wi) || !!c.useHeld || !!c.fireHeld);
@@ -416,11 +446,11 @@ export class Player {
     const moving = c.move.length() > 0.05, run = c.run && moving && !this.winded && !this.duck;
     // ~9 s corriendo; se recupera en ~6 s andando y ~4 s parado; agotado, no se corre hasta el 30 %
     if (this.buffT > 0) (this.stamina = 1), (this.winded = false);
-    else this.stamina = THREE.MathUtils.clamp(this.stamina + dt * (run ? -1 / (11 * perks.stats.stamina) : moving ? 1 / 6 : 1 / 4), 0, 1);
+    else this.stamina = THREE.MathUtils.clamp(this.stamina + dt * (run ? -1 / (11 * perks.stats.stamina * (this.pillSpeed ? 1.25 : 1)) : moving ? 1 / 6 : 1 / 4), 0, 1);
     if (this.stamina <= 0) this.winded = true;
     else if (this.stamina > 0.3) this.winded = false;
     const pace = run ? this.world.groundPace?.run ?? RUN : this.world.groundPace?.walk ?? WALK;
-    let speed = moving ? pace * Math.min(1, c.move.length()) * this.speedMul * this.buffSpeed * perks.stats.speed * (this.duck ? 0.5 : 1) * (this.stunT > 0 ? 0 : this.wetT > 0 ? 0.5 : 1) * (this.aiming ? CAM_AIM_SLOW : 1) : 0;
+    let speed = moving ? (pace * this.speedMul * this.buffSpeed * perks.stats.speed + this.pillSpeed) * Math.min(1, c.move.length()) * (this.duck ? 0.5 : 1) * (this.stunT > 0 ? 0 : this.wetT > 0 ? 0.5 : 1) * (this.aiming ? CAM_AIM_SLOW : 1) : 0;
     const f = new THREE.Vector3(-Math.sin(this.yaw), 0, -Math.cos(this.yaw)), r = new THREE.Vector3(-f.z, 0, f.x);
     const v = f.multiplyScalar(c.move.y).add(r.multiplyScalar(c.move.x));
     if (v.lengthSq() > 0) v.normalize().multiplyScalar(speed * dt);
@@ -585,7 +615,7 @@ export class Player {
       if (!rk && g.right) grip('Right', it, g.right);
       if (two && !rk && g.left) grip('Left', it, g.left);
     }
-    for (const k of ['caution', 'radar', 'totem', 'water', 'monster', 'uno', 'soap', 'tape', 'ammo'] as const) this.items[k].visible = false;
+    for (const k of ['caution', 'radar', 'totem', 'water', 'monster', 'uno', 'soap', 'tape', 'ammo', ...PARKING_ITEM_IDS] as const) this.items[k].visible = false;
     if (this.prop === 'soap' && !this.items.soap.children.length) {
       const m = poolPart('soap');
       if (m) this.items.soap.add(fit(m.clone(true), 0.2));
@@ -594,7 +624,7 @@ export class Player {
     const pg = this.prop !== 'none' && this.hand === 'none' && this.gadget === 'none' && hk < 0.3 && !this.aiming ? grips[this.prop] : undefined;
     if (pg) {
       // un objeto suelto en la mano (lata, jabón, cinta VHS, balas)
-      const it = this.items[this.prop as 'water'];
+      const it = this.items[this.prop as Exclude<typeof this.prop, 'none'>];
       it.visible = !rk;
       if (!rk && pg.right) grip('Right', it, pg.right);
       if (!rk && pg.left) grip('Left', it, pg.left);
@@ -979,12 +1009,12 @@ export class Player {
 
   /** Lo que se lleva, para HOT. */
   get own() {
-    return { water: this.water, monster: this.monster, uno: this.uno, totem: this.totem, radar: this.radar, camera: this.has.camera, gun: this.has.gun, caution: this.caution, watergun: this.poolGear.watergun };
+    return { ...this.parkingItems, water: this.water, monster: this.monster, uno: this.uno, totem: this.totem, radar: this.radar, camera: this.has.camera, gun: this.has.gun, caution: this.caution, watergun: this.poolGear.watergun };
   }
 
   /** Todo lo que lleva, como lo cuenta el servidor (el inventario que se conserva entre rondas). */
   get inventory(): Inventory {
-    return { spares: this.spares, water: this.water, totem: this.totem, ammo: this.ammo + this.spare, radar: this.radar, camera: this.has.camera, gun: this.has.gun, caution: this.caution, uno: this.uno, monster: this.monster, ...this.poolGear };
+    return { ...this.parkingItems, spares: this.spares, water: this.water, totem: this.totem, ammo: this.ammo + this.spare, radar: this.radar, camera: this.has.camera, gun: this.has.gun, caution: this.caution, uno: this.uno, monster: this.monster, ...this.poolGear };
   }
   /** Lo de las Poolrooms (traje de buzo, pistola de agua): aquí no se usa, pero se conserva para devolverlo al servidor. */
   private poolGear = { tank: false, watergun: false };
@@ -995,6 +1025,11 @@ export class Player {
    */
   apply(inv: Inventory) {
     const had = this.inventory;
+    this.parkingItems = { glasses: inv.glasses, pills: inv.pills, steelcard: inv.steelcard, beer: inv.beer };
+    for (const id of PARKING_ITEM_IDS) {
+      if (inv[id] && !had[id]) this.autoSlot(id);
+      if (!inv[id] && this.prop === id) this.prop = 'none';
+    }
     this.poolGear = { tank: inv.tank, watergun: inv.watergun };
     if (!inv.watergun && this.hand === 'watergun') this.hold('none');
     this.spares = inv.spares;
@@ -1038,6 +1073,8 @@ export class Player {
     this.spares = this.water = this.totem = this.ammo = this.spare = this.monster = 0;
     this.uno = false;
     this.buffT = this.monsterT = this.unoT = 0;
+    this.pillsUntil = this.glassesUntil = 0;
+    this.parkingItems = {};
     this.apply(inv);
     const t = this.ammo + this.spare;
     this.ammo = Math.min(RIFLE_MAG, t);

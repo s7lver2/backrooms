@@ -9,7 +9,7 @@ import {
 } from '@backrooms/shared';
 import { Match, type Player } from './match';
 import { ACHIEVEMENT_KEYS, WATER_HEAL, NOISE_SHOT, NOISE_DROP, NOISE_PHOTO, NOISE_PICK, levelCaps, solidAt, startOffset } from '@backrooms/shared';
-import { lockerContents, facelingStock, type LockerItem, ITEMS, RARITIES, SCALE, UPGRADES, UP_IDS, boostOf, itemOpen, levelsOpen, cleanUps, hasRoom, lootPrice, rarity, rollRarity, sellPrice, spotRarity, statsOf, upCost, upLevel, wearInv, type Qual, type SaveInfo, type Ups } from '@backrooms/shared';
+import { lockerContents, facelingStock, type LockerItem, ITEMS, PARKING_ITEM_IDS, RARITIES, SCALE, UPGRADES, UP_IDS, boostOf, itemOpen, levelsOpen, cleanUps, hasRoom, lootPrice, rarity, rollRarity, sellPrice, spotRarity, statsOf, upCost, upLevel, wearInv, type Qual, type SaveInfo, type Ups } from '@backrooms/shared';
 import { allowedOrigins, handleApi, isAdminName, originOk, userFromCookie } from './auth';
 import { MONEY_LIMIT, parseAdmin } from './admin';
 import { achievementsOf, avatarRef, deleteSave, loadoutOf, saveOf, savesOf, writeSave } from './db';
@@ -117,7 +117,7 @@ const view = (r: RoomState): RoomView => {
   const lobby = r.phase === 'lobby', boarded = [...r.players.values()].filter((p) => p.boarded).map((p) => p.id);
   return {
     code: r.code, tape: r.tape, name: r.name, public: r.public, ownerId: r.ownerId, max: r.max, difficulty: r.difficulty, fixedSeed: r.fixedSeed, phase: r.phase, seed: r.seed,
-    bank: r.bank, round: r.round, levelId: r.levelId, floor: r.floor, quota: r.quota ?? 0, jobs: r.jobs, caps: levelCaps(r.levelId), ...(r.phase === 'starting' ? offers(r) : { offers: [], leading: '' }), mission: lobby ? null : active(r),
+    bank: r.bank, round: r.round, levelId: r.levelId, openLevels: [...openOf(r)], floor: r.floor, quota: r.quota ?? 0, jobs: r.jobs, caps: levelCaps(r.levelId), ...(r.phase === 'starting' ? offers(r) : { offers: [], leading: '' }), mission: lobby ? null : active(r),
     vote: r.phase === 'starting' && r.voteEnd ? { left: r.chosen ? 0 : Math.max(0, r.voteEnd - Date.now()), loaded: [...r.loaded].filter((s) => r.players.has(s)) } : null,
     ascent: r.boardAt ? { left: Math.max(0, Math.round(ASCENT_GRACE - (Date.now() - r.boardAt) / 1000)), boarded } : null,
     players: [...r.players.values()].map((p) => ({ id: p.id, name: p.name, dead: p.dead, look: p.look, avatar: avatarRef(p.uid), ready: !!p.ready, boarded: !!p.boarded, ups: p.ups })),
@@ -127,7 +127,12 @@ const push = (r: RoomState) => (r.phase === 'lobby' && save(r), io.to(r.code).em
 /** Lo que dan las mejoras de un jugador (casillas, vida máxima...). */
 const st = (p: Player) => statsOf(p.ups);
 /** Los niveles abiertos en la sala: el 0 y los que ha desbloqueado alguno de sus jugadores con el árbol. */
-const openOf = (r: RoomState) => levelsOpen([...r.players.values()].map((p) => p.ups));
+const openOf = (r: RoomState) => {
+  const players = [...r.players.values()];
+  const open = levelsOpen(players.map(p => p.ups));
+  if (players.some(p => p.uid && achievementsOf(p.uid).deep_end !== undefined)) open.add('parking');
+  return open;
+};
 /** Guarda la sala (si es de una cuenta): ajustes, banco, ronda y lo de cada cuenta. Se llama con cada cambio en el lobby y al irse alguien. */
 function save(r: RoomState) {
   if (!r.ownerUid) return;
@@ -181,6 +186,7 @@ function leave(id: string) {
   io.sockets.sockets.get(id)?.leave(code!);
   save(r); // (con quien se va todavía dentro: lo suyo queda guardado)
   r.players.delete(id);
+  if (r.phase === 'lobby' && r.levelId === 'parking' && r.players.size && !openOf(r).has('parking')) prepare(r, r.nextSeed);
   r.votes.delete(id);
   r.loaded.delete(id);
   autoStart(r);
@@ -413,6 +419,7 @@ function play(r: RoomState) {
     const [ox, oz] = startOffset(slot);
     const parking = r.match.parking;
     const start = parking ? parkingSpawn(parking.map, slot) : { x: r.match.start.x + ox, y: 0, z: r.match.start.z + oz };
+    p.pillsUntil = p.glassesUntil = undefined;
     slot++;
     (p.dead = false), (p.seen = false), (p.hp = st(p).hp), (p.water = 0), (p.totem = 0), (p.reviving = p.immuneUntil = undefined), (p.st = { ...START, x: start.x, y: start.y, z: start.z });
   }
@@ -445,7 +452,9 @@ io.on('connection', (sock) => {
   const uid = acct?.user.id ?? 0;
   if (uid) (sockets.get(uid) ?? sockets.set(uid, new Set()).get(uid)!).add(sock.id);
   const join = (r: RoomState, name: string, cb: (x: { id: string; room: RoomView }) => void) => {
+    const parkingWasOpen = openOf(r).has('parking');
     addPlayer(r, sock.id, acct ? acct.user.username : name, uid);
+    if (!parkingWasOpen && openOf(r).has('parking')) prepare(r, r.nextSeed);
     sock.join(r.code);
     cb({ id: sock.id, room: view(r) });
     sock.emit('inv', r.players.get(sock.id)!.inv);
@@ -587,7 +596,8 @@ io.on('connection', (sock) => {
     // un salto de `jam` al alza es un túnel sin fondo (teletransporte legítimo): no se recorta
     // (y el salto del bucle de Las Suites, `tp`: si no, el servidor te cree 24 m atrás y no te deja coger nada)
     if (!isAdmin() && !((st.jam ?? 0) > (p.st.jam ?? 0)) && !((st.tp ?? 0) > (p.st.tp ?? 0))) {
-      const reach = Math.min(2, (now2 - prev) / 1000) * MAX_SPEED + MOVE_SLACK, dx = st.x - p.st.x, dz = st.z - p.st.z, d = Math.hypot(dx, dz);
+      const speed = MAX_SPEED + (now2 < (p.pillsUntil ?? 0) ? .8 : 0);
+      const reach = Math.min(2, (now2 - prev) / 1000) * speed + MOVE_SLACK, dx = st.x - p.st.x, dz = st.z - p.st.z, d = Math.hypot(dx, dz);
       if (d > reach) (st.x = p.st.x + (dx / d) * reach), (st.z = p.st.z + (dz / d) * reach);
     }
     if (st.hiding && !r.match?.hideOk(p, st)) st.hiding = st.holding = false; // solo en un nicho libre
@@ -1049,6 +1059,7 @@ io.on('connection', (sock) => {
 
   // soltar una unidad delante de uno: sale de lo que podía llevar y aparece en el suelo para todos
   sock.on('drop', (kind, index, cb) => {
+    if (kind === 'pills') return typeof cb === 'function' && cb(false);
     const r = roomOf(sock.id), p = r?.players.get(sock.id), now = Date.now();
     let ok = false;
     const free = !!r && !!p && now - (p.lastDrop ?? 0) >= DROP_GAP && [...r.drops.values()].filter((d) => d.by === p.id).length < DROP_MAX;
@@ -1136,6 +1147,78 @@ io.on('connection', (sock) => {
     p.cap = removeItem(p.cap, 'monster');
     if (p.uid) count(p.uid, 'monsters');
     bag(p);
+  });
+
+  sock.on('useParkingItem', (id, cb) => {
+    if (typeof cb !== 'function') return;
+    const r = roomOf(sock.id), p = r?.players.get(sock.id), match = r?.match;
+    if (!r || !p || !match || r.phase !== 'playing' || p.dead || p.boarded
+      || !PARKING_ITEM_IDS.includes(id) || !hasItem(p.cap, id)) return cb(null);
+    const now = Date.now();
+    if (id === 'glasses' && now < (p.glassesUntil ?? 0)) return cb(null);
+    let result: { item?: ItemId; curse?: boolean } = {};
+    const hurt = (q: Player, fraction: number) => {
+      q.hp = Math.max(0, q.hp - st(q).hp * fraction);
+      if (q.hp > 0 || q.dead) return;
+      q.dead = true;
+      r.deaths++;
+      io.to(r.code).emit('dead', q.id);
+      push(r);
+      checkOver(r);
+    };
+    if (id === 'pills') {
+      p.cap = (p.cap.pills ?? 0) > 1 ? { ...p.cap, pills: p.cap.pills! - 1 } : removeItem(p.cap, id);
+      p.pillsUntil = now + 60_000;
+      hurt(p, .15);
+    } else {
+      const remaining = removeItem(p.cap, id);
+      if (id === 'steelcard') {
+        const open = openOf(r);
+        const allowed = ITEM_IDS.filter(item => item !== 'steelcard' && itemOpen(item, open) && canHold(remaining, item, st(p))
+          && (!match.parking || !['gun', 'ammo', 'watergun', 'tank', 'totem', 'radar', 'caution'].includes(item)));
+        if (!allowed.length) return cb(null);
+        if (Math.random() < .05) {
+          match.curseUntil = now + 60_000;
+          result = { curse: true };
+        } else {
+          const item = allowed[Math.floor(Math.random() * allowed.length)];
+          result = { item };
+        }
+      }
+      p.cap = result.item ? addItem(remaining, result.item) : remaining;
+      if (id === 'glasses') p.glassesUntil = now + 60_000;
+      if (id === 'beer') {
+        const { x, y, z, yaw, pitch, duck } = p.st;
+        const vx = -Math.sin(yaw) * Math.cos(pitch) * 12, vz = -Math.cos(yaw) * Math.cos(pitch) * 12;
+        const vy = Math.sin(pitch) * 12 + 2, startY = y + (duck ? .95 : 1.5);
+        const path = [{ x, y: startY, z }];
+        let target: Player | undefined, duration = 0;
+        for (let t = .015; t <= 2; t += .015) {
+          duration = t;
+          const point = { x: x + vx * t, y: startY + vy * t - 8 * t * t, z: z + vz * t };
+          if (!match.openItemPath(point.x, point.z, point.y)) break;
+          path.push(point);
+          target = [...r.players.values()].find(q => q !== p && !q.dead && !q.boarded
+            && Math.hypot(point.x - q.st.x, point.z - q.st.z) < .32
+            && point.y >= q.st.y && point.y < q.st.y + (q.st.duck ? 1.05 : 1.7));
+          if (target) break;
+        }
+        io.to(r.code).emit('beerThrow', path, duration);
+        const impact = path[path.length - 1];
+        setTimeout(() => {
+          if (r.match !== match || r.phase !== 'playing') return;
+          if (match.parking) match.parking.lureAt(impact.x, impact.z, impact.y);
+          else match.noise(impact.x, impact.z, 18);
+          if (target && r.players.get(target.id) === target && !target.dead && !target.boarded
+            && (target.immuneUntil ?? 0) <= Date.now()
+            && Math.hypot(target.st.x - impact.x, target.st.z - impact.z) < .45
+            && impact.y >= target.st.y && impact.y < target.st.y + (target.st.duck ? 1.1 : 1.75)) hurt(target, .05);
+        }, duration * 1000);
+      }
+    }
+    sock.emit('inv', p.cap);
+    bag(p);
+    cb(result);
   });
 
   // la carta Uno Reverse: cambia de sitio con un compañero vivo al azar; una sola vez
@@ -1247,11 +1330,12 @@ setInterval(() => {
 
 // el estado de cada jugador a su sala, 15 veces por segundo; el del mundo, 10
 setInterval(() => {
+  const now = Date.now();
   for (const r of rooms.values()) {
     if (r.phase !== 'playing' && !inWait(r)) continue;
     // volatile: si el socket de alguien (un túnel lento) no ha terminado de vaciar lo anterior, este se descarta en vez de
     // encolarse: llega siempre lo último y no una ráfaga de estados viejos
-    io.to(r.code).volatile.emit('players', Object.fromEntries([...r.players].map(([id, p]) => [id, { ...p.st, name: p.name, dead: p.dead, hp: p.dead ? 0 : p.hp }])));
+    io.to(r.code).volatile.emit('players', Object.fromEntries([...r.players].map(([id, p]) => [id, { ...p.st, name: p.name, dead: p.dead, hp: p.dead ? 0 : p.hp, xrayGlasses: r.phase === 'playing' && !p.dead && !p.boarded && now < (p.glassesUntil ?? 0) }])));
   }
 }, 1000 / 15);
 const lobbyHad = new Set<string>(); // salas de espera a las que ya se mandó una lista con algo (para mandar también la vacía)

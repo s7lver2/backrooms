@@ -1,6 +1,6 @@
 import type { Player } from './player';
 import type { IconKey } from './invIcons';
-import { AMMO_PACK } from '@backrooms/shared';
+import { AMMO_PACK, ITEMS, PARKING_ITEM_IDS, type ParkingItemId, type Inventory } from '@backrooms/shared';
 
 /*
  * La barra de acceso rápido: 4 ranuras (teclas 1–4; la rueda cambia la elegida, X usa la elegida) con el id de un objeto.
@@ -22,7 +22,7 @@ export interface Fracs {
 }
 
 /** Lo que hace falta saber de lo que se lleva (lo cumplen Player y el Inv del HUD). */
-export interface Own {
+export interface Own extends Pick<Inventory, ParkingItemId> {
   water: number;
   totem: number;
   radar: boolean;
@@ -62,6 +62,15 @@ const gear = (g: 'camera' | 'gun', name: string, info: string): HotDef => ({
 });
 
 export const HOT: Record<string, HotDef> = {
+  ...Object.fromEntries(PARKING_ITEM_IDS.map(id => [id, {
+    name: ITEMS[id].name,
+    icon: id,
+    have: (o) => !!o[id],
+    count: id === 'pills' || id === 'beer' ? (o) => o[id] ?? 0 : undefined,
+    use: (p) => p.equipParkingItem(id),
+    held: (p) => p.prop === id,
+    info: ITEMS[id].info,
+  } satisfies HotDef])),
   camera: gear('camera', 'CAMCORDER', 'Take it in hand, or put it away.'),
   gun: gear('gun', 'RIFLE', 'Take it in hand, or put it away.'),
   caution: {

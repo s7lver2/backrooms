@@ -15,7 +15,7 @@ const SKIN_SURVIVAL_SPEED = .05;
 const SKIN_SURVIVAL_INVESTIGATION_REDUCTION = .4;
 export const SKIN_SPEED = { walk: 1.6, run: 5.1, beast: 5.82, flee: 5.82 };
 export interface SkinAgent { id:number; originFloor:number; pos:ParkingPoint; yaw:number; state:SkinState; beast:boolean; transform:number; recoverUntil:number; repelUntil:number; nextThink:number; nextPath:number; lastSeen?:ParkingPoint; seenAt:number; path:number[]; goal:number; attackAt:number; moving:boolean; waitUntil:number; fakeTask?:ParkingPoint; investigationGoal?:number }
-export interface SkinTarget { id?:string; pos:ParkingPoint; eye:{x:number;y:number;z:number}; yaw?:number; beam:{x:number;y:number;z:number}|null; noise:number; repairNoise?:ParkingPoint; alive:boolean }
+export interface SkinTarget { id?:string; pos:ParkingPoint; eye:{x:number;y:number;z:number}; yaw?:number; beam:{x:number;y:number;z:number}|null; noise:number; repairNoise?:ParkingPoint; lure?:boolean; alive:boolean }
 export interface SkinWorld { fits(x:number,z:number,y:number):ParkingPoint|null; sight(a:ParkingPoint,b:ParkingPoint):boolean; repairAudible?(from:ParkingPoint, generator:ParkingPoint):boolean; bright(p:ParkingPoint):number; hit(id?:string):void }
 const distance=(a:ParkingPoint,b:ParkingPoint)=>Math.hypot(a.x-b.x,a.y-b.y,a.z-b.z);
 const roomDistance=(r:ParkingRoom,p:ParkingPoint)=>Math.hypot(Math.max(r.x-p.x,0,p.x-r.x-r.w),Math.max(r.z-p.z,0,p.z-r.z-r.d));
@@ -124,6 +124,7 @@ export class ParkingSkinAI {
     agent.nextThink = 0;
   }
   private sees(a: SkinAgent, t: SkinTarget) {
+    if (t.lure) return false;
     const range = distance(a.pos, t.pos);
     if (range > SKIN_VISION || Math.abs(a.pos.y - t.pos.y) > 3.8) return false;
     const facing = faces(t.pos.x - a.pos.x, t.pos.z - a.pos.z, a.yaw, range, -.25);
@@ -140,6 +141,7 @@ export class ParkingSkinAI {
   private hears(a: SkinAgent, t: SkinTarget) {
     const source = t.repairNoise ?? t.pos;
     if (this.safe(t.pos) || Math.abs(a.pos.y - source.y) >= 1 || !withinHearingRange(distance(a.pos, source), t.noise, 1 + .2 * this.pressure)) return false;
+    if (t.lure) return true;
     if (t.repairNoise && this.world.repairAudible) return this.world.repairAudible(a.pos, source);
     return this.world.sight({ ...a.pos, y: a.pos.y + 1 }, { ...source, y: source.y + 1 });
   }
@@ -279,7 +281,7 @@ export class ParkingSkinAI {
       return true;
     },
     investigate: (agent: SkinAgent, target: SkinTarget) => {
-      if (!target.alive || this.occupied || agent.beast) return false;
+      if (!target.alive || target.lure || this.occupied || agent.beast) return false;
       if (this.investigationDue()) {
         const goal = this.nearest(target.pos);
         agent.investigationGoal = goal >= 0 ? goal : undefined;
@@ -351,9 +353,11 @@ export class ParkingSkinAI {
     this.accumulator=Math.min(.25,this.accumulator+Math.max(0,dt));
     while(this.accumulator>=.05){this.accumulator-=.05;this.step(.05,targets.filter(t=>t.alive));}
   }
+  speedBonus = 0;
+
   private step(dt:number,targets:SkinTarget[]){
     this.clock+=dt;
-    const speedBonus = SKIN_CURSE_SPEED[this.curseTier] + this.repairedGenerators * SKIN_GENERATOR_SPEED
+    const speedBonus = this.speedBonus + SKIN_CURSE_SPEED[this.curseTier] + this.repairedGenerators * SKIN_GENERATOR_SPEED
       + this.survivalTier * SKIN_SURVIVAL_SPEED;
     const investigationDue = this.investigationDue();
     if(this.clock>=this.nextBrightness){this.map.nav.forEach((n,i)=>this.brightness[i]=this.world.bright(n));this.nextBrightness=this.clock+1;}
@@ -400,7 +404,7 @@ export class ParkingSkinAI {
         }
         this.move(a, (speed + speedBonus) * dt, direct);
       }
-      if(a.beast&&a.state==='beast'&&!this.occupied&&t.alive&&this.clock>=a.repelUntil&&this.clock>=a.attackAt&&distance(a.pos,t.pos)<1.35&&this.world.sight({...a.pos,y:a.pos.y+1.1},{...t.pos,y:t.eye.y})){a.attackAt=this.clock+1.4;this.world.hit(t.id);}
+      if(a.beast&&a.state==='beast'&&!this.occupied&&t.alive&&!t.lure&&this.clock>=a.repelUntil&&this.clock>=a.attackAt&&distance(a.pos,t.pos)<1.35&&this.world.sight({...a.pos,y:a.pos.y+1.1},{...t.pos,y:t.eye.y})){a.attackAt=this.clock+1.4;this.world.hit(t.id);}
     }
     if (investigationDue) {
       const interval = SKIN_INVESTIGATION_INTERVAL[this.curseTier] - this.repairedGenerators * SKIN_GENERATOR_INVESTIGATION_REDUCTION

@@ -91,6 +91,7 @@ export interface PlayerState {
   t?: number;
   /** Vida (0–100). La pone el servidor al repartir los estados; lo que mande el cliente se ignora. */
   hp?: number;
+  xrayGlasses?: boolean;
 }
 /** Emotes de la sala de espera (teclas 1–4) y los ms mínimos entre dos cambios de uno. */
 export const EMOTES: readonly string[] = ['', ...EMOTE_DEFS.map((e) => e.name)];
@@ -144,6 +145,7 @@ export interface Room extends RoomSettings {
   round: number;
   /** El nivel de la ronda (clave de LEVELS en shared/missions.ts). */
   levelId: string;
+  openLevels?: string[];
   /** Las Suites: la planta de la ronda (1-5). */
   floor?: number;
   /** Las Suites: encargos del contrato votado (1, 3 o 5; 0 = aún sin contrato) y los ya cumplidos. El -1 del ascensor solo sale con `jobs >= quota`. */
@@ -304,6 +306,7 @@ export interface ClientToServer {
   lockerTake: (id: string, i: number, cb: (ok: boolean) => void) => void;
   /** Beber una Monster (se gasta; el servidor da el margen de velocidad) y usar la carta Uno Reverse (cambia de sitio con un compañero vivo al azar; responde si pudo). */
   monster: () => void;
+  useParkingItem: (id: import('./missions').ParkingItemId, cb: (result: { item?: import('./missions').ItemId; curse?: boolean } | null) => void) => void;
   uno: (cb: (ok: boolean) => void) => void;
   /** Chat de voz: un mensaje de señalización WebRTC (oferta, respuesta o candidato ICE) para un compañero de la sala; el servidor solo lo reenvía. */
   rtc: (to: string, data: unknown) => void;
@@ -373,6 +376,7 @@ export interface Status {
 }
 
 export interface ServerToClient {
+  beerThrow: (path: { x: number; y: number; z: number }[], duration: number) => void;
   adminFx: (m: AdminFx) => void;
   status: (s: Status) => void;
   room: (r: RoomView) => void;

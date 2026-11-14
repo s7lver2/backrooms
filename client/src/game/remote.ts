@@ -8,6 +8,7 @@ import { Cosmetics } from './cosmetics';
 import { Timeline, Track, type Snap } from './interp';
 import { poolPart } from './poolmap';
 import { worn, wornModel, placeWorn } from './worn';
+import { itemModel } from './itemModels';
 
 /*
  * Otro jugador: el mismo hazmat (clonado) que el propio, con la linterna y lo que lleve en la mano. Se
@@ -83,6 +84,8 @@ export class Remote {
   private label: THREE.Sprite;
   private labelCtx: CanvasRenderingContext2D;
   private bones: Record<'LeftHand' | 'RightHand' | 'Head', THREE.Bone | undefined>;
+  private glasses?: THREE.Group;
+  private wearingGlasses = false;
   readonly pos = new THREE.Vector3();
   /** Las Suites: dónde estoy yo y lo que mide una copia del pasillo; el compañero se dibuja en la copia más cercana a mí (los dos envían el pasillo envuelto, pero quien acaba de entrar del vestíbulo recorre la última copia). */
   hall?: { x: number; span: number };
@@ -168,6 +171,7 @@ export class Remote {
     this.track = new Track(); // un jugador nuevo en este clon: otro reloj, otro buffer
     this.base = undefined;
     this.deadT = 0;
+    this.wearingGlasses = false;
     this.cos.set(DEFAULT_LOOK);
     this.rig.root.rotation.set(0, 0, 0);
     this.rig.animator?.stopOver();
@@ -238,6 +242,7 @@ export class Remote {
       this.held = s.held;
       this.hiding = !!s.hiding;
       this.wantTank = !!s.tank;
+      this.wearingGlasses = !!s.xrayGlasses;
       this.emote = s.emote ?? 0;
       this.duck = !!s.duck;
       const A = this.rig.animator;
@@ -304,6 +309,16 @@ export class Remote {
     // la cabeza sigue a la mirada (hacia arriba o abajo)
     if (this.bones.Head && !this.dead) this.bones.Head.rotation.x -= THREE.MathUtils.clamp(this.pitch, -1, 1) * 0.7;
     body.updateMatrixWorld(true);
+    const head = this.bones.Head;
+    if (this.wearingGlasses && head && !this.glasses) {
+      const model = itemModel('glasses');
+      if (model) {
+        this.glasses = fit(model.clone(true), .19, Math.PI);
+        this.glasses.position.set(0, .105, .09);
+        head.add(this.glasses);
+      }
+    }
+    if (this.glasses) this.glasses.visible = this.wearingGlasses && !this.dead;
     this.cos.update(this.pitch, !this.bones.Head || this.bones.Head.scale.x > 0.5);
     const live = !this.dead;
     if (this.wantTank && !this.tank && poolPart('tank')) {

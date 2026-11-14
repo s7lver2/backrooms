@@ -186,7 +186,7 @@ function Osd({ hud }: { hud: Hud }) {
 /** La misión de la ronda, siempre en pantalla (sin mirar por la cámara): el objetivo, su progreso en bloques («PHOTOS 1/3», «TVS 2/4») y, si se gasta, la linterna y el aguante. */
 /** El inventario del servidor como lo espera el menú de la mochila (en la sala de espera no hay jugador: manos y cinturón quedan vacíos). */
 function waitInv(s: SrvInv, hot: (string | null)[] = ['caution', null, null, null], left: 'none' | 'flashlight' = s.spares ? 'flashlight' : 'none'): Inv {
-  return { hand: 'none', left, belt: 'none', stamina: 1, sanity: 1, escaped: false, camera: s.camera, gun: s.gun, ammo: Math.min(s.ammo, RIFLE_MAG), spare: Math.max(0, s.ammo - RIFLE_MAG), tapes: 0, photos: 0, thumbs: [], full: [], flashOn: false, battery: 1, charge: 1, spares: s.spares, uno: s.uno, monster: s.monster, water: s.water, totem: s.totem, radar: s.radar, caution: s.caution, tank: s.tank, tankOn: true, watergun: s.watergun, tape: 1, hot, hotSel: 0, gadget: 'none' };
+  return { hand: 'none', left, belt: 'none', stamina: 1, sanity: 1, escaped: false, camera: s.camera, gun: s.gun, ammo: Math.min(s.ammo, RIFLE_MAG), spare: Math.max(0, s.ammo - RIFLE_MAG), tapes: 0, photos: 0, thumbs: [], full: [], flashOn: false, battery: 1, charge: 1, spares: s.spares, uno: s.uno, monster: s.monster, glasses: s.glasses, pills: s.pills, steelcard: s.steelcard, beer: s.beer, water: s.water, totem: s.totem, radar: s.radar, caution: s.caution, tank: s.tank, tankOn: true, watergun: s.watergun, tape: 1, hot, hotSel: 0, gadget: 'none' };
 }
 
 /** La misión de la ronda, siempre en pantalla (sin mirar por la cámara): el objetivo, su progreso en bloques («PHOTOS 1/3», «TVS 2/4») y, si se gasta, la linterna y el aguante. */
@@ -1093,7 +1093,7 @@ export default function Backrooms({ onQuit, onWin }: { onQuit: () => void; onWin
         </div>
       )}
       {screen === 'play' && hud?.shop && net.room && game.current?.assets && (
-        <ShopGrid seed={net.room.seed} floor={net.room.floor} open={levelsOpen(net.room.players.map((p) => p.ups))} bank={net.room.bank} inv={game.current.player?.inventory ?? null} sock={net.sock} assets={game.current.assets} onBought={(id) => game.current?.buyHere(id)} />
+        <ShopGrid seed={net.room.seed} floor={net.room.floor} open={net.room.openLevels ? new Set(net.room.openLevels) : levelsOpen(net.room.players.map((p) => p.ups))} bank={net.room.bank} inv={game.current.player?.inventory ?? null} sock={net.sock} assets={game.current.assets} onBought={(id) => game.current?.buyHere(id)} />
       )}
       {screen === 'play' && hud && game.current?.assets && (
         <Inventory
@@ -1112,11 +1112,25 @@ export default function Backrooms({ onQuit, onWin }: { onQuit: () => void; onWin
             if (p && HOT[id]?.have(p.own)) HOT[id].use(p);
           }}
           onDrop={hud.parking ? undefined : (id, i) => (id === 'loot' ? game.current!.dropLoot(i ?? 0) : game.current!.dropItem(id as ItemId))}
+          onEquipSpecial={(id) => {
+            game.current?.player?.equipParkingItem(id);
+            game.current?.closeBag();
+          }}
           onTank={(on) => game.current!.setTank(on)}
           onClose={() => game.current!.closeBag()}
         />
       )}
-      {screen === 'play' && touch && game.current && !hud?.bag && <Touch input={game.current.input} hand={hand} aiming={!!hud?.aiming} parking={game.current.inParking} />}
+      {screen === 'play' && hud?.steelRoll && (
+        <div className="br-steel-reel" key={hud.steelRoll.serial} aria-label={`Steel Card result: ${hud.steelRoll.winner}`}>
+          <div className="br-steel-reel__track" style={{ '--roll-shift': `-${(hud.steelRoll.labels.length - 1) * 14}rem`, animationDuration: reduced.current ? '1ms' : '2.8s' } as React.CSSProperties}>
+            {hud.steelRoll.labels.map((label, i) => <span key={i}>{label}</span>)}
+          </div>
+        </div>
+      )}
+      {screen === 'play' && hud?.parkingItemHeld && !touch && !hud.bag && (
+        <p className="br-item-use">{hud.parkingItemHeld === 'beer' ? 'CLICK TO THROW' : 'CLICK TO USE'}</p>
+      )}
+      {screen === 'play' && touch && game.current && !hud?.bag && <Touch input={game.current.input} hand={hand} aiming={!!hud?.aiming} parking={game.current.inParking} itemHeld={!!hud?.parkingItemHeld} />}
       {screen === 'pause' && (
         <div className="br-pause" role="dialog" aria-labelledby="br-pause-t">
           <p className="br-pause__head" id="br-pause-t">

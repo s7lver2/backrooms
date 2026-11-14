@@ -10,7 +10,7 @@ import type { Input, Pulse } from './input';
 
 const R = 56; // radio del joystick, px
 
-export default function Touch({ input, hand, aiming, parking = false }: { input: Input; hand: 'none' | 'camera' | 'gun'; aiming: boolean; parking?: boolean }) {
+export default function Touch({ input, hand, aiming, parking = false, itemHeld = false }: { input: Input; hand: 'none' | 'camera' | 'gun'; aiming: boolean; parking?: boolean; itemHeld?: boolean }) {
   const base = useRef<HTMLDivElement>(null);
   const knob = useRef<HTMLDivElement>(null);
   const stick = useRef<{ id: number; x: number; y: number } | null>(null);
@@ -88,6 +88,7 @@ export default function Touch({ input, hand, aiming, parking = false }: { input:
         )}
         {hand === 'camera' && aiming && btn('PHOTO', 'fire')}
         {hand === 'gun' && btn('FIRE', 'fire')}
+        {itemHeld && btn('USE ITEM', 'fire')}
         {hand === 'gun' && btn('RELOAD', 'reload')}
       </div>
     </div>

@@ -1,6 +1,6 @@
 'use client';
 import { memo, useEffect, useMemo, useRef, useState, type MutableRefObject } from 'react';
-import { DEFAULT_LOOK, RIFLE_MAG, ITEMS, SHOP, lootPrice, rarity, sellPrice, type ItemId, type Look, type Qual } from '@backrooms/shared';
+import { DEFAULT_LOOK, RIFLE_MAG, ITEMS, SHOP, PARKING_ITEM_IDS, lootPrice, rarity, sellPrice, type ItemId, type Look, type Qual, type ParkingItemId } from '@backrooms/shared';
 import { perks } from './perks';
 import { lootIcon } from './rarityFx';
 import type { Assets, Inv, MissionHud } from './game';
@@ -20,18 +20,19 @@ import './inventory.css';
  */
 
 const NAME: Partial<Record<Item, string>> = { flashlight: 'FLASHLIGHT', camera: 'CAMCORDER', gun: 'RIFLE', water: 'ALMOND WATER', tape: 'VHS TAPES', spare: 'SPARE FLASHLIGHTS', ammo: 'RIFLE AMMO', tank: 'DIVING TANK', loot: 'ARTIFACT', uno: 'UNO REVERSE', monster: 'MONSTER' };
-type Item = Gear | 'water' | 'caution' | 'radar' | 'totem' | 'watergun' | 'tape' | 'spare' | 'ammo' | 'tank' | 'loot' | 'uno' | 'monster';
+type Item = Gear | 'water' | 'caution' | 'radar' | 'totem' | 'watergun' | 'tape' | 'spare' | 'ammo' | 'tank' | 'loot' | 'uno' | 'monster' | ParkingItemId;
 /** El objeto de la tienda (ITEMS) que corresponde a cada cosa del inventario: de él salen su rareza, su estado y su precio. La linterna de la mano y las cintas no tienen. */
-const SHOP_ID: Partial<Record<Item, ItemId>> = { flashlight: 'flashlight', camera: 'camera', gun: 'gun', water: 'water', caution: 'caution', radar: 'radar', totem: 'totem', watergun: 'watergun', spare: 'flashlight', ammo: 'ammo', tank: 'tank', uno: 'uno', monster: 'monster' };
+const SHOP_ID: Partial<Record<Item, ItemId>> = { flashlight: 'flashlight', camera: 'camera', gun: 'gun', water: 'water', caution: 'caution', radar: 'radar', totem: 'totem', watergun: 'watergun', spare: 'flashlight', ammo: 'ammo', tank: 'tank', uno: 'uno', monster: 'monster', glasses: 'glasses', pills: 'pills', steelcard: 'steelcard', beer: 'beer' };
 const hex = (r: number) => '#' + rarity(r).color.toString(16).padStart(6, '0');
 /** Una casilla de la mochila: qué hay y cuántas unidades (solo lo que se cuenta pasa de 1). */
 export type Cell = { k: Item; n: number };
 const STACK = new Set<Item>(['water', 'tape', 'spare', 'ammo']);
 /** Lo que el servidor deja soltar al suelo (id de ItemId); las cintas no. */
-const DROP: Partial<Record<Item, string>> = { loot: 'loot', water: 'water', spare: 'flashlight', ammo: 'ammo', camera: 'camera', gun: 'gun', caution: 'caution', radar: 'radar', totem: 'totem', watergun: 'watergun', tank: 'tank', uno: 'uno', monster: 'monster' };
+const DROP: Partial<Record<Item, string>> = { loot: 'loot', water: 'water', spare: 'flashlight', ammo: 'ammo', camera: 'camera', gun: 'gun', caution: 'caution', radar: 'radar', totem: 'totem', watergun: 'watergun', tank: 'tank', uno: 'uno', monster: 'monster', glasses: 'glasses', steelcard: 'steelcard', beer: 'beer' };
 const hotable = (g: Item) => g === 'camera' || g === 'gun' || barOnly(g);
 /** Lo que solo va en la barra de acceso rápido (no se equipa en las manos): se arrastra a una ranura de la barra. */
-const barOnly = (g: Item): g is 'water' | 'caution' | 'radar' | 'totem' | 'watergun' | 'uno' | 'monster' => g === 'uno' || g === 'monster' || g === 'water' || g === 'caution' || g === 'radar' || g === 'totem' || g === 'watergun';
+const bagHotItems = ['caution', 'radar', 'totem', 'watergun', 'uno', 'monster', ...PARKING_ITEM_IDS] as const;
+const barOnly = (g: Item): g is 'water' | typeof bagHotItems[number] => g === 'water' || (bagHotItems as readonly Item[]).includes(g);
 const fits = (s: string, g: Item) => (s === 'left' && (g === 'flashlight' || g === 'spare')) || (s === 'back' && g === 'tank');
 const label = (g: Item) => NAME[g] ?? HOT[g]?.name ?? g;
 const SLOTS: [Slot, string][] = [
@@ -98,6 +99,7 @@ function Inventory({
   onLight,
   onHot,
   onUse,
+  onEquipSpecial,
   onDrop,
   onTank,
   onClose,
@@ -115,6 +117,7 @@ function Inventory({
   /** Poner un objeto en una ranura de la barra de acceso rápido (null la vacía). */
   onHot: (slot: number, id: string | null) => void;
   onUse: (id: string) => void;
+  onEquipSpecial?: (id: ParkingItemId) => void;
   /** Soltar una unidad al suelo (arrastrando fuera del panel). */
   onDrop?: (id: string, index?: number) => void;
   /** Ponerse la bombona en la espalda (true) o guardarla en la mochila (false). */
@@ -158,7 +161,7 @@ function Inventory({
     ...(lamps > 0 ? [{ kind: 'spare' as const, n: lamps }] : []),
     ...(inv.gun && inv.spare ? [{ kind: 'ammo' as const, n: inv.spare }] : []),
   ];
-  const loose = [...(['caution', 'radar', 'totem', 'watergun', 'uno', 'monster'] as const).filter((id) => HOT[id].have(inv) && !hotIn.includes(id)), ...(inv.tank && !(inv.tankOn && st.back) ? (['tank'] as const) : [])]; // lo de la barra que se ha quitado de ella y la bombona sin puesta
+  const loose = [...bagHotItems.filter((id) => HOT[id].have(inv) && !hotIn.includes(id)), ...(inv.tank && !(inv.tankOn && st.back) ? (['tank'] as const) : [])]; // lo de la barra que se ha quitado de ella y la bombona sin puesta
   const loot = perks.loot;
   const cells = stacks.length + loose.length + stored.length + loot.length;
   // lo que se lleva por tipo, y la disposición (la que eligió el jugador) cuadrada con ello
@@ -412,7 +415,10 @@ function Inventory({
     if (sel.kind === 'tape') return { title: 'VHS TAPE', lines: [`COLLECTED ${inv.tapes}/8`, 'Recorded tapes. Find them all.'], icon: icons.tape };
     if (sel.kind === 'spare') return { title: 'SPARE FLASHLIGHT', lines: [`×${inv.spares} IN THE BACKPACK`, 'Swaps in when the battery dies.'], icon: icons.spare };
     if (sel.kind === 'water') return { title: HOT.water.name, lines: [`×${inv.water} CARRIED`, HOT.water.info, 'Drag it to the quick access bar.'], icon: icons.water };
-    if (sel.kind === 'hot') return { title: HOT[sel.id].name, lines: [HOT[sel.id].info, 'Drag it to the quick access bar.'], icon: icons[HOT[sel.id].icon] };
+    if (sel.kind === 'hot') {
+      const special = PARKING_ITEM_IDS.includes(sel.id as ParkingItemId);
+      return { title: HOT[sel.id].name, lines: [HOT[sel.id].info, special ? 'Equip here or assign it to the quick access bar.' : 'Drag it to the quick access bar.'], icon: icons[HOT[sel.id].icon] };
+    }
     if (sel.kind === 'ammo') return { title: 'RIFLE AMMO', lines: [`${inv.spare} IN RESERVE`, 'Reloads the rifle (R).'], icon: icons.ammo };
     const g = (sel as { g: Gear }).g; // lo demás ya volvió arriba
     const lines =
@@ -534,6 +540,11 @@ function Inventory({
                 {sel.kind === 'water' && (
                   <button type="button" className="br-opt br-inv__switch" onClick={() => onUse('water')} disabled={inv.water <= 0}>
                     DRINK
+                  </button>
+                )}
+                {sel.kind === 'hot' && !gone && onEquipSpecial && PARKING_ITEM_IDS.includes(sel.id as ParkingItemId) && (
+                  <button type="button" className="br-opt br-inv__switch" onClick={() => onEquipSpecial(sel.id as ParkingItemId)}>
+                    EQUIP
                   </button>
                 )}
                 {sel.kind === 'tank' && inv.tank && st.back && (

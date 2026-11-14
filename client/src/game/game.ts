@@ -1,7 +1,7 @@
 import { DEV_LOCAL } from '../devGate';
 import * as THREE from 'three';
 import { glow, lootModel, pulse } from './rarityFx';
-import { loadItemModels } from './itemModels';
+import { itemModel, loadItemModels } from './itemModels';
 import { perks } from './perks';
 import { GLTFLoader, type GLTF } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { MeshoptDecoder } from 'three/examples/jsm/libs/meshopt_decoder.module.js';
@@ -47,6 +47,7 @@ import { type LockerItem, RIFLE_MAG, canHold, ITEM_IDS, START_INV, type AdminFx,
 import { Explosion } from './explosion';
 import { Breath, DEFAULT_LOOK, EEH_HOLD, HIT_DAMAGE, HP_MAX, MONSTER, SUITE_FLOORS, REVIVE_IMMUNE, boostOf, totemSpot, type Look, hideStates, tickHides, startOffset, type HideState, type PlayerState, type RoomView, type WorldSnapshot } from '@backrooms/shared';
 import { parkingOptionsForMission, PARKING_HEIGHT } from '@backrooms/shared';
+import { ITEMS, PARKING_ITEM_IDS, type ParkingItemId } from '@backrooms/shared';
 
 /** Lo que el juego necesita de una sala: el socket y quién soy. */
 export interface Mp {
@@ -96,6 +97,10 @@ export interface Inv {
   /** Carta Uno Reverse y latas de Monster; `rainbow`: bebiendo una o con su efecto (la barra de aguante es un arcoíris). */
   uno?: boolean;
   monster?: number;
+  glasses?: boolean;
+  pills?: number;
+  steelcard?: boolean;
+  beer?: number;
   rainbow?: boolean;
   radar: boolean;
   /** Tiene cinta de acordonar. */
@@ -131,6 +136,8 @@ export interface MissionHud {
 
 /** Lo que el OSD enseña, leído desde React diez veces por segundo. */
 export interface Hud {
+  parkingItemHeld?: ParkingItemId;
+  steelRoll?: { labels: string[]; winner: string; serial: number };
   /** Efectos activos del personaje (cuadraditos del HUD): positivos y negativos, con una fracción de lo que queda si dura un tiempo. */
   /** Selector de planta de la escalera de servicio (Las Suites): la de ahora y cuántas hay. */
 
@@ -275,6 +282,70 @@ export async function loadAssets(progress: (f: number) => void): Promise<Assets>
  * partida comparten programas: no se vuelve a compilar al darle a Play); `start` monta una partida.
  */
 export class BackroomsGame {
+  private steelRoll?: NonNullable<Hud['steelRoll']> & { until: number };
+  private rollSerial = 0;
+  private readonly xray = new THREE.Group();
+  private readonly xrayMaterial = new THREE.LineBasicMaterial({ color: 0xff2525, transparent: true, depthTest: false, depthWrite: false, toneMapped: false });
+  private readonly xrayEdges = new Map<THREE.BufferGeometry, THREE.EdgesGeometry>();
+  private readonly throws = new Set<{ mesh: THREE.Object3D; path: THREE.Vector3[]; start: number; duration: number }>();
+  private xrayNext = 0;
+
+  private clearXray() {
+    this.xray.clear();
+    for (const edges of this.xrayEdges.values()) edges.dispose();
+    this.xrayEdges.clear();
+  }
+
+  private itemEffects() {
+    const now = performance.now(), player = this.player;
+    for (const shot of this.throws) {
+      const progress = (now - shot.start) / shot.duration;
+      if (progress >= 1) {
+        shot.mesh.removeFromParent();
+        this.throws.delete(shot);
+        const distance = this.camera.position.distanceTo(shot.path[shot.path.length - 1]);
+        if (distance < 36) this.audio?.bottleBreak(1 / (1 + (distance / 8) ** 2));
+      } else {
+        const index = progress * (shot.path.length - 1), first = Math.floor(index);
+        shot.mesh.position.copy(shot.path[first]).lerp(shot.path[Math.min(first + 1, shot.path.length - 1)], index - first);
+        shot.mesh.rotation.x = progress * 16;
+      }
+    }
+    if (!player || player.dead || this.winning || now >= player.glassesUntil) {
+      if (this.xray.children.length) this.clearXray();
+      return;
+    }
+    if (now < this.xrayNext) return;
+    this.xrayNext = now + 200;
+    this.xray.clear();
+    const parking = this.parking;
+    const pool = this.pool instanceof PoolLevel ? this.pool : undefined;
+    const targets = parking ? parking.level.xrayTargets(parking.position.floor) : pool ? pool.pickups.xrayTargets() : this.items?.xrayTargets() ?? [];
+    if (this.mission?.exit && !parking) {
+      if (pool) targets.push(pool.exitModel);
+      else if (this.world) targets.push(this.world.elevator);
+    }
+    const scene = parking?.level.scene ?? pool?.scene ?? this.scene;
+    scene.add(this.xray);
+    const box = new THREE.Box3(), distance = new THREE.Vector3();
+    for (const target of targets) {
+      if (box.setFromObject(target).clampPoint(player.pos, distance).distanceToSquared(player.pos) > 25 ** 2) continue;
+      target.traverse(object => {
+        const mesh = object as THREE.Mesh;
+        if (!mesh.isMesh || !mesh.geometry) return;
+        let edges = this.xrayEdges.get(mesh.geometry);
+        if (!edges) {
+          edges = new THREE.EdgesGeometry(mesh.geometry, 28);
+          this.xrayEdges.set(mesh.geometry, edges);
+        }
+        const outline = new THREE.LineSegments(edges, this.xrayMaterial);
+        outline.matrix.copy(mesh.matrixWorld);
+        outline.matrixAutoUpdate = false;
+        outline.renderOrder = 50;
+        this.xray.add(outline);
+      });
+    }
+  }
   readonly renderer: THREE.WebGLRenderer;
   readonly scene = new THREE.Scene();
   readonly camera = new THREE.PerspectiveCamera(70, 1, 0.05, 60);
@@ -897,6 +968,7 @@ export class BackroomsGame {
     // en una sala la pausa no detiene el mundo (los demás siguen jugando): solo se sueltan los mandos
     if (this.paused && (!this.mp || this.run)) return;
     const c = this.input.read();
+    this.itemEffects();
     if (this.parking) return this.parkingFrame(dt, c);
     if (this.run) return this.runFrame(dt, c);
     this.vhs.uniforms.uPool.value = this.film.uniforms.uVhs.value = this.pool instanceof PoolLevel ? 1 : 0; // (el aspecto de cinta de las Poolrooms: sin amarillo, con barrido y croma)
@@ -1053,7 +1125,7 @@ export class BackroomsGame {
   get hud(): Hud {
     const p = this.player;
     const battery = Math.max(0.15, 1 - this.t / 900);
-    const inv: Inv = { left: p?.left ?? 'none', belt: p?.belt ?? 'none', stamina: p?.stamina ?? 1, sanity: p?.sanity ?? 1, escaped: this.winning, hand: p?.hand ?? 'none', camera: !!p?.has.camera, gun: !!p?.has.gun, ammo: p?.ammo ?? 0, spare: p?.spare ?? 0, tapes: this.items?.tapes ?? 0, photos: this.items?.photos ?? 0, thumbs: this.items?.thumbs ?? this.pics.thumbs, full: this.items?.full ?? this.pics.full, flashOn: !!p?.flashOn, battery, charge: p?.charge ?? 1, spares: p?.spares ?? 0, uno: !!p?.uno, monster: p?.monster ?? 0, rainbow: !!p?.rainbow, water: p?.water ?? 0, hot: p?.hot ?? [], hotSel: p?.hotSel ?? 0, gadget: p?.gadget ?? 'none', totem: p?.totem ?? 0, radar: !!p?.radar, caution: !!p?.caution, tape: (this.gadgets?.left ?? ROLL) / ROLL };
+    const inv: Inv = { left: p?.left ?? 'none', belt: p?.belt ?? 'none', stamina: p?.stamina ?? 1, sanity: p?.sanity ?? 1, escaped: this.winning, hand: p?.hand ?? 'none', camera: !!p?.has.camera, gun: !!p?.has.gun, ammo: p?.ammo ?? 0, spare: p?.spare ?? 0, tapes: this.items?.tapes ?? 0, photos: this.items?.photos ?? 0, thumbs: this.items?.thumbs ?? this.pics.thumbs, full: this.items?.full ?? this.pics.full, flashOn: !!p?.flashOn, battery, charge: p?.charge ?? 1, spares: p?.spares ?? 0, uno: !!p?.uno, monster: p?.monster ?? 0, glasses: p?.glasses, pills: p?.pills, steelcard: p?.steelcard, beer: p?.beer, rainbow: !!p?.rainbow, water: p?.water ?? 0, hot: p?.hot ?? [], hotSel: p?.hotSel ?? 0, gadget: p?.gadget ?? 'none', totem: p?.totem ?? 0, radar: !!p?.radar, caution: !!p?.caution, tape: (this.gadgets?.left ?? ROLL) / ROLL };
     // la pistola de agua y el tanque se conservan en el nivel 0 (aunque no sirvan allí): siguen en la mochila y en la ranura de equipo
     const gear = p?.inventory;
     if (gear) Object.assign(inv, { tank: gear.tank, tankOn: p!.tankOn, watergun: gear.watergun, squirt: p!.squirt });
@@ -1064,7 +1136,7 @@ export class BackroomsGame {
     const pr = this.parking;
     if (pr) inv.tapes = pr.level.tapesCollected;
     const parking = pr ? { floor: pr.floorLabel, pendingFloors: pr.pendingFloors, prompt: pr.prompt, repair: pr.level.repair.active ? pr.level.repair.progress : null, open: pr.level.elevatorOpen } : undefined;
-    return { parking, effects: this.effects(), talk: this.talkN, lift: this.liftOpen, mission: ms ? { kind: ms.kind, text: ms.text, line: missionLine(ms), progress: ms.progress, goal: ms.goal, done: ms.done, exit: ms.exit } : null, ascent: up ? { boarded: !!this.mp && up.boarded.includes(this.mp.id), left: Math.max(0, up.left - (performance.now() - up.at) / 1000) } : null, act: hidden || this.run ? null : this.tvs?.hint ?? this.doorAct ?? (pl ? p?.refillAct : null) ?? null, totem: this.totemHud(), needClick: this.input.needClick, bag: this.bagOpen && !this.shopOpen, shop: this.bagOpen && this.shopOpen, note: this.gadgets?.note ?? null, hint: hidden || this.run || this.tvs?.hint ? null : this.gadgets?.hint ?? this.items?.hint ?? pl?.pickups.hint ?? null, hide: this.dying >= 0 || this.winning || this.spectating ? null : hidden ? (p!.hideState === 'hidden' ? 'leave' : null) : this.hideNear() ? 'hide' : null, breath: p?.concealed ? { air: this.breath.air, warn: this.inspected, held: this.holding } : null, drink: p?.dead ? 0 : p?.drinking || p?.drinkingMonster || p?.drinkingUno || 0, drinkName: p?.prop === 'monster' ? 'MONSTER' : p?.prop === 'uno' ? 'UNO REVERSE' : 'ALMOND WATER', refill: p?.fill ?? 0, inv, aiming: !!p?.aiming, scoped: !!p?.scoped && !this.spectating, zoom: p?.zoom ?? 1, focus: !!this.items?.focus, tapes: this.items?.tapes ?? 0, photos: this.items?.photos ?? 0, ammo: p?.has.gun ? p.ammo : null, spare: p?.spare ?? 0, battery, time: this.t, hp: p?.hp ?? HP_MAX, hps: this.hps, spectating: this.spectating && !this.run ? (this.remotes.get(this.watching)?.name ?? '') : null, watchList: this.spectating && !this.run ? [...this.remotes.values()].map((r) => ({ name: r.name, on: r.id === this.watching && this.specView !== 'free', dead: r.dead })) : undefined, specView: this.spectating && !this.run ? this.specView : undefined };
+    return { parking, parkingItemHeld: p && PARKING_ITEM_IDS.includes(p.prop as ParkingItemId) ? p.prop as ParkingItemId : undefined, steelRoll: this.steelRoll && this.steelRoll.until > performance.now() ? this.steelRoll : undefined, effects: this.effects(), talk: this.talkN, lift: this.liftOpen, mission: ms ? { kind: ms.kind, text: ms.text, line: missionLine(ms), progress: ms.progress, goal: ms.goal, done: ms.done, exit: ms.exit } : null, ascent: up ? { boarded: !!this.mp && up.boarded.includes(this.mp.id), left: Math.max(0, up.left - (performance.now() - up.at) / 1000) } : null, act: hidden || this.run ? null : this.tvs?.hint ?? this.doorAct ?? (pl ? p?.refillAct : null) ?? null, totem: this.totemHud(), needClick: this.input.needClick, bag: this.bagOpen && !this.shopOpen, shop: this.bagOpen && this.shopOpen, note: this.gadgets?.note ?? null, hint: hidden || this.run || this.tvs?.hint ? null : this.gadgets?.hint ?? this.items?.hint ?? pl?.pickups.hint ?? null, hide: this.dying >= 0 || this.winning || this.spectating ? null : hidden ? (p!.hideState === 'hidden' ? 'leave' : null) : this.hideNear() ? 'hide' : null, breath: p?.concealed ? { air: this.breath.air, warn: this.inspected, held: this.holding } : null, drink: p?.dead ? 0 : p?.drinking || p?.drinkingMonster || p?.drinkingUno || 0, drinkName: p?.prop === 'monster' ? 'MONSTER' : p?.prop === 'uno' ? 'UNO REVERSE' : 'ALMOND WATER', refill: p?.fill ?? 0, inv, aiming: !!p?.aiming, scoped: !!p?.scoped && !this.spectating, zoom: p?.zoom ?? 1, focus: !!this.items?.focus, tapes: this.items?.tapes ?? 0, photos: this.items?.photos ?? 0, ammo: p?.has.gun ? p.ammo : null, spare: p?.spare ?? 0, battery, time: this.t, hp: p?.hp ?? HP_MAX, hps: this.hps, spectating: this.spectating && !this.run ? (this.remotes.get(this.watching)?.name ?? '') : null, watchList: this.spectating && !this.run ? [...this.remotes.values()].map((r) => ({ name: r.name, on: r.id === this.watching && this.specView !== 'free', dead: r.dead })) : undefined, specView: this.spectating && !this.run ? this.specView : undefined };
   }
 
   /** Los efectos que tiene ahora el personaje, para el HUD (Effects.tsx). */
@@ -1073,6 +1145,8 @@ export class BackroomsGame {
     if (!p || this.run) return out;
     const now = performance.now(), dead = p.dead || this.spectating;
     if (!dead) {
+      if (p.pillSpeed) out.push({ id: 'pills', icon: 'speed', label: 'PILLS', kind: 'good', frac: (p.pillsUntil - performance.now()) / 60_000 });
+      if (p.glassesUntil > performance.now()) out.push({ id: 'glasses', icon: 'speed', label: 'X-RAY', kind: 'good', frac: (p.glassesUntil - performance.now()) / 60_000 });
       if (p.buffT > 0) out.push({ id: 'monster', icon: 'speed', label: 'MONSTER', kind: 'good', frac: p.buffT / (MONSTER.time * boostOf(perks, 'monster')) });
       if (now < this.immuneUntil) out.push({ id: 'immune', icon: 'shield', label: 'IMMUNE', kind: 'good', frac: (this.immuneUntil - now) / REVIVE_IMMUNE });
       if (p.concealed) out.push({ id: 'hide', icon: 'hide', label: 'HIDDEN', kind: 'good' });
@@ -1929,10 +2003,22 @@ export class BackroomsGame {
     // la sala cambia (misión, progreso, ascensor): lo que el servidor dice manda
     const onRoom = (r: RoomView) => this.roomUpdate(r);
     const onInv = (inventory: Inventory) => {
-      if (this.parking) this.player?.apply(this.parkingInventory(inventory));
+      this.player?.apply(this.parking ? this.parkingInventory(inventory) : inventory);
     };
     s.on('room', onRoom);
     s.on('inv', onInv);
+    const onBottle = (points: { x: number; y: number; z: number }[], duration: number) => {
+      const model = itemModel('beer');
+      if (!points.length) return;
+      const scene = this.parking?.level.scene ?? (this.pool instanceof PoolLevel ? this.pool.scene : this.scene);
+      const mesh = model ? fit(model.clone(true), .24) : new THREE.Group();
+      const path = points.map(point => new THREE.Vector3(point.x, point.y, point.z));
+      mesh.position.copy(path[0]);
+      scene.add(mesh);
+      this.throws.add({ mesh, path, duration: Math.max(1, duration * 1000), start: performance.now() });
+    };
+    s.on('beerThrow', onBottle);
+    this.offNet.push(() => s.off('beerThrow', onBottle));
     s.on('players', onPlayers);
     s.on('world', onWorld);
     s.on('dead', onDead);
@@ -2315,6 +2401,7 @@ export class BackroomsGame {
     if (pl instanceof PoolLevel && me) {
       // el mismo Player de siempre mueve el cuerpo (con las constantes de locomotion.ts y a través del mundo, que sabe de agua, tubos y plantas) y pone la cámara
       pl.speedK = perks.stats.speed * me.speedMul;
+      pl.speedAdd = me.pillSpeed;
       pl.jumpK = me.jumpMul;
       pl.slowMul = (me.aiming ? CAM_AIM_SLOW : 1) * me.buffSpeed; // enfocar con la camcorder frena (igual que en el laberinto)
       const cc = pl.pre(dt, me.winded && c.run ? { ...c, run: false } : c); // sin aguante no se corre (el Player lo gasta)
@@ -2380,6 +2467,23 @@ fps ${(1 / Math.max(dt, 1e-3)).toFixed(0)}`;
     p.onUno = (done) => {
       if (!this.mp) return done(false);
       this.mp.sock.emit('uno', (ok) => (ok && this.audio?.cue('equip'), done(ok)));
+    };
+    p.onParkingItem = (id, done) => {
+      if (!this.mp) return done(false);
+      this.sendState(true);
+      this.mp.sock.timeout(3000).emit('useParkingItem', id, (error, result) => {
+        if (error || !result || this.player !== p) return done(false);
+        if (id === 'pills') this.audio?.drink();
+        else if (id !== 'beer') this.audio?.cue('equip');
+        if (id === 'steelcard') {
+          const winner = result.item ? ITEMS[result.item].name : 'ENTITY SPEED +0.5 M/S';
+          const names = Object.values(ITEMS).map(item => item.name);
+          const labels = Array.from({ length: 15 }, () => names[Math.floor(Math.random() * names.length)]);
+          labels.push(winner);
+          this.steelRoll = { winner, labels, serial: ++this.rollSerial, until: performance.now() + 4600 };
+        }
+        done(true);
+      });
     };
   }
   /** Fotos de las Poolrooms (no hay Items allí): miniaturas y grandes, y el pedido de captura al pintar. */
@@ -2468,7 +2572,7 @@ fps ${(1 / Math.max(dt, 1e-3)).toFixed(0)}`;
         this.openBag();
       }
     }
-    if (!active || this.bagOpen) c = { ...c, move: _none, look: _none, bag: false, grab: false, bagHeld: false, flash: false, slot: -1, wheel: 0, use: false, useHeld: false, aim: false };
+    if (!active || this.bagOpen) c = { ...c, move: _none, look: _none, bag: false, grab: false, bagHeld: false, flash: false, slot: -1, wheel: 0, use: false, useHeld: false, fire: false, fireHeld: false, aim: false };
     this.t += dt;
     round.setListening(!this.paused && !document.hidden);
     const aboard = round.update(dt, c, this.camera, active, this.t, action => {
@@ -2973,6 +3077,11 @@ x ${f(s.x)}  y ${f(s.y)}  z ${f(s.z)}  yaw ${f(s.yaw)}  pitch ${f(s.pitch)}`;
 
   /** Saca al jugador de la partida (la sala vuelve al lobby): se para todo y queda el lienzo en negro. */
   stop() {
+    this.clearXray();
+    this.xray.removeFromParent();
+    for (const shot of this.throws) shot.mesh.removeFromParent();
+    this.throws.clear();
+    this.steelRoll = undefined;
     this.renderer.setAnimationLoop(null);
     this.endParking();
     (this.eehVeil?.remove(), (this.eehVeil = undefined), (this.eehRed = false));
@@ -3028,6 +3137,7 @@ x ${f(s.x)}  y ${f(s.y)}  z ${f(s.z)}  yaw ${f(s.yaw)}  pitch ${f(s.pitch)}`;
     this.shatters.forEach((s) => s.dispose());
     this.snap?.dispose();
     this.audio?.dispose();
+    this.xrayMaterial.dispose();
     this.composer.dispose();
     this.gadgets?.dispose();
 

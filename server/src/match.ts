@@ -3,6 +3,7 @@ import {
   type Difficulty, type Inventory, type Ups, type Look, type Mission, type HideState, type EntState, type ItemSpot, type Kind, type Maze, type Noise, type PlayerState, type SimTarget, type WorldSnapshot,
 } from '@backrooms/shared';
 import { ParkingMatch } from './parking-match';
+import { POOL_CELL, poolFloorY, type PoolMap } from '@backrooms/shared';
 
 /*
  * Lo que el servidor sabe de una partida en marcha: el mapa de la semilla, los objetos que quedan, las
@@ -16,6 +17,8 @@ const PHOTO_REACH = 50; // m: 15 del visor por la raíz del zoom máximo, con ma
 const PHOTO_COS = Math.cos((24 * Math.PI) / 180); // el visor cierra 12° como mucho; aquí se perdona el doble por la red
 
 export interface Player {
+  pillsUntil?: number;
+  glassesUntil?: number;
   id: string;
   name: string;
   st: PlayerState;
@@ -107,6 +110,20 @@ export class Match {
   noise(x: number, z: number, r: number) {
     if (!this.parking) this.noises.push({ x, z, r });
   }
+
+  curseUntil = 0;
+  private poolGeometry?: PoolMap;
+
+  openItemPath(x: number, z: number, y: number) {
+    if (this.parking) return this.parking.openItemPath(x, z, y);
+    const pool = this.poolGeometry;
+    if (pool) {
+      const surface = poolFloorY(pool, x, z, y);
+      const index = Math.floor(z / POOL_CELL) * pool.w + Math.floor(x / POOL_CELL);
+      return !!surface && y >= surface.y && (surface.layer === 1 || y < pool.ceil[index]);
+    }
+    return !solidAt(this.maze, x, z) && y >= 0 && y < 3;
+  }
   private nextId = 1;
   private age = 0;
   /** La misión de la ronda, las televisiones que hay que apagar (de tvSites), las ya apagadas y las fotos válidas (por jugador y entidad) de todos. */
@@ -156,7 +173,7 @@ export class Match {
     if (caps.pool) {
       // Poolrooms: una sola entidad, al azar (según la semilla), y solo por la planta baja (la alta no se pisa desde el suelo)
       // la planta baja entera, agua honda incluida (la cruzan nadando); `lay` no sirve: también marca celdas con objeto arriba y suelo abajo
-      const gp = generatePools(seed);
+      const gp = this.poolGeometry = generatePools(seed);
       if (m.lay) this.emaze = { ...m, open: gp.kind.map((k) => (k === PK.floor ? 1 : 0)) as unknown as Uint8Array };
       this.spawn(((seed >>> 3) & 1 ? 'partygoer' : 'bacteria') as Kind, m.spawns[0]);
     }
@@ -270,7 +287,13 @@ export class Match {
   /** Un paso de la IA (la llaman 20 veces por segundo). `caught` se llama por cada jugador al que alcanza una. */
   tick(dt: number, players: Player[], caught: (p: Player, entityId: number) => void) {
     this.age += dt;
-    if (this.parking) { this.parking.frozen=this.frozen; this.parking.tick(dt, players, Date.now(), p=>caught(p,-1)); return; }
+    if (this.parking) {
+      const now = Date.now();
+      this.parking.frozen = this.frozen;
+      this.parking.skinwalkers.speedBonus = now < this.curseUntil ? .5 : 0;
+      this.parking.tick(dt, players, now, p => caught(p, -1));
+      return;
+    }
     // misión EEH: el evaporador falla a su hora y entran las entidades (partygoers y una bacteria, por los arranques más lejanos)
     if (this.mission?.kind === 'eeh' && !this.eehOn && this.age - this.base >= this.mission.goal - EEH_HOLD) {
       this.eehOn = true;
@@ -294,6 +317,7 @@ export class Match {
     const noises = this.age > this.grace ? this.noises : [];
     this.noises = [];
     for (const e of this.frozen ? [] : this.ents) {
+      e.sim.speedBonus = Date.now() < this.curseUntil ? .5 : 0;
       const id = e.sim.update(dt, targets, false, hidden, noises);
       if (this.hotel) {
         const x = wrapX(e.sim.x);

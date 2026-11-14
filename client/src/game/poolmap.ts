@@ -10,6 +10,7 @@ import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { MeshoptDecoder } from 'three/examples/jsm/libs/meshopt_decoder.module.js';
 import type { Terrain } from './terrain';
 import { PickupField, type Pickup, type PickupHost } from './pickups';
+import { inventoryModels, itemModel } from './itemModels';
 import { COIL, PK, PR, PY, PDIRS, POOL_CELL as C, POOL_STEP, generatePools, poolCellY, poolFloorY, poolMaze, type Cell, type PoolMap } from '@backrooms/shared';
 import type { Controls } from './input';
 import { settings } from '../settings';
@@ -349,6 +350,7 @@ export class PoolLevel implements Terrain {
   private wellLock = false;
   /** La salida (centro de su celda): una puerta de ascensor con luz; se sube al acercarse con la misión cumplida. */
   readonly exit = { x: 0, z: 0 };
+  get exitModel() { return this.cab.group; }
   /** La cabina del ascensor de la salida; su celda (x0, z0, x1, z1) y hacia dónde da la puerta: solo se entra y se sale por ella, y abierta. */
   cab!: ElevatorCab;
   private exitBox = [0, 0, 0, 0, 0, 0];
@@ -1135,6 +1137,7 @@ export class PoolLevel implements Terrain {
   slowMul = 1;
   /** Multiplicadores de velocidad (mejoras, dificultad) y de salto: los pone Game con los del Player; las constantes de andar, correr y saltar son las de locomotion.ts. */
   speedK = 1;
+  speedAdd = 0;
   jumpK = 1;
   private refillAt: { x: number; z: number; y: number }[] = [];
   private wetT = 0;
@@ -1153,6 +1156,10 @@ export class PoolLevel implements Terrain {
   /** Los objetos soltados por los jugadores (`snapshot.drops`, ids `d…`): los nuevos aparecen y los que ya no están desaparecen. */
   syncDrops(list: Drop[]) {
     const k = this.kit, models = Object.fromEntries(Object.entries({ water: [k.water, 0.17], flashlight: [k.flashlight, 0.24], camera: [k.camera, 0.22], tank: [k.tank, 0.6], watergun: [k.watergun, 0.4], loot: [lootModel(), 0.24] }).filter(([, v]) => v[0]));
+    for (const id of inventoryModels) {
+      const model = itemModel(id);
+      if (model) models[id] = [model, 0.2];
+    }
     this.pickups.syncDrops(list, models as Partial<Record<ItemId | 'loot', [THREE.Object3D, number]>>, lootModel);
   }
 
@@ -1416,7 +1423,7 @@ export class PoolLevel implements Terrain {
       mz = sz * 5.2 * dt + (sz === 0 ? (cj - this.pz) * Math.min(1, dt * 6) : 0);
       (this.fx = sx * 4.5), (this.fz = sz * 4.5);
     } else {
-      const sp = (c.run ? RUN : WALK) * this.speedK * (ducking(c.crouch, c.run) ? CROUCH_SLOW : 1), pm = planar(this.yaw, c.move, sp, dt);
+      const sp = ((c.run ? RUN : WALK) * this.speedK + this.speedAdd) * (ducking(c.crouch, c.run) ? CROUCH_SLOW : 1), pm = planar(this.yaw, c.move, sp, dt);
       mx = pm.x + this.fx * dt;
       mz = pm.y + this.fz * dt;
       const k = Math.max(0, 1 - dt * 2.2); // el impulso del tobogán se apaga

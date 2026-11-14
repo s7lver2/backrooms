@@ -60,3 +60,12 @@ Local encounter balance: one active Smiler maximum, first spawn attempt at 20 se
 ### Smiler
 
 `parking/smiler.glb` is adapted from **Accurate Smiler Backrooms Blender 3.22** by **ultramirage10**, licensed under **CC-BY-4.0**. Source: https://sketchfab.com/3d-models/accurate-smiler-backrooms-blender-322-902975161a7047baa5cda8fb7b5a292e — author: https://sketchfab.com/ultramirage10 — license: https://creativecommons.org/licenses/by/4.0/ . Changes: baked static bind pose, centered/oriented/rescaled, narrowed and elongated individual teeth, compressed GLB; runtime omits black pupil pieces and adds glow, chromatic fringes and smoke. Original archive is preserved.
+
+### Habitable Zone items
+
+These models use [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/). The game bundles them as GLBs with textures reduced to a maximum of 1024 pixels per side.
+
+- X-Ray Glasses use [Glasses (Rose) – Character Items (Free)](https://sketchfab.com/3d-models/glasses-rose-character-items-free-75fd5330df9c4cb28a183931493c19e3) by [CT Reed](https://sketchfab.com/continuumreed).
+- Pills use [Pill Bottle](https://sketchfab.com/3d-models/pill-bottle-c5bfdf003ead4c4793f4e9b93a9b1b79) by [stfuaahil](https://sketchfab.com/stfuaahil).
+- Steel Card uses [Steel Card](https://sketchfab.com/3d-models/steel-card-b384c4e6c28346efb4f8419afa86b98d) by [Nothing Works Studio](https://sketchfab.com/Dark_Matrix).
+- Beer Bottle uses [Beer Bottle](https://sketchfab.com/3d-models/beer-bottle-c3de7f8b092e4092aef14d4ffc9fac7f) by [gelmi.com.br](https://sketchfab.com/rodrigogelmi).

@@ -114,11 +114,14 @@ export class ParkingSmilerAI {
     return beamReaches(t.eye, face, t.beam, Infinity, .94, .01) && this.world.sight({ ...t.pos, y: t.eye.y }, face);
   }
   update(dt:number,target:SkinTarget){this.updateMany(dt,[target]);}
-  updateMany(dt:number,targets:SkinTarget[]){
-    this.accumulator=Math.min(.25,this.accumulator+Math.max(0,dt));
-    while(this.accumulator>=.05){this.accumulator-=.05;this.step(.05,targets.filter(t=>t.alive));}
+  hearBottle() {
+    this.spawnAt = Math.min(this.spawnAt, this.clock + 1);
   }
-  private step(dt:number,targets:SkinTarget[]){
+  updateMany(dt:number,targets:SkinTarget[], lure?: ParkingPoint){
+    this.accumulator=Math.min(.25,this.accumulator+Math.max(0,dt));
+    while(this.accumulator>=.05){this.accumulator-=.05;this.step(.05,targets.filter(t=>t.alive),lure);}
+  }
+  private step(dt:number,targets:SkinTarget[], lure?: ParkingPoint){
     this.clock+=dt;
     for(const section of this.sections){
       const a=section.active;
@@ -165,10 +168,11 @@ export class ParkingSmilerAI {
       const j=Math.floor(Math.random()*(i+1));
       [pool[i],pool[j]]=[pool[j],pool[i]];
     }
-    if (targets.some(t => t.repairNoise)) {
+    if (lure || targets.some(t => t.repairNoise)) {
       const nearRepair = new Set(pool.filter(([index]) => {
         const p = this.map.nav[index];
-        return targets.some(t => t.repairNoise?.floor === p.floor && distance(t.repairNoise, p) < t.noise);
+        return (lure?.floor === p.floor && distance(lure, p) < 20)
+          || targets.some(t => t.repairNoise?.floor === p.floor && distance(t.repairNoise, p) < t.noise);
       }).map(([index]) => index));
       pool.sort(([a], [b]) => Number(nearRepair.has(b)) - Number(nearRepair.has(a)));
     }

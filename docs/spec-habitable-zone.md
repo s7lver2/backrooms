@@ -12,7 +12,7 @@ Approaches considered:
 - Impossible parking maze: exaggerated connections and disorientation, at the expense of realism.
 - **Chosen: mostly realistic, subtly wrong.** Believable construction with unusually long sections, repeated markings, inconsistent lighting, and occasional oversized empty spaces. This matches the owner's reference images.
 
-The map is finite but feels endless. Actual infinite streaming, drivable cars, new weapons, and new equipment are outside this version. No mandatory lore accuracy beyond the owner's supplied description and images.
+The map is finite but feels endless. Actual infinite streaming and drivable cars are outside scope. The equipment and progression follow-up is described below. No mandatory lore accuracy beyond the owner's supplied description and images.
 
 ## 2. Confirmed round rules
 
@@ -31,7 +31,7 @@ The first vote selects the mission. Only if survival wins, a second vote selects
 | Survival: 10 minutes | 5–7 | Larger |
 | Survival: 15 minutes | 7–9 | Largest |
 
-Completing any objective unlocks the elevator; it never ends the round automatically. Its location remains hidden, including after mission completion. No reveal marker, directional announcement, or completion signal that exposes its location. Local appearance can show that a discovered elevator is unlocked.
+Completing any objective unlocks the elevator; it never ends the round automatically. Its location stays hidden by default, including after mission completion. The X-Ray Glasses can reveal the unlocked elevator to their wearer while active.
 
 Use the existing health, damage, death, revival, inventory, and escape flow. Entities deal heavy damage with a short interval between hits, not automatic instant death. Sanity is disabled for this level. Existing difficulty can continue to affect combat, but must not change the explicitly voted mission duration or counts.
 
@@ -204,3 +204,18 @@ Room integration and entity tuning. The main menu opens the normal room browser.
 Skinwalkers see up to 15 m, start running within 7 m, and transform within 5 m after their initial walking approach. Disguise sprint speed is 5.1 m/s, and beast chase and retreat speed is 5.82 m/s. After losing the trail they check the last known location and search nearby along the last observed direction of travel. A valid flashlight hit repels them for 2 seconds, followed by 25 seconds of resistance.
 
 Smilers can spawn together at randomly chosen eligible dark positions 9-22 m from players and outside their line of sight. The Cursed Tapes table sets the lethal stare duration, cooldown, and active cap during that mission. Gaze timers and flashlight interruption are tracked independently for each Smiler.
+
+## Equipment and progression follow-up
+
+The Habitable Zone is the third progression level, after the Lobby and Poolrooms. One qualified player in a room is enough to bring friends into the level. Until the upgrade tree is ready, qualification uses a Poolrooms escape recorded by the Deep End achievement.
+
+All four items become available in the shop when the Habitable Zone is unlocked. Players can carry them into other levels. Use the supplied models from `client/public` and keep model credits in the README.
+
+| Item | Behavior |
+| --- | --- |
+| X-Ray Glasses | Show red outlines through walls for 60 seconds. Reveal nearby item and objective pickups, unfinished generators, and the unlocked exit elevator. Exclude players, entities, and repaired generators. The effect ends and the glasses are removed after 60 seconds. |
+| Pills | Three doses per bottle. Each use grants +0.8 m/s movement speed and +25% stamina for 60 seconds and costs 15% health. |
+| Steel Card | A roulette reel in front of the player reveals the outcome. There is a 95% chance of a random item from the shop and a 5% chance of giving the entities +0.5 m/s movement speed. |
+| Beer Bottle | Breaks on impact. The breaking glass draws nearby entities to the impact point. A direct player hit deals 5% health damage. |
+
+Initial tuning: 25 m X-Ray range, a 60-second room-wide Steel Card curse, damage measured against maximum health, and repeated pill doses refreshing the timer without stacking bonuses. The Steel Card reward pool uses unlocked shop items supported by the current level that fit in the player's inventory. In the Habitable Zone, a bottle crash draws Skinwalkers to investigate and biases Smiler spawns toward nearby dark spots. Smilers remain stationary when active.

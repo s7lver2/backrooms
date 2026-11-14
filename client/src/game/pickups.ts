@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { clone as skClone } from 'three/examples/jsm/utils/SkeletonUtils.js';
-import { AMMO_PACK, RIFLE_MAG } from '@backrooms/shared';
+import { AMMO_PACK, RIFLE_MAG, ITEMS } from '@backrooms/shared';
 import { CELL, type Cell } from './maze';
 import { fit } from './player';
 import type { Player } from './player';
@@ -30,7 +30,7 @@ export interface PickupHost {
 export interface Pickup {
   id: string;
   obj: THREE.Object3D;
-  kind: 'tape' | 'camera' | 'gun' | 'flashlight' | 'water' | 'totem' | 'radar' | 'ammo' | 'caution' | 'tank' | 'watergun' | 'loot' | 'uno' | 'monster' | 'locker' | 'gen';
+  kind: ItemId | 'tape' | 'loot' | 'locker' | 'gen';
   taken: boolean;
   /** La altura a la que flota y el brillo de su rareza. */
   y: number;
@@ -45,11 +45,14 @@ export interface Pickup {
   phys?: { v: THREE.Vector3; spin: THREE.Vector3; rest: boolean; floor: number };
 }
 
-const LABEL: Record<Pickup['kind'], string> = { tape: 'tape', camera: 'camcorder', gun: 'rifle', flashlight: 'flashlight', water: 'almond water', totem: 'totem of life', radar: 'radar', ammo: 'ammo', caution: 'caution tape', tank: 'diving tank', watergun: 'water gun', loot: 'artifact', uno: 'uno reverse', monster: 'monster', locker: 'locker', gen: 'power switch' };
+const LABEL: Record<Pickup['kind'], string> = { tape: 'tape', camera: 'camcorder', gun: 'rifle', flashlight: 'flashlight', water: 'almond water', totem: 'totem of life', radar: 'radar', ammo: 'ammo', caution: 'caution tape', tank: 'diving tank', watergun: 'water gun', loot: 'artifact', uno: 'uno reverse', monster: 'monster', locker: 'locker', gen: 'power switch', glasses: ITEMS.glasses.name.toLowerCase(), pills: ITEMS.pills.name.toLowerCase(), steelcard: ITEMS.steelcard.name.toLowerCase(), beer: ITEMS.beer.name.toLowerCase() };
 
 export class PickupField {
   readonly root = new THREE.Group();
   protected pickups: Pickup[] = [];
+  xrayTargets() {
+    return this.pickups.filter(p => !p.taken && !p.pending && p.kind !== 'locker').map(p => p.obj);
+  }
   protected player!: Player;
   /** En una sala: pedir al servidor quedarse con un objeto (el primero se lo lleva). */
   claim?: (id: string, done: (ok: boolean) => void) => void;

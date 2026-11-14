@@ -1,3 +1,4 @@
+import { parkingSurface } from '@backrooms/shared';
 import {
   HIT_DAMAGE, MONSTER, ParkingSkinAI, ParkingSmilerAI, addItem, boostOf, canHold, generateParking, parkingContains, parkingDoorBlocks, parkingFits, parkingGeneratorBounds, parkingOptionsForMission,
   type ItemId, type Mission, type ParkingInteraction, type ParkingPoint, type ParkingRect, type ParkingSnapshot, type PlayerState, type SkinTarget,
@@ -26,6 +27,7 @@ export class ParkingMatch {
   private readonly movementNoise = new Map<string,{distance:number;time:number}>();
   private readonly solids: ParkingRect[][];
   private readonly recentHits = new Map<string,number>();
+  private bottleNoise?: { point: ParkingPoint; until: number };
   frozen = false;
   private readonly repaired = new Set<string>();
   private readonly tapes = new Set<string>();
@@ -101,13 +103,30 @@ export class ParkingMatch {
     this.monsterUntil.set(player.id, now + 1000 * MONSTER.time * boostOf(player.cap, 'monster'));
   }
 
+  openItemPath(x: number, z: number, y: number) {
+    for (const depth of [.4, 1.4, 2.4, 3.2]) {
+      const surface = parkingSurface(this.map, x, z, y - depth);
+      if (surface && y >= surface.y && y < this.map.floors[surface.floor].y + 3.55
+        && this.fits(x, z, surface.y, Date.now())) return true;
+    }
+    return false;
+  }
+
+  lureAt(x: number, z: number, y: number) {
+    const point = [.4, 1.4, 2.4, 3.2].map(depth => parkingSurface(this.map, x, z, y - depth)).find(p => p && p.y <= y);
+    if (!point) return;
+    this.bottleNoise = { point, until: Date.now() + 4000 };
+    this.smilers.hearBottle();
+  }
+
   move(player: Player, next: PlayerState, now: number, admin: boolean) {
     const previous = this.lastState.get(player.id);
     this.lastState.set(player.id, now);
     if (admin && this.fits(next.x,next.z,next.y,now)) return;
     let { x,y,z } = player.st;
     const dx = next.x-x, dz = next.z-z, distance = Math.hypot(dx,dz);
-    const speed = admin ? 14 : now < (this.monsterUntil.get(player.id) ?? 0) ? 7 * MONSTER.speed : 7;
+    const speed = admin ? 14 : (now < (this.monsterUntil.get(player.id) ?? 0) ? 7 * MONSTER.speed : 7)
+      + (now < (player.pillsUntil ?? 0) ? .8 : 0);
     const credit = Math.min(1.6,(this.moveCredit.get(player.id) ?? .8) + Math.min(.25,(now-(previous??now))/1000)*speed);
     const travel = Math.min(distance,credit), parts = Math.max(1,Math.ceil(travel/.16));
     const sx = distance ? dx*travel/distance/parts : 0, sz = distance ? dz*travel/distance/parts : 0;
@@ -292,8 +311,13 @@ export class ParkingMatch {
       targets.push({id:p.id,pos,eye:this.eye(p,pos.floor),yaw:p.st.yaw,beam:p.st.light?angleDirection(p.st):null,noise,repairNoise,alive:true});
     }
     this.skinwalkers.pressure=this.mission.kind==='generators'?0:this.progress/this.mission.goal;
-    this.skinwalkers.updateMany(dt,targets);
-    this.smilers.updateMany(dt,targets.filter(t=>!players.find(p=>p.id===t.id)?.dead));
+    const noise = this.bottleNoise;
+    const lure: SkinTarget | undefined = noise && now < noise.until
+      ? { pos: noise.point, eye: noise.point, beam: null, noise: 20, repairNoise: noise.point, alive: true, lure: true }
+      : undefined;
+    this.skinwalkers.updateMany(dt, lure ? [...targets, lure] : targets);
+    const living = targets.filter(t => !players.find(p => p.id === t.id)?.dead);
+    this.smilers.updateMany(dt, living, lure?.pos);
   }
 
   canBoard(p:Player,now=Date.now()) {

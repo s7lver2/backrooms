@@ -449,6 +449,17 @@ export class ParkingLevel {
     return { kind: 'door', id } as const;
   }
 
+  xrayTargets(floor: number) {
+    const targets: THREE.Object3D[] = [];
+    for (const [id, tape] of this.tapes) {
+      if (this.map.objectives.some(objective => objective.id === id && objective.floor === floor)) targets.push(tape);
+    }
+    for (const item of this.storageItems.values()) if (item.locker.floor === floor) targets.push(item.mesh);
+    for (const generator of this.generators.values()) if (generator.floor === floor && !generator.repaired) targets.push(generator.root);
+    if (this.elevatorUnlocked && this.map.elevator.floor === floor && this.elevatorCab) targets.push(this.elevatorCab.group);
+    return targets;
+  }
+
   tapeView(index: number) {
     const remaining = this.map.objectives.filter(o => this.tapes.has(o.id));
     const objective = remaining[index % remaining.length];

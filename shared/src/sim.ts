@@ -265,6 +265,7 @@ export class EntitySim {
   readonly def: EntDef;
   /** Lo último que oyó (o dónde te perdió acechando) y los segundos que le quedan de ir a mirar. */
   heard?: { x: number; z: number; t: number };
+  speedBonus = 0;
   loot: Cell[];
   /** En paz: no hace nada (el personal del hotel) hasta `rage()`; ya furioso, siempre sabe dónde está el jugador más cercano que no esté escondido. */
   passive = false;
@@ -412,7 +413,7 @@ export class EntitySim {
     const tx = goal.x - this.x, tz = goal.z - this.z, d = Math.hypot(tx, tz);
     if (d < 0.15 && !direct) this.path.shift();
     else if (d > 1e-6) {
-      const k = Math.min(d, v * dt) / d, nx = this.x + tx * k, nz = this.z + tz * k;
+      const k = Math.min(d, (v + this.speedBonus) * dt) / d, nx = this.x + tx * k, nz = this.z + tz * k;
       if (!this.solid(nx, nz) && (!direct || !this.blockedAt(nx, nz))) (this.x = nx), (this.z = nz);
       this.moving = true;
     }

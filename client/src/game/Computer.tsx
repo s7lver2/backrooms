@@ -343,7 +343,7 @@ export default function Computer({ room, me, sock, hazmat, assets, inv, reduced 
                   <Summary room={room} me={me} />
                 </div>
               ) : tab === 'shop' ? (
-                <Shop bank={room.bank} inv={inv} sock={sock} assets={assets} open={levelsOpen(room.players.map((p) => p.ups))} />
+                <Shop bank={room.bank} inv={inv} sock={sock} assets={assets} open={room.openLevels ? new Set(room.openLevels) : levelsOpen(room.players.map((p) => p.ups))} />
               ) : tab === 'ups' ? (
                 <Upgrades bank={room.bank} ups={room.players.find((p) => p.id === me)?.ups ?? {}} sock={sock} assets={assets} />
               ) : (

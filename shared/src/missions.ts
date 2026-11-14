@@ -35,12 +35,12 @@ export interface LevelDef {
 /** Los niveles que salen en el sorteo de una ronda. Para añadir uno basta otra entrada (el cliente y el servidor de momento solo generan el laberinto de siempre). */
 export const LEVELS: Record<string, LevelDef> = {
   level0: { id: 'level0', name: 'LEVEL 0', title: 'THE LOBBY', blurb: 'DAMP CARPET. FLUORESCENT HUM. NO WAY OUT BUT FORWARD.' },
-  parking: { id: 'parking', name: 'LEVEL 1', title: 'THE HABITABLE ZONE', blurb: 'CONCRETE DECKS. DARK AISLES. FIND THE HIDDEN ELEVATOR.' },
+  parking: { id: 'parking', name: 'LEVEL 1', title: 'THE HABITABLE ZONE', blurb: 'CONCRETE DECKS. DARK AISLES. FIND THE HIDDEN ELEVATOR.', unlock: 'parking' },
   poolrooms: { id: 'poolrooms', name: 'LEVEL 37', title: 'THE POOLROOMS', blurb: 'WARM WATER. WHITE TILE. SOMETHING BREATHES UNDER THE SURFACE.', luck: 1.8, unlock: 'pool' },
   suites: { id: 'suites', name: 'LEVEL -20', title: 'THE SUITES', blurb: 'WARM LIGHT. RED WALLPAPER. THE STAFF SMILES, AND THERE IS NO FACE TO SMILE WITH.', luck: 1.4 },
 };
 /** Niveles aún en desarrollo: solo salen si un admin los elige (no entran en el sorteo de rondas). Quitar el nombre de aquí cuando estén listos. */
-export const DEV_LEVELS = ['suites', 'parking'] as readonly string[];
+export const DEV_LEVELS = ['suites'] as readonly string[];
 /** Las misiones de las Poolrooms: aguantar o encontrar jabones (aún no hay entidades que fotografiar). */
 export const poolMissions = (seed: number, round: number): Mission[] => {
   const r = rng(seed ^ Math.imul(round + 1, 0x9e3779b1));
@@ -76,8 +76,10 @@ export const pickLevel = (seed: number, open?: ReadonlySet<string>) => {
 // ── objetos: inventario y tienda ──────────────────────────────────────────
 
 /** Lo que se compra, se suelta y se recoge. `flashlight` es una linterna de repuesto (batería nueva); `ammo`, un cargador (AMMO_PACK balas). */
-export type ItemId = 'flashlight' | 'camera' | 'gun' | 'ammo' | 'water' | 'caution' | 'radar' | 'totem' | 'tank' | 'watergun' | 'uno' | 'monster';
-export const ITEM_IDS: ItemId[] = ['flashlight', 'camera', 'gun', 'ammo', 'water', 'caution', 'radar', 'totem', 'tank', 'watergun', 'uno', 'monster'];
+export const PARKING_ITEM_IDS = ['glasses', 'pills', 'steelcard', 'beer'] as const;
+export type ParkingItemId = typeof PARKING_ITEM_IDS[number];
+export type ItemId = 'flashlight' | 'camera' | 'gun' | 'ammo' | 'water' | 'caution' | 'radar' | 'totem' | 'tank' | 'watergun' | 'uno' | 'monster' | ParkingItemId;
+export const ITEM_IDS: ItemId[] = ['flashlight', 'camera', 'gun', 'ammo', 'water', 'caution', 'radar', 'totem', 'tank', 'watergun', 'uno', 'monster', ...PARKING_ITEM_IDS];
 /** Monster: segundos que se tarda en beberla, lo que dura el efecto, y lo que acelera. Uno Reverse: ver ITEMS.uno. */
 export const MONSTER = { drink: 3, time: 5, speed: 1.4 } as const;
 /** Un cargador suelto: 4 balas. El rifle monta 2 a la vez (`RIFLE_MAG`) y se pueden llevar 2 cargadores como mucho. */
@@ -105,6 +107,10 @@ export interface Inventory {
   /** Carta Uno Reverse (una sola, un solo uso) y latas de Monster. */
   uno: boolean;
   monster: number;
+  glasses?: boolean;
+  pills?: number;
+  steelcard?: boolean;
+  beer?: number;
   /** La calidad de cada cosa que se lleva (rareza y desgaste; una por tipo: una pila comparte la suya). La lleva el servidor. */
   q?: Partial<Record<ItemId, Qual>>;
   /** El botín de valor recogido en los niveles: cada pieza ocupa una casilla y solo sirve para venderse en la báscula. */
@@ -115,18 +121,18 @@ export interface Qual {
   r: number;
   w: number;
 }
-export const EMPTY_INV: Inventory = { spares: 0, water: 0, totem: 0, ammo: 0, radar: false, camera: false, gun: false, tank: false, watergun: false, caution: false, uno: false, monster: 0 };
+export const EMPTY_INV: Inventory = { spares: 0, water: 0, totem: 0, ammo: 0, radar: false, camera: false, gun: false, tank: false, watergun: false, caution: false, uno: false, monster: 0, glasses: false, pills: 0, steelcard: false, beer: 0 };
 /** Con lo que entra quien llega a una sala: una linterna de repuesto. */
 export const START_INV: Inventory = { ...EMPTY_INV, spares: 1 };
 /** Lo máximo que se puede llevar de cada cosa. */
-export const INV_MAX: Inventory = { spares: 6, water: 5, totem: 2, ammo: AMMO_PACK * 2, radar: true, camera: true, gun: true, tank: true, watergun: true, caution: true, uno: true, monster: 3 };
+export const INV_MAX: Inventory = { spares: 6, water: 5, totem: 2, ammo: AMMO_PACK * 2, radar: true, camera: true, gun: true, tank: true, watergun: true, caution: true, uno: true, monster: 3, glasses: true, pills: 3, steelcard: true, beer: 3 };
 
 /** Un inventario saneado: lo que no es número o booleano, a cero; nada por encima de `cap` (por defecto, el máximo de INV_MAX). */
 export function cleanInv(x: unknown, cap: Inventory = INV_MAX): Inventory {
   const o = (x && typeof x === 'object' ? x : {}) as Record<string, unknown>;
-  const n = (k: 'spares' | 'water' | 'totem' | 'ammo' | 'monster') => (Number.isFinite(o[k]) ? Math.max(0, Math.min(Math.floor(o[k] as number), cap[k], INV_MAX[k])) : 0);
-  const b = (k: 'radar' | 'camera' | 'gun' | 'tank' | 'watergun' | 'caution' | 'uno') => o[k] === true && cap[k] && INV_MAX[k];
-  const out: Inventory = { spares: n('spares'), water: n('water'), totem: n('totem'), ammo: n('ammo'), radar: b('radar'), camera: b('camera'), gun: b('gun'), tank: b('tank'), watergun: b('watergun'), caution: b('caution'), uno: b('uno'), monster: n('monster') };
+  const n = (k: 'spares' | 'water' | 'totem' | 'ammo' | 'monster' | 'pills' | 'beer') => (Number.isFinite(o[k]) ? Math.max(0, Math.min(Math.floor(o[k] as number), cap[k] ?? 0, INV_MAX[k] ?? 0)) : 0);
+  const b = (k: 'radar' | 'camera' | 'gun' | 'tank' | 'watergun' | 'caution' | 'uno' | 'glasses' | 'steelcard') => o[k] === true && cap[k] === true && INV_MAX[k] === true;
+  const out: Inventory = { spares: n('spares'), water: n('water'), totem: n('totem'), ammo: n('ammo'), radar: b('radar'), camera: b('camera'), gun: b('gun'), tank: b('tank'), watergun: b('watergun'), caution: b('caution'), uno: b('uno'), monster: n('monster'), glasses: b('glasses'), pills: n('pills'), steelcard: b('steelcard'), beer: n('beer') };
   // la calidad y el botín no los declara el cliente: son los de `cap` (lo que el servidor sabe que lleva)
   if (cap.q) out.q = Object.fromEntries(ITEM_IDS.filter((id) => cap.q![id] && Number(out[ITEMS[id].slot]) > 0).map((id) => [id, cap.q![id]]));
   if (cap.loot) out.loot = cap.loot;
@@ -205,9 +211,13 @@ export const ITEMS: Record<ItemId, ItemDef> = {
   uno: { name: 'UNO REVERSE', price: 450, info: 'Swap places with a random teammate. One use, one card at a time.', slot: 'uno', hot: true, level: 'poolrooms' },
   monster: { name: 'MONSTER', price: 180, info: '3 s to drink. Then 5 s of +40% speed and endless stamina.', slot: 'monster', hot: true, boost: 'BOOST TIME' },
   totem: { name: 'TOTEM OF LIFE', price: 650, info: 'Brings back a fallen teammate.', slot: 'totem', hot: true },
+  glasses: { name: 'X-RAY GLASSES', price: 400, info: 'Reveal nearby pickups, unfinished generators, and the unlocked exit for 60 seconds.', slot: 'glasses', hot: true, level: 'parking' },
+  pills: { name: 'PILLS', price: 260, info: 'Three doses. Each gives +0.8 m/s speed and +25% stamina for 60 seconds at a cost of 15% health.', slot: 'pills', pack: 3, hot: true, level: 'parking' },
+  steelcard: { name: 'STEEL CARD', price: 240, info: 'Roll for a shop item. A 5% chance speeds up entities by 0.5 m/s instead.', slot: 'steelcard', hot: true, level: 'parking' },
+  beer: { name: 'BEER BOTTLE', price: 100, info: 'Throw to lure entities to the impact. A direct hit deals 5% health damage to a player.', slot: 'beer', hot: true, level: 'parking' },
 };
-const qty = (inv: Inventory, id: ItemId) => Number(inv[ITEMS[id].slot]), pack = (id: ItemId) => ITEMS[id].pack ?? 1;
-const withQty = (inv: Inventory, id: ItemId, n: number): Inventory => ({ ...inv, [ITEMS[id].slot]: typeof inv[ITEMS[id].slot] === 'boolean' ? n > 0 : n });
+const qty = (inv: Inventory, id: ItemId) => Number(inv[ITEMS[id].slot] ?? 0), pack = (id: ItemId) => ITEMS[id].pack ?? 1;
+const withQty = (inv: Inventory, id: ItemId, n: number): Inventory => ({ ...inv, [ITEMS[id].slot]: typeof INV_MAX[ITEMS[id].slot] === 'boolean' ? n > 0 : n });
 
 /**
  * ¿Hay sitio para una cosa más (un tipo nuevo `plus`, o una pieza de botín)? Cada tipo que se lleva ocupa una casilla de la mochila (las pilas, una
@@ -226,10 +236,10 @@ export function addItem(inv: Inventory, id: ItemId, r = 0, w = 0): Inventory {
   return { ...withQty(inv, id, n + pack(id)), q: { ...inv.q, [id]: old ? { r: old.r, w: (old.w * n + w * pack(id)) / (n + pack(id)) } : { r, w } } };
 }
 /** ¿Se puede soltar una unidad de `id`? */
-export const hasItem = (inv: Inventory, id: ItemId) => qty(inv, id) >= pack(id);
+export const hasItem = (inv: Inventory, id: ItemId) => qty(inv, id) >= (id === 'pills' ? 1 : pack(id));
 /** Sin una unidad de `id` (soltada). El rifle se va sin sus balas: esas siguen en el inventario. */
 export function removeItem(inv: Inventory, id: ItemId): Inventory {
-  const o = withQty(inv, id, qty(inv, id) - pack(id));
+  const o = withQty(inv, id, Math.max(0, qty(inv, id) - pack(id)));
   if (qty(o, id) <= 0 && o.q?.[id]) (o.q = { ...o.q }), delete o.q[id];
   return o;
 }
