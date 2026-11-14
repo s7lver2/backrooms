@@ -423,6 +423,8 @@ export interface ServerToClient {
    * en el jugador) y al volver al lobby (lo conservado o perdido).
    */
   inv: (i: Inventory) => void;
+  /** Una recogida rechazada: por qué (GONE, FULL, TOO FAR). */
+  pickFail: (why: string) => void;
   /** El servidor te ha concedido un logro (clave de ACHIEVEMENTS). */
   achievement: (key: string) => void;
   /** Un caído empieza «Run for your life» por el Tótem de `by`. */

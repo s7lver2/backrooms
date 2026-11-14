@@ -2062,6 +2062,9 @@ export class BackroomsGame {
     };
     s.on('room', onRoom);
     s.on('inv', onInv);
+    const onPickFail = (why: string) => (this.note = { text: 'CANNOT TAKE THAT · ' + why, until: performance.now() + 2000 });
+    s.on('pickFail', onPickFail);
+    this.offNet.push(() => s.off('pickFail', onPickFail));
     const onBottle = (points: { x: number; y: number; z: number }[], duration: number) => {
       const model = itemModel('beer');
       if (!points.length) return;

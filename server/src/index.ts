@@ -854,6 +854,11 @@ io.on('connection', (sock) => {
     if (ok) r!.match!.noise(p!.st.x, p!.st.z, NOISE_PICK);
     if (ok && k[0] !== 'd') gain(p!, k, rar); // lo que se lleva: hay que tenerlo para soltarlo, beberlo o declararlo al subir
     if (ok) r!.pickups.set(k, { by: p!.id, at: now });
+    // un rechazo se explica (y el inventario se reenvía: si el cliente creía que cabía, se corrige) en vez de quedarse mudo
+    if (!ok && p && r?.match && r.phase === 'playing' && k[0] !== 'd') {
+      sock.emit('pickFail', !r.match.cellOf(k) ? 'GONE' : !room ? 'FULL' : 'TOO FAR');
+      sock.emit('inv', p.cap);
+    }
     if (typeof cb === 'function') cb(ok);
   });
 
