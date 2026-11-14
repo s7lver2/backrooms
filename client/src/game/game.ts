@@ -1303,7 +1303,7 @@ export class BackroomsGame {
     if (!this.mp) tickHides(this.hides, dt);
     const h = this.hides[this.hideIdx];
     if (p.concealed && h) {
-      this.holding = this.breath.step(dt, !!hold);
+      this.holding = this.breath.step(dt, !!hold, 1.2); // (la misma reserva que cuenta el servidor: si no, aquí se acaba antes y te delata)
       if (this.breath.gasped) this.audio?.gasp();
       if (!this.mp) {
         h.occ = { id: 'me', holding: this.holding, noise: this.noise };

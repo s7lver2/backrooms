@@ -136,7 +136,7 @@ export interface SimTarget {
 const CONE = (50 * Math.PI) / 180, REACH = 1.2;
 // la inspección: hasta dónde se fija en un nicho, lo que dura frente a él, lo que tarda en notar que no contienes
 // el aire (con el margen de la red) y el enfriamiento del nicho tras una
-const HIDE_RANGE = 2 * CELL + 0.3, INSPECT_T = [2.5, 3.5] as const, REACT = 0.9, BAD_T = 0.7, COOL = 20;
+const HIDE_RANGE = 2 * CELL + 0.3, INSPECT_T = [2, 3] as const, REACT = 0.9, BAD_T = 0.7, COOL = 20;
 // a cuánto te ven: a oscuras, bajo los fluorescentes y con la linterna encendida; el haz en la cara, a 0,3 rad
 const SIGHT_DARK = 7, SIGHT_LIT = 14, SIGHT_TORCH = 20, BEAM = 0.3;
 // el salto: si lleva FAR_T s a más de FAR_ROUTE celdas de ruta del jugador más cercano, sin verlo nadie ni a menos de
@@ -594,7 +594,7 @@ export class EntitySim {
       return undefined;
     }
     const d = Math.hypot(h.fx - this.x, h.fz - this.z);
-    if (d > 0.3 && s.walk < 3) {
+    if (d > 0.3 && s.walk < 1.5) {
       // a la boca, andando
       s.walk += dt;
       const k = Math.min(d, 1.8 * dt) / d;
