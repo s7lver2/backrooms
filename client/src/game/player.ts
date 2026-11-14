@@ -186,6 +186,9 @@ export class Player {
   jumpMul = 1;
   noclip = false;
   private velY = 0;
+  /** Altura sobre el suelo y velocidad vertical del salto en los niveles de suelo continuo (groundPace). */
+  private airY = 0;
+  private airV = 0;
   private ground = true;
   private falling = false;
   private fell = false;
@@ -552,11 +555,11 @@ export class Player {
       this.jetOk = tb.jetOk;
     } else if (this.world.groundPace) {
       const x = this.pos.x + v.x;
-      const yx = this.world.floorAt?.(x, this.pos.z, this.pos.y);
-      if (yx != null) this.pos.set(x, yx, this.pos.z);
+      const yx = this.world.floorAt?.(x, this.pos.z, this.pos.y - this.airY);
+      if (yx != null) this.pos.set(x, yx + this.airY, this.pos.z);
       const z = this.pos.z + v.z;
-      const yz = this.world.floorAt?.(this.pos.x, z, this.pos.y);
-      if (yz != null) this.pos.set(this.pos.x, yz, z);
+      const yz = this.world.floorAt?.(this.pos.x, z, this.pos.y - this.airY);
+      if (yz != null) this.pos.set(this.pos.x, yz + this.airY, z);
     } else {
       if (this.noclip || !(this.blocked(this.pos.x + v.x, this.pos.z) || edge(this.pos.x + v.x, this.pos.z))) this.pos.x += v.x;
       if (this.noclip || !(this.blocked(this.pos.x, this.pos.z + v.z) || edge(this.pos.x, this.pos.z + v.z))) this.pos.z += v.z;
@@ -572,7 +575,18 @@ export class Player {
 
     // saltar y caer: sobre un hueco no hay suelo
     if (tb) (this.velY = tb.vy), (this.ground = !tb.air), (this.falling = false); // (en las Poolrooms la altura la pone PoolLevel: aquí no hay suelo en 0, y la gravedad hacía temblar el cuerpo en el agua)
-    else if (this.world.groundPace) (this.velY = 0), (this.ground = true), (this.falling = false);
+    else if (this.world.groundPace) {
+      // niveles de suelo continuo (el garaje): la altura sigue al suelo, y el salto es un desplazamiento vertical encima de él
+      const base = this.world.floorAt?.(this.pos.x, this.pos.z, this.pos.y - this.airY);
+      if (c.jump && this.airY <= 0 && !this.duck) this.airV = JUMP * this.jumpMul * (this.pillOn ? PILLS.jump : 1);
+      this.airV -= G * dt;
+      this.airY = Math.max(0, this.airY + this.airV * dt);
+      if (this.airY === 0 && this.airV < 0) this.airV = 0;
+      this.ground = this.airY <= 0;
+      this.velY = this.airV;
+      this.falling = false;
+      if (base != null) this.pos.y = base + this.airY;
+    }
     else {
       if (c.jump && this.ground && !this.falling) (this.velY = JUMP * this.jumpMul * (this.pillOn ? PILLS.jump : 1)), (this.ground = false);
       const floor = this.falling || this.world.voidAt(this.pos.x, this.pos.z) ? -Infinity : (this.world.floorAt?.(this.pos.x, this.pos.z, this.pos.y) ?? 0); // (los mundos falsos no tienen escaleras)
