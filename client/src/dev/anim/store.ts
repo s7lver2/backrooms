@@ -116,7 +116,10 @@ export function applyCarry(S: Live) {
     if (g === 'uno') (p.uno = true), p.equipUno();
     if (g === 'pokeball' || g === 'nokia' || g === 'bat') (p[g] = true), p.equipTool(g);
     if (g === 'grenade') (p.grenade = Math.max(p.grenade, 1)), p.equipTool('grenade');
-    p.prop = g === 'water' || g === 'monster' || g === 'uno' || g === 'pokeball' || g === 'grenade' || g === 'nokia' || g === 'bat' || g === 'soap' || g === 'tape' || g === 'ammo' ? g : 'none';
+    // los objetos de la Habitable Zone: hay que tenerlos (apply) para que equipParkingItem ponga su modelo
+    const park = g === 'glasses' || g === 'pills' || g === 'steelcard' || g === 'beer';
+    if (park) (p.apply({ ...p.inventory, [g]: g === 'pills' || g === 'beer' ? 1 : true }), p.equipParkingItem(g));
+    if (!park) p.prop = g === 'water' || g === 'monster' || g === 'uno' || g === 'pokeball' || g === 'grenade' || g === 'nokia' || g === 'bat' || g === 'soap' || g === 'tape' || g === 'ammo' ? g : 'none';
   } else {
     p.gadget = 'none';
     p.prop = 'none';
