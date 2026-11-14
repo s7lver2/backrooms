@@ -555,18 +555,34 @@ export class Match {
 
   // ── los cuatro objetos de las Suites ──
 
-  /** Pokeball: lo primero que toca en su vuelo (`pts`). Una entidad queda hechizada `secs` s (devuelve su tipo); un jugador, en `player`. `at` es dónde cae. */
-  ballHit(p: Player, players: Player[], pts: number[], secs: number) {
+  /**
+   * Pokeball: lo primero que toca en su vuelo (`pts`). Un jugador queda atrapado (`player`); una entidad se mete en la bola (sale del mapa, `ent` es su
+   * tipo). Una bola que ya lleva una entidad (`carry`) no atrapa otra: al caer la suelta, y pelea de tu lado `secs` s (`released`). `at` es dónde cae.
+   */
+  ballHit(p: Player, players: Player[], pts: number[], secs: number, carry?: string) {
+    const at = (x: number, z: number) => [x, z] as [number, number], held = carry === 'bacteria' || carry === 'partygoer' || carry === 'faceling' ? (carry as Kind) : undefined;
     for (let i = 0; i < pts.length; i += 3) {
       const x = pts[i], y = pts[i + 1], z = pts[i + 2];
-      for (const q of players) if (q !== p && !q.dead && !q.boarded && q.seen && Math.hypot(q.st.x - x, q.st.z - z) < 0.8 && y - q.st.y > 0 && y - q.st.y < 2) return { player: q, at: [x, z] as [number, number] };
+      for (const q of players) if (q !== p && !q.dead && !q.boarded && q.seen && Math.hypot(q.st.x - x, q.st.z - z) < 0.8 && y - q.st.y > 0 && y - q.st.y < 2) return { player: q, at: at(x, z) };
+      if (held) continue;
       for (const e of this.ents)
         if (e.sim.alive && Math.hypot(e.sim.x - x, e.sim.z - z) < 0.9 && y < 2.2) {
-          e.charm = { until: this.age + secs, by: p.id, prev: e.charm?.prev ?? { passive: e.sim.passive, enraged: e.sim.enraged, roused: e.sim.roused } };
-          return { ent: e.sim.kind, at: [e.sim.x, e.sim.z] as [number, number] };
+          const kind = e.sim.kind, ex = e.sim.x, ez = e.sim.z;
+          if (e.sim.insp) (e.sim.insp.h.by = null), (e.sim.insp = undefined);
+          this.ents.splice(this.ents.indexOf(e), 1); // capturada: fuera del mapa, y no reaparece otra
+          return { ent: kind, at: at(ex, ez) };
         }
     }
-    return { at: [pts[pts.length - 3], pts[pts.length - 1]] as [number, number] };
+    const end = at(pts[pts.length - 3], pts[pts.length - 1]);
+    if (held && !this.parking) {
+      this.spawn(held, { x: Math.floor(end[0] / CELL), y: Math.floor(end[1] / CELL) });
+      const e = this.ents[this.ents.length - 1];
+      e.sim.x = end[0];
+      e.sim.z = end[1];
+      e.charm = { until: this.age + secs, by: p.id, prev: { passive: false, enraged: false, roused: false } };
+      return { released: held, at: end };
+    }
+    return { at: end };
   }
 
   /** Granada de humo caída en (x, z): nube de radio `r`, ruido de `noise` m y daño de impacto `dmg` a lo que esté debajo. */

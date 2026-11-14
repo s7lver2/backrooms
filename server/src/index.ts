@@ -1321,8 +1321,8 @@ io.on('connection', (sock) => {
     if (k === 'pokeball' && fl) {
       // cada bola se lanza una vez: sale de la mano y cae donde acabe el vuelo; al recuperarla es otra bola, según lo que atrapó
       const was = p.cap.q?.pokeball ?? { r: 0, w: 0 }, mul = was.c ? BALL_KINDS[was.c]?.mul ?? 1 : 1;
-      const o = m.ballHit(p, all, fl.pts, subOf(p.cap, 'pokeball', 'time') * mul);
-      const c = o.player ? 'player' : o.ent ?? was.c, id = 'd' + (++dropNo).toString(36);
+      const o = m.ballHit(p, all, fl.pts, subOf(p.cap, 'pokeball', 'time') * mul, was.c);
+      const c = o.player ? 'player' : 'released' in o ? undefined : o.ent ?? was.c, id = 'd' + (++dropNo).toString(36);
       fx({ k: 'throw', what: 'pokeball', path: fl.pts, s: (fl.pts.length / 3) * FLIGHT_DT });
       p.cap = removeItem(p.cap, 'pokeball');
       r.drops.set(id, { id, kind: 'pokeball', x: o.at[0], z: o.at[1], by: p.id, at: now, q: { r: was.r, w: was.w, ...(c ? { c } : {}) } });
@@ -1333,7 +1333,7 @@ io.on('connection', (sock) => {
         push(r);
       }
       bag(p);
-      return reply(true, o.player ? `${o.player.name.toUpperCase()} TRAPPED · PICK THE BALL UP TO FREE THEM` : o.ent ? `${o.ent.toUpperCase()} CAUGHT · PICK THE BALL UP AGAIN` : 'MISSED · PICK THE BALL UP', true);
+      return reply(true, o.player ? `${o.player.name.toUpperCase()} TRAPPED · PICK THE BALL UP TO FREE THEM` : o.ent ? `${o.ent.toUpperCase()} CAUGHT · PICK THE BALL UP, THROW IT TO LET IT OUT` : 'released' in o ? `${String(o.released).toUpperCase()} RELEASED · IT FIGHTS FOR YOU FOR A WHILE` : 'MISSED · PICK THE BALL UP', true);
     }
     if (k === 'grenade' && fl) {
       const sub = (key: string) => subOf(p.cap, 'grenade', key);
