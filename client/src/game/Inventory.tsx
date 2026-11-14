@@ -52,7 +52,7 @@ const hotable = (g: Item) => g === 'camera' || g === 'gun' || barOnly(g);
 /** Lo que solo va en la barra de acceso rápido (no se equipa en las manos): se arrastra a una ranura de la barra. */
 const bagHotItems = ['caution', 'radar', 'totem', 'watergun', 'uno', 'monster', 'pokeball', 'grenade', 'nokia', 'bat', ...PARKING_ITEM_IDS] as const;
 const barOnly = (g: Item): g is 'water' | typeof bagHotItems[number] => g === 'water' || (bagHotItems as readonly Item[]).includes(g);
-const fits = (s: string, g: Item) => (s === 'left' && (g === 'flashlight' || g === 'spare')) || (s === 'back' && g === 'tank');
+const fits = (s: string, g: Item) => (s === 'left' && (g === 'flashlight' || g === 'spare' || g === 'glasses')) || (s === 'back' && g === 'tank');
 const label = (g: Item) => NAME[g] ?? HOT[g]?.name ?? g;
 const SLOTS: [Slot, string][] = [
   ['left', 'L HAND'],
@@ -180,7 +180,7 @@ function Inventory({
     ...(lamps > 0 ? [{ kind: 'spare' as const, n: lamps }] : []),
     ...(inv.gun && inv.spare ? [{ kind: 'ammo' as const, n: inv.spare }] : []),
   ];
-  const loose = [...bagHotItems.filter((id) => HOT[id].have(inv) && !hotIn.includes(id)), ...(inv.tank && !(inv.tankOn && st.back) ? (['tank'] as const) : [])]; // lo de la barra que se ha quitado de ella y la bombona sin puesta
+  const loose = [...bagHotItems.filter((id) => HOT[id].have(inv) && !hotIn.includes(id) && !(id === 'glasses' && at.left === 'glasses')), ...(inv.tank && !(inv.tankOn && st.back) ? (['tank'] as const) : [])]; // lo de la barra que se ha quitado de ella y la bombona sin puesta
   const loot = perks.loot;
   const cells = stacks.length + loose.length + stored.length + loot.length;
   // lo que se lleva por tipo, y la disposición (la que eligió el jugador) cuadrada con ello
@@ -304,6 +304,7 @@ function Inventory({
     if (g === 'tank') return st.back || from === 'back' ? onTank?.(from === 'back' ? false : true) : undefined;
     if (g === 'spare') return at.left === 'none' ? onPlace('left', 'flashlight') : undefined;
     if (g === 'tape' || g === 'ammo' || g === 'loot') return;
+    if (g === 'glasses' && inPack(from)) return onPlace('left', 'glasses'); // (doble clic: a la mano de repuesto)
     if (g === 'camera' || g === 'gun' || barOnly(g)) {
       if (!st.hot) return; // sin barra rápida (falta la mejora)
       const free = inv.hot.findIndex((h, i) => !h && i < st.hot);

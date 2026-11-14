@@ -15,7 +15,7 @@ import { fit } from './player';
  */
 
 export interface Worn {
-  left: 'none' | 'flashlight';
+  left: 'none' | 'flashlight' | 'glasses';
   hand: 'none' | 'camera' | 'gun';
   belt: 'none' | 'camera' | 'gun';
 }

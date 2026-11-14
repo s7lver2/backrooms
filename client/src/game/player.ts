@@ -62,9 +62,9 @@ export function fit(o: THREE.Object3D, size: number, ry = 0) {
 }
 
 /** Lo que se lleva encima y dónde va: la derecha y el cinturón, camcorder o rifle; la izquierda, la linterna. */
-export type Gear = 'flashlight' | 'camera' | 'gun';
+export type Gear = 'flashlight' | 'camera' | 'gun' | 'glasses';
 export type Slot = 'left' | 'right' | 'belt';
-export const FITS: Record<Slot, Gear[]> = { left: ['flashlight'], right: ['camera', 'gun'], belt: ['camera', 'gun'] };
+export const FITS: Record<Slot, Gear[]> = { left: ['flashlight', 'glasses'], right: ['camera', 'gun'], belt: ['camera', 'gun'] };
 
 export class Player {
   readonly pos = new THREE.Vector3();
@@ -75,7 +75,7 @@ export class Player {
   gadget: 'none' | 'caution' | 'radar' | 'totem' = 'none';
   /** Un objeto suelto en la mano derecha, sin función de juego (lo usa Anim Studio para colocar su agarre). */
   prop: 'none' | 'water' | 'monster' | 'uno' | 'soap' | 'tape' | 'ammo' | 'pokeball' | 'grenade' | 'nokia' | 'bat' | ParkingItemId = 'none';
-  left: 'none' | 'flashlight' = 'none'; // la linterna es una del inventario (inv.spares): la mano la lleva si se equipa (y la primera que se tiene se equipa sola)
+  left: 'none' | 'flashlight' | 'glasses' = 'none'; // la linterna es una del inventario (inv.spares): la mano la lleva si se equipa (y la primera que se tiene se equipa sola)
   belt: 'none' | 'camera' | 'gun' = 'none';
   readonly has = { camera: false, gun: false };
   /** Lleva el radar (un solo ejemplar por mapa: se lo queda quien lo coja). */
@@ -224,7 +224,9 @@ export class Player {
   private specialPending = false;
   pillsUntil = 0;
   /** Las gafas puestas en la mano de repuesto (no cabe la linterna a la vez), si dan visión, y los segundos que les quedan. */
-  glassesEq = false;
+  get glassesEq() {
+    return this.left === 'glasses';
+  }
   glassesOn = false;
   glassesLeft: number = GLASSES.time;
   onGlasses?: (e: 'on' | 'off' | 'break') => void;
@@ -239,20 +241,8 @@ export class Player {
 
   /** Ponerse las gafas (o quitárselas): ocupan la mano de repuesto, así que la linterna se guarda. F las activa. */
   equipGlasses() {
-    if (!this.owns('glasses')) return;
-    if (this.glassesEq) return this.unequipGlasses();
-    this.glassesEq = true;
-    this.left = 'none';
-    this.flashOn = false;
-    const group = this.items.glasses, model = itemModel('glasses');
-    if (model && !group.children.length) group.add(fit(model.clone(true), .16));
-    if (this.hand === 'none' && this.gadget === 'none') this.prop = 'glasses'; // (se ven en la mano mientras no haya otra cosa)
-  }
-  unequipGlasses() {
-    this.setGlasses(false);
-    this.glassesEq = false;
-    if (this.prop === 'glasses') this.prop = 'none';
-    if (this.left === 'none' && this.spares > 0) this.left = 'flashlight';
+    if (this.glassesEq) this.place('left', this.spares > 0 ? 'flashlight' : 'none');
+    else this.place('left', 'glasses');
   }
   private setGlasses(on: boolean) {
     if (on === this.glassesOn || (on && this.glassesLeft <= 0)) return;
@@ -262,8 +252,6 @@ export class Player {
   private breakGlasses() {
     this.setGlasses(false);
     this.glassesLeft = GLASSES.time; // (el siguiente par)
-    this.glassesEq = false;
-    if (this.prop === 'glasses') this.prop = 'none';
     this.apply(removeItem(this.inventory, 'glasses'));
     this.onGlasses?.('break');
   }
@@ -501,6 +489,12 @@ export class Player {
     // las Suites: el objeto en la mano se usa con el clic (el servidor decide qué pasa)
     this.toolCd = Math.max(0, this.toolCd - dt);
     if (this.glassesOn && ((this.glassesLeft -= dt) <= 0)) this.breakGlasses();
+    // las gafas en la mano de repuesto se ven en la mano mientras no haya otra cosa en ella
+    if (this.glassesEq) {
+      const g = this.items.glasses, m = itemModel('glasses');
+      if (m && !g.children.length) g.add(fit(m.clone(true), 0.16));
+      if (this.prop === 'none' && this.hand === 'none' && this.gadget === 'none') this.prop = 'glasses';
+    } else if (this.prop === 'glasses') this.prop = 'none';
     this.swingT = Math.max(0, this.swingT - dt);
     if (this.prop === 'pokeball' || this.prop === 'grenade' || this.prop === 'beer') {
       // como una granada de videojuego: mantener el clic muestra el arco (game.ts lo dibuja) y soltarlo lanza; el clic derecho cancela
@@ -1172,9 +1166,9 @@ export class Player {
     this.poolGear = { tank: inv.tank, watergun: inv.watergun };
     if (!inv.watergun && this.hand === 'watergun') this.hold('none');
     this.spares = inv.spares;
-    if (inv.spares < 1) this.left = 'none';
-    else if (!had.spares && this.left === 'none' && !this.glassesEq) this.left = 'flashlight';
-    if (!inv.glasses && this.glassesEq) (this.glassesEq = this.glassesOn = false), this.prop === 'glasses' && (this.prop = 'none'); // (se soltaron o se rompieron)
+    if (inv.spares < 1 && this.left === 'flashlight') this.left = 'none';
+    else if (!had.spares && this.left === 'none') this.left = 'flashlight';
+    if (!inv.glasses && this.glassesEq) (this.left = this.spares > 0 ? 'flashlight' : 'none'), (this.glassesOn = false); // (se soltaron o se rompieron)
     if (inv.glasses && !had.glasses) this.glassesLeft = GLASSES.time;
     this.water = inv.water;
     this.totem = inv.totem;
@@ -1221,7 +1215,7 @@ export class Player {
     this.grenade = 0;
     this.buffT = this.monsterT = this.unoT = 0;
     this.pillsUntil = 0;
-    this.glassesEq = this.glassesOn = false;
+    this.glassesOn = false;
     this.glassesLeft = GLASSES.time;
     this.parkingItems = {};
     this.apply(inv);
@@ -1253,12 +1247,12 @@ export class Player {
   /** Poner `it` en `slot` (o vaciarlo con 'none'): sale de donde estuviera; lo que había, al almacén. */
   place(slot: Slot, it: Gear | 'none') {
     if (it !== 'none') {
-      if (!FITS[slot].includes(it) || (it === 'flashlight' ? this.spares < 1 : !this.has[it])) return false;
+      if (!FITS[slot].includes(it) || (it === 'flashlight' ? this.spares < 1 : it === 'glasses' ? !this.owns('glasses') : !this.has[it])) return false;
       if (this.hand === it) this.hold('none');
       if (this.belt === it) this.belt = 'none';
       if (this.left === it) this.left = 'none';
     }
-    if (slot === 'left' && this.glassesEq) this.unequipGlasses(); // (la mano de repuesto: o la linterna o las gafas)
+    if (slot === 'left' && it !== 'glasses') this.setGlasses(false); // (la mano de repuesto: o la linterna o las gafas)
     if (slot === 'right') this.hold(it as Player['hand']);
     else if (slot === 'belt') this.belt = it as Player['belt'];
     else this.left = it as Player['left'];

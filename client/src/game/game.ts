@@ -77,7 +77,7 @@ export interface Mp {
 /** Lo que enseña el inventario. */
 export interface Inv {
   hand: 'none' | 'camera' | 'gun' | 'watergun';
-  left: 'none' | 'flashlight';
+  left: 'none' | 'flashlight' | 'glasses';
   belt: 'none' | 'camera' | 'gun';
   stamina: number;
   sanity: number;
