@@ -584,7 +584,7 @@ export class Match {
       for (const q of players) if (q !== p && !q.dead && !q.boarded && q.seen && Math.hypot(q.st.x - x, q.st.z - z) < 0.8 && y - q.st.y > 0 && y - q.st.y < 2) return { player: q, at: at(x, z) };
       if (held) continue;
       for (const e of this.ents)
-        if (e.sim.alive && Math.hypot(e.sim.x - x, e.sim.z - z) < 0.9 && y < 2.2) {
+        if (e.sim.alive && e.sim.kind !== 'faceling' && Math.hypot(e.sim.x - x, e.sim.z - z) < 0.9 && y < 2.2) {
           const kind = e.sim.kind, ex = e.sim.x, ez = e.sim.z;
           if (e.sim.insp) (e.sim.insp.h.by = null), (e.sim.insp = undefined);
           this.ents.splice(this.ents.indexOf(e), 1); // capturada: fuera del mapa, y no reaparece otra
