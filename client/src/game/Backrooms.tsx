@@ -193,7 +193,7 @@ function waitInv(s: SrvInv, hot: (string | null)[] = ['caution', null, null, nul
 function Mission({ hud, room }: { hud: Hud; room: RoomView | null }) {
   const i = hud.inv, m = hud.mission, up = hud.ascent;
   const aboard = (room?.ascent?.boarded ?? []).map((id) => room?.players.find((p) => p.id === id)?.name || 'ANON');
-  const goal = !m ? '' : m.done ? (room?.levelId === 'suites' ? 'MISSION DONE · ASK A FACELING FOR ANOTHER, OR LEAVE' : (hud.parking && i.escaped ? 'ABOARD ELEVATOR' : hud.parking && !hud.parking.open ? 'ELEVATOR UNLOCKED' : 'ELEVATOR OPEN')) : m.kind === 'photos' && !i.camera ? 'FIND A CAMCORDER' : m.text;
+  const goal = !m ? '' : m.done ? (room?.levelId === 'suites' ? 'MISSION DONE · ASK A FACELING FOR ANOTHER, OR LEAVE' : (hud.parking && i.escaped ? 'ABOARD ELEVATOR' : hud.parking && !hud.parking.open ? 'ELEVATOR UNLOCKED' : hud.power ? `ELEVATOR HAS NO POWER · SWITCH ON THE PANELS ${hud.power.on}/${hud.power.n}` : hud.liftOpen === false ? 'GO TO THE ELEVATOR · IT OPENS AS YOU GET CLOSE' : 'ELEVATOR OPEN')) : m.kind === 'photos' && !i.camera ? 'FIND A CAMCORDER' : m.text;
   const blocks = (n: number, of: number) => (
     <>
       {'▮'.repeat(n)}
