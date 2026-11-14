@@ -56,6 +56,9 @@
 .br-menu__sub { margin: 0.8em 0 clamp(28px, 6vh, 56px) !important; font-size: clamp(14px, 1.4vw, 18px); color: var(--br-dim); }
 .br-menu ul { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; margin-left: -1.5em; font-size: clamp(16px, min(2.4vw, 3.8vh), 30px); }
 .br-menu { overflow-y: auto; }
+.br-parking-repair { position: absolute; z-index: 4; top: 50%; left: 50%; width: 56px; height: 56px; transform: translate(-50%, -50%); pointer-events: none; }
+.br-parking-repair circle { fill: none; stroke: #929b8d66; stroke-width: 3; }
+.br-parking-repair circle + circle { stroke: #edf7d8; transform: rotate(-90deg); transform-origin: center; }
 .br-menu__who { position: absolute; top: clamp(16px, 5vh, 44px); left: var(--br-gut); font-size: clamp(13px, 1.4vw, 18px); }
 .br-menu__rec { color: var(--br-rec); animation: br-rec 1s steps(1) infinite; }
 @media (prefers-reduced-motion: reduce) { .br-menu__rec { animation: none; } }

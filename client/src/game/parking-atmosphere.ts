@@ -12,8 +12,6 @@ export class ParkingAtmosphere {
   private dropPositions: Float32Array;
   private selected: typeof this.anchors = [];
   private floor = -1;
-  private dripTime = 0;
-  onDrip?: (point: ParkingPoint) => void;
   private lastSelection = -Infinity;
   private group = new THREE.Group();
   private matrix = new THREE.Matrix4();
@@ -53,8 +51,6 @@ export class ParkingAtmosphere {
     return false;
   }
   update(time:number,p:ParkingPoint,outputs?:ArrayLike<number>) {
-    const previousDripTime = this.dripTime;
-    this.dripTime = time;
     const indoors=this.map.floors[p.floor].rooms.some(r=>p.x>r.x&&p.x<r.x+r.w&&p.z>r.z&&p.z<r.z+r.d);
     this.group.visible=!indoors;
     if(indoors)return;
@@ -65,7 +61,6 @@ export class ParkingAtmosphere {
     this.volumes.forEach((mesh,i)=>{const a=this.selected[i],visible=!!a&&Math.hypot(a.x-p.x,a.z-p.z)<15;mesh.visible=visible;this.shafts[i].visible=visible;if(!a)return;mesh.position.set(a.x,a.y+1.53,a.z);mesh.material.uniforms.uTime.value=time;mesh.material.uniforms.uPower.value=outputs?.[a.lampId]??1;mesh.material.uniforms.uMin.value.set(a.x-2.2,a.y+.08,a.z-2.2);mesh.material.uniforms.uMax.value.set(a.x+2.2,a.y+2.98,a.z+2.2);this.shafts[i].position.set(a.x,a.y+1.78,a.z);this.shafts[i].material.uniforms.uBase.value=a.y+.23;this.shafts[i].material.uniforms.uTime.value=time;this.shafts[i].material.uniforms.uPower.value=outputs?.[a.lampId]??1;});
     this.drips.visible=this.impacts.visible=this.selected.length>0;
     for(let i=0;i<this.dropPositions.length/6;i++){const a=this.selected[i%this.selected.length];const phase=(time*.45+i*.371)%1,active=!!a&&Math.hypot(a.x-p.x,a.z-p.z)<14;if(!a){for(let j=0;j<6;j++)this.dropPositions[i*6+j]=0;continue;}const x=a.x+Math.sin(i*2.1)*.7,z=a.z+Math.cos(i*1.7)*.7,y=a.y+3.1*(1-phase*phase);
-      if(active && Math.floor(time*.45+i*.371) > Math.floor(previousDripTime*.45+i*.371)) this.onDrip?.({ x,y:a.y+.06,z,floor:a.floor });
       this.dropPositions.set([x,y,z,x,y+(active ? .09 : 0),z],i*6);const size=active&&phase>.88?(phase-.88)*10:0;this.matrix.makeScale(size,1,size).setPosition(x,a.y+.006,z);this.impacts.setMatrixAt(i,this.matrix);}
     this.drips.geometry.attributes.position.needsUpdate=true;this.impacts.instanceMatrix.needsUpdate=true;
   }

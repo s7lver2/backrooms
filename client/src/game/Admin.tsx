@@ -108,7 +108,7 @@ export default function AdminConsole({ game, sock, room, me }: Props) {
       setOpen(on);
       if (!g) return;
       if (on) {
-        if (!liveRef.current) g.input.clear();
+        if (!liveRef.current || g.inParking) g.input.clear();
         g.input.block('admin');
         g.input.unlock();
         setTog(g.adminState()); // el juego pudo reiniciarse: el panel muestra lo que hay de verdad
@@ -118,7 +118,7 @@ export default function AdminConsole({ game, sock, room, me }: Props) {
         if (!g.input.suspend) g.input.lock(true); // (con Esc el navegador no da el puntero: sale «click to continue» y basta un clic)
       }
     },
-    [game],
+    [game, inRoom],
   );
 
   // la tecla: en captura y antes que nadie. Abierta, se traga todas (el juego no las recibe), 1–6 cambian de pestaña y Esc o la misma tecla la cierran
@@ -130,7 +130,7 @@ export default function AdminConsole({ game, sock, room, me }: Props) {
       if (!liveRef.current || typing) e.stopPropagation(); // en vivo, el juego sigue recibiendo las teclas (salvo escribiendo en el filtro)
       if (mine || e.code === 'Escape') return void (e.preventDefault(), !e.repeat && (typing && e.code === 'Escape' ? (e.target as HTMLElement).blur() : toggle(false)));
       const n = /^Digit([1-6])$/.exec(e.code);
-      if (n && !typing && !liveRef.current) setTab(TABS[Number(n[1]) - 1]);
+      if (n && !typing && !liveRef.current && !game.current?.inParking) setTab(TABS[Number(n[1]) - 1]);
     };
     const up = (e: KeyboardEvent) => openRef.current && !liveRef.current && e.stopPropagation();
     // en vivo, un clic fuera de la consola vuelve a capturar el ratón para seguir jugando
@@ -315,7 +315,7 @@ export default function AdminConsole({ game, sock, room, me }: Props) {
             <h3>LEVELS</h3>
             <div className="br-adm__row">
               {Object.values(LEVELS).filter((l) => inRoom || l.id === 'level0').map((l) => (
-                <B key={l.id} run={() => (inRoom ? send({ a: 'level', id: l.id }) : hold(() => g?.adminLevel0()))}>{l.name} · NEW SEED</B>
+                <B key={l.id} run={() => (inRoom ? send({ a: 'level', id: l.id }) : hold(() => g?.adminLevel0()))}>{l.id === 'parking' ? l.title : l.name} · NEW SEED</B>
               ))}
               <B run={() => (inRoom ? send({ a: 'run', t }) : hold(() => g?.adminRun()))}>RUN FOR YOUR LIFE</B>
               {inRoom && <B run={() => send({ a: 'lobby' })}>WAITING ROOM</B>}
@@ -376,6 +376,7 @@ export default function AdminConsole({ game, sock, room, me }: Props) {
           </div>
         </section>
       )}
+
 
       {tab === 'DEBUG' && (
         <section>

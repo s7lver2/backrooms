@@ -40,7 +40,7 @@ Use the existing health, damage, death, revival, inventory, and escape flow. Ent
 - Seeded generation shared by server and client. Same seed and finalized generation parameters must yield the same map, floor connections, safe rooms, objectives, and item identifiers.
 - Generate 3â€“9 vertically separated decks as dictated by the table. Each deck has parking sections, columns, driving lanes, sparse static cars, walls, service infrastructure, stairs, and ramps.
 - Floors vary within one concrete complex: standard parking decks, occasional brighter industrial areas, and darker/wetter lower floors.
-- Stairwells and car ramps are traversable by players and Skinwalkers. Cars are obstacles only, never searchable or drivable; no alarms or interaction mechanics.
+- Players can use stairwells and car ramps to change floors. Cars are obstacles only, never searchable or drivable; no alarms or interaction mechanics.
 - Place the exit elevator randomly and guarantee it is reachable from spawn. Its placement is independent of whether players have unlocked it. Reserve clear space around its footprint and an unobstructed approach in front of the doors; adjacent walls, columns, props and connectors must not crowd or intersect it (owner clarification).
 - Distribute all eight tapes over every floor in tape rounds. Generate five floors with exactly one generator on each. Report floors still missing power in the mission HUD.
 - Guarantee paths to every objective and the exit, including across stairs/ramps, around cars, and through doorways. Avoid objectives inside decorative blockers or inaccessible recesses.
@@ -64,20 +64,21 @@ Proposed implementation defaults: a 5 m exterior stand-off from an occupied room
 
 ### Identity and population
 
-Spawn one Skinwalker per floor at round start. This is a total population rule, not a restriction to its original floor: it can pursue players across floors. Copy any participant's exact appearance, including cosmetics; in solo play it can copy the sole player. Suspicious behaviour is the intended clue. No explicit monster label or forced visual glitch reveals the disguise.
+Spawn one Skinwalker per floor at round start. Each Skinwalker stays on its spawn floor and pursues only players on that floor. Its patrol and pursuit routes stop at stairs and ramps. If displaced to another floor, it stops hunting and uses the connecting routes to return home. If it cannot reach home on foot, it resets to its original spawn point. Copy any participant's exact appearance, including cosmetics; in solo play it can copy the sole player. Suspicious behaviour is the intended clue. No explicit monster label or forced visual glitch reveals the disguise.
 
 While idle it can wander, stand still, or pretend to complete tasks. Fake tasks never change real mission progress. Avoid strongly lit areas; prefer dim routes. Lights affect route preference rather than silently teleporting it or making every bright parking section a safe room.
 
 ### Behaviour sequence
 
 1. Disguised idle/patrol or fake task.
-2. On seeing a player, walk toward them for at least one second before switching to the closer-range behaviors.
+2. On seeing a player, spend at least one second walking. While in disguise, use a reachable route toward the player's side or rear when the layout allows.
 3. Once nearer, run toward the player while still disguised.
 4. At very close range, transform into the beast, then remain stationary and unable to attack for three seconds. The flashlight works throughout this recovery window. Pursuit can begin only after that window.
 5. If the target escapes, search around their last known position for seven seconds. If not reacquired, return to disguise and resume roaming.
-6. Beast pursuit also uses last-seen/heard information and a local search after losing the player, never omniscient tracking.
+6. Beast pursuit uses last-seen and last-heard information and a local search after losing the player.
+7. Every 10 seconds, a Skinwalker free to roam checks a snapshot of an exposed player's location on its floor. It walks there through the parking navigation graph. Active pursuit, recent tracks, and safe-room protection take priority.
 
-The player can outrun both forms while sprinting. Disguised running is slower than beast running; beast running is only slightly slower than player sprinting. Escalation must preserve that ordering. A player eventually exhausting stamina remains a risk.
+A player sprinting at 6 m/s can outrun both forms at base speed. At eight tapes, the beast reaches 6.02 m/s. With all five generators repaired, it reaches 6.27 m/s. The disguised form remains slower throughout the round. A player eventually exhausting stamina remains a risk.
 
 Flashlights, footsteps in puddles, and other meaningful player noise can attract attention. Isolated players have a higher hunting preference. Detection respects range, line of sight, floor separation, and sound propagation through usable openings. Investigate the sound's position rather than learning the source's future position.
 
@@ -91,12 +92,12 @@ Current local tuning: sight and flashlight-attention range 12 m; approach-to-run
 
 - Smilers are their own dark creature with glowing eyes and a smile. They never imitate players.
 - They appear only in near-total darkness: unlit areas or areas temporarily dark during flickering/blackouts. Never spawn inside safe rooms.
-- Stationary in darkness. Uninterrupted sight of an exposed player within 8 m intensifies a screen glitch each second and becomes lethal at 10 seconds. Walls, floor separation, safe rooms, leaving range, and a valid flashlight beam reset the stare.
-- Direct flashlight illumination freezes a Smiler before its lethal sight check, then makes it disappear after 1.5 seconds of continuous illumination. It can return in eligible darkness after a cooldown.
+- Stationary in darkness. Uninterrupted sight of an exposed player within 16 m intensifies a screen glitch each second. The base lethal time is 10 seconds and drops as the team collects cursed tapes or repairs generators. Walls, floor separation, safe rooms, leaving range, and a valid flashlight beam reset the stare.
+- Direct flashlight illumination from 6 m or closer freezes a Smiler before its lethal sight check, then makes it disappear after 1.5 seconds of continuous illumination. It can return in eligible darkness after a cooldown.
 - A ceiling light restoring illumination at its location makes it disappear immediately.
 - Its sight attack immediately sets health to zero and bypasses the Skinwalker damage immunity interval. Paused rounds and safe-room occupants remain protected.
 
-Current population tuning: at most one active Smiler in the local round, on the player's floor. First spawn attempt after 20 seconds; subsequent seeded attempts 30–45 seconds apart; 75-second section cooldown after disappearance. New spawns require darkness, 11–22 m separation and blocked direct line of sight, so they cannot materialize visibly and kill immediately. Ceiling lighting at the creature's location still clears it.
+Base population tuning allows two active Smilers. The first spawn attempt is after 20 seconds and subsequent attempts are 30-45 seconds apart. Eligible locations are dark, 9-22 m from players, and out of direct sight. Ceiling lighting at the creature's location clears it. The Cursed Tapes thresholds change the active cap and the base 75-second section cooldown.
 
 ## 7. Mission interactions and escalation
 
@@ -104,17 +105,23 @@ Current population tuning: at most one active Smiler in the local round, on the 
 
 Exactly eight real pickups; objectives on every floor. Each increments a shared escalation stage, replicated to all clients. Early stages bring irregular flickers, distant metallic sounds, and increased attention to noise. Later stages introduce brief local blackouts in selected sections, creating Smiler opportunities. Never black out the entire complex or safe rooms. Keep fog restrained enough to read nearby dangers. Stage eight remains active during the escape to the elevator.
 
+| Team tapes collected | Skinwalker movement bonus | Skinwalker investigation interval | Smiler lethal stare | Smiler section cooldown | Maximum active Smilers |
+| --- | --- | --- | --- | --- | --- |
+| 0-2 | 0 m/s | 10 s | 10 s | 75 s | 2 |
+| 3-7 | +0.15 m/s | 9.5 s | 8.5 s | 65 s | 3 |
+| 8 | +0.20 m/s total | 8.5 s | 6.5 s | 55 s | 4 |
+
 ### Five generators
 
 Hold interact for **eight uninterrupted seconds** within reach and facing the generator. Show a circle in front of the player that fills from empty to full; clear completion feedback marks the generator as permanently on. Releasing interact or moving away resets incomplete progress to zero. No repair minigame. Activation is not an entity-attracting noise event.
 
-Each completed generator restores steady lighting across its whole owning floor and contributes one of five power steps for the elevator. Restored areas clear Smilers and are less attractive to Skinwalkers. After all five, the elevator unlocks without revealing its location.
+Each completed generator restores steady lighting across its whole owning floor and contributes one of five power steps for the elevator. Restored areas clear Smilers and are less attractive to Skinwalkers. After all five, the elevator unlocks without revealing its location. Each repair adds 0.09 m/s to Skinwalker movement and shortens its investigation interval by 0.5 seconds. It also shortens the Smiler lethal stare by 0.5 seconds and its section cooldown by 8 seconds. The five-repair totals are a +0.45 m/s movement bonus, a 7.5-second investigation interval, a 7.5-second lethal stare, and a 35-second cooldown. The active Smiler cap rises from two to three after the second repair and to four after the fourth. These settings remain in effect through extraction.
 
 Proposed defaults: leaving reach, death, disconnection, or beginning another incompatible interaction cancels progress. Completed generators cannot be farmed. Multiple players cannot accelerate one generator; server awards a single completion to a valid uninterrupted hold. Powered generator circuits do not flicker off again in this mission.
 
 ### Survival
 
-Duration is the second vote's result, in server-measured active-round time. Larger durations choose larger deck footprints and floor ranges before generation/preload finishes. No safe rooms or alternative furniture hiding interactions. Gradually increase aggression during the timer; preserve flashlight counterplay and Skinwalker sprint-speed ordering. Timer completion unlocks the hidden elevator. Maintain final aggression during extraction rather than extending the timer.
+Duration is the second vote's result, in server-measured active-round time. Larger durations choose larger deck footprints and floor ranges before generation/preload finishes. No safe rooms or alternative furniture hiding interactions. Every 90 seconds, add 0.05 m/s to Skinwalker movement, cut its investigation interval by 0.4 seconds, and shorten the Smiler lethal stare by 0.3 seconds. Every 210 seconds, raise the active Smiler cap by one, starting at two. Timer completion unlocks the hidden elevator and locks the difficulty at that point for extraction.
 
 Proposed voting defaults: reuse current mission-vote duration and participant eligibility. Duration ties follow existing vote tie behaviour; no duration votes defaults to five minutes. Departed players' votes are removed. Mission selection locks before the duration vote; finalize generation parameters afterward, invalidate any stale ready/preload state, and start the timer only after final loading/round start. Other levels retain their existing flow.
 
@@ -154,14 +161,14 @@ Level-specific loading: finalize mission/duration/layout before spawning content
 
 This is a suggested sequence, not an implementation plan or authorization to start coding:
 1. Shared multi-floor layout and greybox: ramps, stairs, random reachable exit, spawn, and mission-dependent room/objective placement.
-2. Movement, collision, safe zones, doors, and server navigation across floors.
+2. Movement, collision, safe zones, doors, and server navigation.
 3. Three missions, survival-only duration vote, loading synchronization, elevator extraction, item restrictions.
 4. Skinwalker disguise/state machine and Smiler darkness/flashlight rules.
 5. Environment kit, lighting, puddles/reflections, audio, particles, escalation, performance tuning.
 
 Acceptance during implementation:
 - Matching seeds and generation parameters give matching layouts, identifiers, and floor count on both sides.
-- All objectives and the hidden elevator are reachable for every supported generation profile; ramps/stairs work for players and pursuing Skinwalkers.
+- All objectives and the hidden elevator are reachable for every supported generation profile. Players can traverse ramps and stairs. Each Skinwalker stays on its spawn floor during patrol, investigation, pursuit, and retreat.
 - Tape/generator rounds contain 2â€“7 safe rooms on each floor; survival contains none.
 - Objectives cannot be bypassed; all modes require elevator extraction.
 - Only this level has the additional duration vote; loading cannot start a stale/wrong-size match.
@@ -189,3 +196,11 @@ Active missions/votes, enemy AI, safe-room door interaction and multiplayer inte
 Environment revision: decks now use a 90 m base footprint (plus survival-size tiers), with shifted bounds and full-height staggered partitions, connecting passages and dead-end branches. Every floor uses the same worn-concrete surface. Structural slabs are 0.65 m thick with opaque cut faces; enclosed stair/ramp passages have solid sides, floors and roofs. The hidden elevator is selected on a seeded random floor below the entry deck, sits flush in the service facade and has no exterior alcove. Reachability and connector reservations remain generation requirements.
 
 Solo escape milestone. Eight VHS pickups, five generator repairs, and the selected survival timer unlock the same hidden elevator. Press E to slide the doors open, then cross into the enclosed cabin to finish. Tape pickups increase Skinwalker alertness and introduce lighting faults. Survival increases Skinwalker alertness as active time passes. Pausing suspends the survival clock, and retrying resets it. These mission rules currently run in the solo preview.
+
+Main game milestone. **The Habitable Zone** now appears in the title menu as a solo level. It uses the main game's player, inventory, mission HUD, renderer and round lifecycle with parking's seeded decks, collision, entity prefabs and audio. The shared 3D elevator completes the round. Inspection shortcuts now live in F9. Authoritative room play and the survival duration vote are pending.
+
+Room integration and entity tuning. The main menu opens the normal room browser. A signed-in admin launches the Habitable Zone from F9 > World in a public or private room. The room mission vote selects Tapes, Generators, or Survival. The survival duration currently comes from the room seed. The server shares objective, door, loot, entity, and elevator state across players.
+
+Skinwalkers see up to 15 m, start running within 7 m, and transform within 5 m after their initial walking approach. Disguise sprint speed is 5.1 m/s, and beast chase and retreat speed is 5.82 m/s. After losing the trail they check the last known location and search nearby along the last observed direction of travel. A valid flashlight hit repels them for 2 seconds, followed by 25 seconds of resistance.
+
+Smilers can spawn together at randomly chosen eligible dark positions 9-22 m from players and outside their line of sight. The Cursed Tapes table sets the lethal stare duration, cooldown, and active cap during that mission. Gaze timers and flashlight interruption are tracked independently for each Smiler.

@@ -2,6 +2,7 @@
  * El bucle de rondas: misiones (las que se votan en la pizarra), tienda, inventario por jugador, niveles y las constantes del dinero.
  * Todo puro: lo comparten el servidor (que decide) y el cliente (que pinta). El estado vive en la memoria del servidor mientras la sala exista.
  */
+import type { ParkingMinutes, ParkingOptions } from './parking';
 import { CELL, DIRS, type Cell, type Maze } from './maze';
 
 // ── dinero ───────────────────────────────────────────────────────────────
@@ -27,10 +28,11 @@ export interface LevelDef {
 /** Los niveles que salen en el sorteo de una ronda. Para añadir uno basta otra entrada (el cliente y el servidor de momento solo generan el laberinto de siempre). */
 export const LEVELS: Record<string, LevelDef> = {
   level0: { id: 'level0', name: 'LEVEL 0', title: 'THE LOBBY', blurb: 'DAMP CARPET. FLUORESCENT HUM. NO WAY OUT BUT FORWARD.' },
+  parking: { id: 'parking', name: 'LEVEL 1', title: 'THE HABITABLE ZONE', blurb: 'CONCRETE DECKS. DARK AISLES. FIND THE HIDDEN ELEVATOR.' },
   poolrooms: { id: 'poolrooms', name: 'LEVEL 37', title: 'THE POOLROOMS', blurb: 'WARM WATER. WHITE TILE. SOMETHING BREATHES UNDER THE SURFACE.' },
 };
 /** Niveles aún en desarrollo: solo salen si un admin los elige (no entran en el sorteo de rondas). Quitar el nombre de aquí cuando estén listos. */
-export const DEV_LEVELS = [] as readonly string[];
+export const DEV_LEVELS = ['parking'] as readonly string[];
 /** Las misiones de las Poolrooms: aguantar o encontrar jabones (aún no hay entidades que fotografiar). */
 export const poolMissions = (seed: number, round: number): Mission[] => {
   const r = rng(seed ^ Math.imul(round + 1, 0x9e3779b1));
@@ -156,7 +158,7 @@ export const DROP_GAP = 250;
 
 // ── misiones ─────────────────────────────────────────────────────────────
 
-export type MissionKind = 'photos' | 'tapes' | 'soaps' | 'survive' | 'tvs';
+export type MissionKind = 'photos' | 'tapes' | 'soaps' | 'survive' | 'tvs' | 'generators';
 export interface Mission {
   id: string;
   kind: MissionKind;
@@ -177,11 +179,25 @@ export interface MissionOffer extends Mission {
   votes: string[];
 }
 
+export function parkingOptionsForMission(mission: Pick<Mission, 'kind' | 'goal'>): ParkingOptions {
+  if (mission.kind === 'generators' || mission.kind === 'tapes') return { mission: mission.kind };
+  const minutes: ParkingMinutes = mission.goal === 900 ? 15 : mission.goal === 600 ? 10 : 5;
+  return { mission: 'survive', minutes };
+}
+
+export function parkingMissions(seed: number, round: number): Mission[] {
+  const goals = [8, 5, [300, 600, 900][(seed >>> 0) % 3]];
+  return (['tapes', 'generators', 'survive'] as const).map((kind, i) => ({
+    id: `parking-${round}-${kind}`, kind, goal: goals[i], text: missionText(kind, goals[i]), reward: [80, 100, goals[2] / 5][i],
+  }));
+}
+
 export function missionText(kind: MissionKind, goal: number) {
   if (kind === 'photos') return `PHOTOGRAPH ${goal} ENTITIES`;
   if (kind === 'tapes') return `FIND ${goal} TAPES`;
   if (kind === 'soaps') return `FIND ${goal} SOAPS`;
   if (kind === 'survive') return `SURVIVE ${Math.round(goal / 60)} MINUTES`;
+  if (kind === 'generators') return `ACTIVATE ${goal} GENERATORS`;
   return `TURN OFF ${goal} TVS`;
 }
 /** La línea del HUD: «PHOTOS 1/3», «TAPES 2/4», «TVS 2/4», «SURVIVE 3:20» (lo que falta). */
@@ -190,7 +206,7 @@ export function missionLine(m: Pick<ActiveMission, 'kind' | 'goal' | 'progress'>
     const left = Math.max(0, m.goal - m.progress);
     return `SURVIVE ${Math.floor(left / 60)}:${String(Math.floor(left % 60)).padStart(2, '0')}`;
   }
-  return `${{ photos: 'PHOTOS', tapes: 'TAPES', soaps: 'SOAPS', tvs: 'TVS' }[m.kind]} ${Math.min(m.progress, m.goal)}/${m.goal}`;
+  return `${{ photos: 'PHOTOS', tapes: 'TAPES', soaps: 'SOAPS', tvs: 'TVS', generators: 'GENERATORS' }[m.kind]} ${Math.min(m.progress, m.goal)}/${m.goal}`;
 }
 
 function rng(seed: number) {
@@ -212,6 +228,7 @@ export function makeMission(kind: MissionKind, r: () => number, id: string, tvs:
   else if (kind === 'tapes') (goal = between(r, 3, 6)), (reward = 50 + 60 * goal);
   else if (kind === 'soaps') (goal = between(r, 3, 5)), (reward = 60 + 60 * goal);
   else if (kind === 'survive') (goal = between(r, 4, 8) * 60), (reward = 40 + 55 * (goal / 60));
+  else if (kind === 'generators') (goal = 5), (reward = 0);
   else (goal = Math.min(between(r, 3, 5), tvs)), (reward = 70 + 80 * goal);
   return { id, kind, text: missionText(kind, goal), goal, reward: round10(reward) };
 }

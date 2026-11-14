@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs';
 import { Server } from 'socket.io';
 import {
   SERVER_PORT, MAX_PLAYERS, DEFAULT_LOOK, cosmetic, lookAllowed, HP_MAX, NAME_MAX, CHAT_MAX, CHAT_GAP, ROOM_NAME_MAX, DIFFICULTY, START_DELAY, VOTE_TIME, LOAD_GRACE, WAIT_HALF, WAIT_SPAWNS, EMOTES, EMOTE_GAP, STRIP_MAX, STRIP_PTS, STRIP_GAP, REVIVE_IMMUNE, REVIVE_MIN,
-  START_BANK, START_INV, EMPTY_INV, INV_MAX, ASCENT_GRACE, DROP_MAX, DROP_TTL, DROP_GAP, offerMissions, poolMissions, pickLevel, tvCount, generateMaze, cleanInv, addItem, canHold, hasItem, removeItem, purchase, shopItem, penaltyOf, ITEM_IDS, LEVELS, centerOf,
+  START_BANK, START_INV, EMPTY_INV, INV_MAX, ASCENT_GRACE, DROP_MAX, DROP_TTL, DROP_GAP, offerMissions, poolMissions, parkingMissions, parkingSpawn, parkingFits, pickLevel, tvCount, generateMaze, cleanInv, addItem, canHold, hasItem, removeItem, purchase, shopItem, penaltyOf, ITEM_IDS, LEVELS, centerOf,
   type ItemId, type Inventory, type Mission, type MissionOffer, type RoundResult, type Fate, type Drop, type ActiveMission,
   type AdminAction, type AdminInfo, type AdminReply, type ClientToServer, type ServerToClient, type Status, type PlayerState, type Room, type RoomView, type RoomInfo, type Look, type Strip,
 } from '@backrooms/shared';
@@ -163,7 +163,7 @@ function checkOver(r: RoomState) {
 function prepare(r: RoomState, seed = 0, level?: string) {
   r.nextSeed = seed || r.fixedSeed || 1 + ((Math.random() * 2 ** 31) | 0);
   r.levelId = level ?? pickLevel(r.nextSeed, r.pools);
-  const pool = levelCaps(r.levelId).pool ? poolMissions(r.nextSeed, r.round) : offerMissions(r.nextSeed, r.round, tvCount(generateMaze(r.nextSeed))); // (el mapa dice cuántas televisiones hay)
+  const pool = r.levelId === 'parking' ? parkingMissions(r.nextSeed, r.round) : levelCaps(r.levelId).pool ? poolMissions(r.nextSeed, r.round) : offerMissions(r.nextSeed, r.round, tvCount(generateMaze(r.nextSeed))); // (el mapa dice cuántas televisiones hay)
   r.pool = pool.map((m) => ({ ...m, reward: Math.round((m.reward * DIFFICULTY[r.difficulty].money) / 5) * 5 })); // la dificultad escala el dinero que da cada misión
   r.votes.clear();
 }
@@ -316,22 +316,28 @@ function play(r: RoomState) {
   r.startedAt = Date.now();
   let slot = 0;
   for (const p of r.players.values()) {
-    const [ox, oz] = startOffset(slot++);
-    (p.dead = false), (p.seen = false), (p.hp = HP_MAX), (p.water = 0), (p.totem = 0), (p.reviving = p.immuneUntil = undefined), (p.st = { ...START, x: r.match.start.x + ox, z: r.match.start.z + oz });
+    const [ox, oz] = startOffset(slot);
+    const parking = r.match.parking;
+    const start = parking ? parkingSpawn(parking.map, slot) : { x: r.match.start.x + ox, y: 0, z: r.match.start.z + oz };
+    slot++;
+    (p.dead = false), (p.seen = false), (p.hp = HP_MAX), (p.water = 0), (p.totem = 0), (p.reviving = p.immuneUntil = undefined), (p.st = { ...START, x:start.x, y:start.y, z:start.z });
   }
   push(r);
 }
 
 /** Un caído vuelve a la partida junto a `at` (a 0,7 m por el primer lado libre; si no, encima), con la vida llena e inmune un rato. */
 function revive(r: RoomState, p: Player, at: PlayerState) {
-  const m = r.match!.maze, o = [[0.7, 0], [-0.7, 0], [0, 0.7], [0, -0.7]].find(([dx, dz]) => !solidAt(m, at.x + dx, at.z + dz)) ?? [0, 0];
+  const m = r.match!.maze, parking = r.match!.parking?.map, y = parking ? at.y : 0;
+  const o = [[0.7, 0], [-0.7, 0], [0, 0.7], [0, -0.7]].find(([dx, dz]) => parking ? !!parkingFits(parking, at.x + dx, at.z + dz, y) : !solidAt(m, at.x + dx, at.z + dz)) ?? [0, 0];
   p.dead = false;
   p.hp = HP_MAX;
   p.seen = false;
   p.reviving = undefined;
   p.immuneUntil = Date.now() + REVIVE_IMMUNE;
-  p.st = { ...START, x: at.x + o[0], y: 0, z: at.z + o[1], yaw: at.yaw };
-  io.to(r.code).emit('revived', { id: p.id, name: p.name, x: p.st.x, y: 0, z: p.st.z, yaw: p.st.yaw });
+  p.st = { ...START, x: at.x + o[0], y, z: at.z + o[1], yaw: at.yaw };
+  const match = r.match!.parking;
+  if (match && !match.teleport(p,p.st)) match.teleport(p,match.map.spawn);
+  io.to(r.code).emit('revived', { id: p.id, name: p.name, x: p.st.x, y: p.st.y, z: p.st.z, yaw: p.st.yaw });
   push(r);
 }
 
@@ -442,6 +448,12 @@ io.on('connection', (sock) => {
       else st.emote = p.st.emote ?? 0;
       (st.x = c(st.x, WAIT_HALF.x)), (st.z = c(st.z, WAIT_HALF.z)), (st.y = Math.min(0.5, Math.max(0, st.y))), (st.light = false), (st.held = 'none');
       p.st = st;
+      return;
+    }
+    if (r.match?.parking) {
+      r.match.parking.move(p, st, Date.now(), isAdmin());
+      p.st = st;
+      p.seen = true;
       return;
     }
     // velocidad: el cliente manda su posición, así que se limita lo que puede avanzar entre mensajes (correr son 3,6 m/s; margen para el retraso).
@@ -562,7 +574,7 @@ io.on('connection', (sock) => {
         if (!need(playing)) return;
         for (const p of targets) {
           if (!p.dead || p.boarded) continue;
-          const at = [...r.players.values()].find((q) => q !== p && !q.dead && !q.boarded)?.st ?? { ...START, x: m!.start.x, z: m!.start.z };
+          const at = [...r.players.values()].find((q) => q !== p && !q.dead && !q.boarded)?.st ?? { ...START, x: m!.start.x, y: m!.parking?.map.spawn.y ?? 0, z: m!.start.z };
           revive(r, p, at);
         }
         return reply({ ok: true });
@@ -581,16 +593,20 @@ io.on('connection', (sock) => {
       }
       case 'tp': {
         if (!need(playing)) return;
-        const dest = a.to === 'elevator' ? centerOf(m!.maze.elevator) : a.to === 'start' ? m!.start : r.players.get(a.who === 'me' ? sock.id : (a.who ?? ''))?.st;
+        const parking = m!.parking?.map, e = parking?.elevator;
+        const dest = a.to === 'elevator' ? e ? { x:e.x+e.inward*1.6,y:e.y,z:e.z } : centerOf(m!.maze.elevator) : a.to === 'start' ? m!.start : r.players.get(a.who === 'me' ? sock.id : (a.who ?? ''))?.st;
         if (!dest) return reply({ ok: false, error: 'NO SUCH PLAYER' });
+        const position = { x:dest.x, y:'y' in dest ? dest.y : 0, z:dest.z };
         for (const p of targets) {
           if (p.dead || p.boarded || p.st === dest) continue;
-          io.to(p.id).emit('adminFx', { k: 'tp', x: dest.x, y: 0, z: dest.z, yaw: p.st.yaw });
+          if (m!.parking && !m!.parking.teleport(p,position)) return reply({ ok:false,error:'INVALID PARKING DESTINATION' });
+          io.to(p.id).emit('adminFx', { k:'tp', ...(m!.parking ? { x:p.st.x,y:p.st.y,z:p.st.z } : position), yaw:p.st.yaw });
         }
         return reply({ ok: true });
       }
       case 'mission':
         if (!need(playing && !!r.chosen)) return;
+        m!.parking?.complete();
         r.done = true;
         push(r);
         return reply({ ok: true });
@@ -618,6 +634,14 @@ io.on('connection', (sock) => {
     }
   });
 
+  sock.on('parkingInteract', (action, cb) => {
+    const r = roomOf(sock.id), p = r?.players.get(sock.id), parking = r?.match?.parking;
+    const got = !!r && !!p && !!parking && r.phase === 'playing' && parking.interact(p, action, [...r.players.values()]);
+    if (got && action.kind === 'tape' && p!.uid) count(p!.uid, 'tapes');
+    if (typeof got === 'string') sock.emit('inv', p!.cap);
+    if (typeof cb === 'function') cb(!!got);
+  });
+
   sock.on('pickup', (id, cb) => {
     const r = roomOf(sock.id), p = r?.players.get(sock.id);
     const k = String(id);
@@ -631,7 +655,7 @@ io.on('connection', (sock) => {
       if (typeof cb === 'function') cb(got);
       return;
     }
-    const ok = !!r?.match && !!p && r.phase === 'playing' && !p.boarded && (k[0] === 'd' ? takeDrop(r, p, k) : (!kind || canHold(p.cap, kind)) && r.match.pickup(p, k));
+    const ok = !!r?.match && !!p && r.phase === 'playing' && !p.boarded && !r.match.parking && (k[0] === 'd' ? takeDrop(r, p, k) : (!kind || canHold(p.cap, kind)) && r.match.pickup(p, k));
     if (ok && p!.uid && k[0] === 't') count(p!.uid, 'tapes'); // las cintas (ids t...)
     if (ok && k[0] !== 'd') gain(p!, k); // lo que se lleva: hay que tenerlo para soltarlo, beberlo o declararlo al subir
     if (typeof cb === 'function') cb(ok);
@@ -817,7 +841,7 @@ io.on('connection', (sock) => {
       r.drops.set(id, { id, kind, x: p.st.x - Math.sin(p.st.yaw) * 0.7, z: p.st.z - Math.cos(p.st.yaw) * 0.7, by: p.id, at: now });
       sock.emit('inv', p.inv);
       ok = true;
-    } else if (r?.match && p && r.phase === 'playing' && !p.dead && !p.boarded && ITEM_IDS.includes(kind) && now - (p.lastDrop ?? 0) >= DROP_GAP && hasItem(p.cap, kind) && [...r.drops.values()].filter((d) => d.by === p.id).length < DROP_MAX) {
+    } else if (r?.match && !r.match.parking && p && r.phase === 'playing' && !p.dead && !p.boarded && ITEM_IDS.includes(kind) && now - (p.lastDrop ?? 0) >= DROP_GAP && hasItem(p.cap, kind) && [...r.drops.values()].filter((d) => d.by === p.id).length < DROP_MAX) {
       p.lastDrop = now;
       p.cap = removeItem(p.cap, kind);
       let x = p.st.x - Math.sin(p.st.yaw) * 0.7, z = p.st.z - Math.cos(p.st.yaw) * 0.7;

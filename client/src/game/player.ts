@@ -175,7 +175,14 @@ export class Player {
   /** Distancia suavizada de la linterna a lo que ilumina (m). */
   private flashD = 12;
 
-  constructor(private world: World, assets: Assets, private camera: THREE.PerspectiveCamera, private flash: THREE.SpotLight, private reduced: boolean) {
+  constructor(
+    private world: { root: THREE.Object3D } & Pick<World, 'solid' | 'furniture' | 'voidAt'> & Partial<Pick<World, 'pitAt'>>,
+    assets: Assets,
+    private camera: THREE.PerspectiveCamera,
+    private flash: THREE.SpotLight,
+    private reduced: boolean,
+    private groundMap?: { walk: number; run: number; floorAt(x: number, z: number, y: number): number | null; flashDist(from: THREE.Vector3, direction: THREE.Vector3): number },
+  ) {
     this.rig = new Rig(assets.gltf.hazmat);
     const An = this.rig.useAnimator(); // el cuerpo lo lleva el Animator (anim/); sin el paquete de animaciones, los clips del modelo
     if (An) {
@@ -245,7 +252,8 @@ export class Player {
   }
 
   spawn(at: THREE.Vector3, yaw: number) {
-    this.pos.copy(at).setY(0);
+    this.pos.copy(at);
+    if (!this.groundMap) this.pos.y = 0;
     this.yaw = yaw;
     this.pitch = 0;
     this.velY = 0;
@@ -316,21 +324,29 @@ export class Player {
     this.stamina = THREE.MathUtils.clamp(this.stamina + dt * (run ? -1 / 9 : moving ? 1 / 6 : 1 / 4), 0, 1);
     if (this.stamina <= 0) this.winded = true;
     else if (this.stamina > 0.3) this.winded = false;
-    let speed = moving ? (run ? RUN : WALK) * Math.min(1, c.move.length()) * this.speedMul * (this.duck ? 0.5 : 1) * (this.stunT > 0 ? 0 : this.wetT > 0 ? 0.5 : 1) : 0;
+    const pace = run ? this.groundMap?.run ?? RUN : this.groundMap?.walk ?? WALK;
+    let speed = moving ? pace * Math.min(1, c.move.length()) * this.speedMul * (this.duck ? 0.5 : 1) * (this.stunT > 0 ? 0 : this.wetT > 0 ? 0.5 : 1) : 0;
     const f = new THREE.Vector3(-Math.sin(this.yaw), 0, -Math.cos(this.yaw)), r = new THREE.Vector3(-f.z, 0, f.x);
     const v = f.multiplyScalar(c.move.y).add(r.multiplyScalar(c.move.x));
     if (v.lengthSq() > 0) v.normalize().multiplyScalar(speed * dt);
     // el borde de un pozo es un muro mientras se pisa suelo (se desliza por él, como por las paredes): sin ese colisionador, una pasarela de 0,75 m
     // se pierde con cualquier giro de ratón. Se cae saltando; quien ya está dentro del borde (aterrizó de un salto) no se frena. Los mundos falsos no tienen pitAt.
     const edge = (x: number, z: number) => this.ground && !this.falling && !!this.world.pitAt?.(x, z) && !this.world.pitAt(this.pos.x, this.pos.z);
-    if (this.noclip || !(this.blocked(this.pos.x + v.x, this.pos.z) || edge(this.pos.x + v.x, this.pos.z))) this.pos.x += v.x;
-    if (this.noclip || !(this.blocked(this.pos.x, this.pos.z + v.z) || edge(this.pos.x, this.pos.z + v.z))) this.pos.z += v.z;
+    if (this.groundMap) {
+      const yx = this.groundMap.floorAt(this.pos.x + v.x, this.pos.z, this.pos.y);
+      if (yx !== null) this.pos.set(this.pos.x + v.x, yx, this.pos.z);
+      const yz = this.groundMap.floorAt(this.pos.x, this.pos.z + v.z, this.pos.y);
+      if (yz !== null) this.pos.set(this.pos.x, yz, this.pos.z + v.z);
+    } else {
+      if (this.noclip || !(this.blocked(this.pos.x + v.x, this.pos.z) || edge(this.pos.x + v.x, this.pos.z))) this.pos.x += v.x;
+      if (this.noclip || !(this.blocked(this.pos.x, this.pos.z + v.z) || edge(this.pos.x, this.pos.z + v.z))) this.pos.z += v.z;
+    }
     if (this.poolMode && this.ext) speed = this.ext.speed; // (Poolrooms: la velocidad real de PoolLevel, para que el Animator case los pasos)
     this.speed = speed;
 
     // saltar y caer: sobre un hueco no hay suelo
     if (this.poolMode) (this.velY = this.ext?.vy ?? 0), (this.ground = !this.ext?.air), (this.falling = false); // (en las Poolrooms la altura la pone PoolLevel: aquí no hay suelo en 0, y la gravedad hacía temblar el cuerpo en el agua)
-    else {
+    else if (!this.groundMap) {
       if (c.jump && this.ground && !this.falling) (this.velY = JUMP * this.jumpMul), (this.ground = false);
       const floor = this.falling || this.world.voidAt(this.pos.x, this.pos.z) ? -Infinity : 0;
       this.velY -= G * dt;
@@ -526,6 +542,7 @@ export class Player {
   private flashDist() {
     this.camera.getWorldPosition(_fo);
     this.flash.target.getWorldPosition(_ft).sub(this.flash.getWorldPosition(_v0)).normalize();
+    if (this.groundMap) return this.groundMap.flashDist(_fo, _ft);
     let t = _ft.y < -0.01 ? -_fo.y / _ft.y : Infinity;
     t = Math.min(t, 12);
     for (let s = 0.2; s < t; s += 0.2) if (this.world.solid(_fo.x + _ft.x * s, _fo.z + _ft.z * s)) return s;

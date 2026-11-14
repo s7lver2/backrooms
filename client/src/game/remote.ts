@@ -115,6 +115,7 @@ export class Remote {
   floorShadow = false;
   private shadow = new THREE.Mesh(new THREE.PlaneGeometry(0.95, 0.95).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ map: BLOB, transparent: true, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -2 }));
   onStep?: (r: Remote, run: boolean) => void;
+  stepRunSpeed = 2.4;
   private walked = 0;
 
   constructor(assets: Assets) {
@@ -325,8 +326,9 @@ export class Remote {
     this.shadow.position.set(this.pos.x, this.pos.y + 0.012, this.pos.z);
     if (live && this.onStep && !this.emote && this.speed > 0.3) {
       this.walked += this.speed * dt;
-      const len = this.speed > 2.4 ? 1.1 : 0.7;
-      if (this.walked > len) (this.walked -= len), this.onStep(this, this.speed > 2.4);
+      const running = this.speed > this.stepRunSpeed;
+      const len = running ? 1.1 : 0.7;
+      if (this.walked > len) (this.walked -= len), this.onStep(this, running);
     }
     this.label.visible = live;
     this.label.position.set(this.pos.x, this.pos.y + 2.15 - 0.85 * this.crouch, this.pos.z);

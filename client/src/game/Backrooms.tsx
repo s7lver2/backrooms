@@ -183,7 +183,7 @@ function waitInv(s: SrvInv, hot: (string | null)[] = ['caution', null, null, nul
 function Mission({ hud, room }: { hud: Hud; room: RoomView | null }) {
   const i = hud.inv, m = hud.mission, up = hud.ascent;
   const aboard = (room?.ascent?.boarded ?? []).map((id) => room?.players.find((p) => p.id === id)?.name || 'ANON');
-  const goal = !m ? '' : m.done ? 'ELEVATOR OPEN' : m.kind === 'photos' && !i.camera ? 'FIND A CAMCORDER' : m.text;
+  const goal = !m ? '' : m.done ? (hud.parking && i.escaped ? 'ABOARD ELEVATOR' : hud.parking && !hud.parking.open ? 'ELEVATOR UNLOCKED' : 'ELEVATOR OPEN') : m.kind === 'photos' && !i.camera ? 'FIND A CAMCORDER' : m.text;
   const blocks = (n: number, of: number) => (
     <>
       {'▮'.repeat(n)}
@@ -192,6 +192,7 @@ function Mission({ hud, room }: { hud: Hud; room: RoomView | null }) {
   );
   return (
     <div className="br-mission" aria-live="polite">
+      {hud.parking && <p>{hud.parking.floor} · HEALTH {Math.round(hud.hp)}</p>}
       {m && (
         <p className={m.done ? 'br-lift__t' : undefined} data-urgent={(m.done && !!up && !up.boarded) || undefined}>
           {goal}
@@ -199,10 +200,11 @@ function Mission({ hud, room }: { hud: Hud; room: RoomView | null }) {
       )}
       {m?.done && (
         <div className="br-lift">
-          <p>{up ? `${up.boarded ? 'YOU ARE ABOARD. WAITING FOR THE OTHERS. ' : 'CLOSES IN '}${Math.ceil(up.left)}S` : 'GET EVERYONE IN BEFORE IT CLOSES'}</p>
+          <p>{hud.parking ? (i.escaped ? 'ASCENDING' : hud.parking.open ? 'STEP INSIDE TO ESCAPE' : 'FIND THE ELEVATOR TO ESCAPE') : up ? `${up.boarded ? 'YOU ARE ABOARD. WAITING FOR THE OTHERS. ' : 'CLOSES IN '}${Math.ceil(up.left)}S` : 'GET EVERYONE IN BEFORE IT CLOSES'}</p>
           {aboard.length > 0 && <p className="br-osd__dim">ABOARD {aboard.join(', ')}</p>}
         </div>
       )}
+      {!!hud.parking?.pendingFloors && <p>GENERATORS LEFT ON FLOORS {hud.parking.pendingFloors}</p>}
       {m && !m.done && (
         <p aria-label={m.line}>
           {m.line} {m.kind === 'survive' ? blocks(Math.round((m.progress / m.goal) * 10), 10) : blocks(m.progress, m.goal)}
@@ -498,7 +500,7 @@ export default function Backrooms({ onQuit, onWin }: { onQuit: () => void; onWin
 
   // PLAY lleva a las salas; en desarrollo, con &seed=N sigue yendo directo a una partida en solitario
   const playClick = useCallback(() => {
-    if (DEV_LOCAL && new URLSearchParams(location.search).get('seed')) return (enter(), start());
+    if (DEV_LOCAL && !new URLSearchParams(location.search).has('parking') && new URLSearchParams(location.search).get('seed')) return (enter(), start());
     setNotice('');
     setMp(true);
     setScreen('lobby');
@@ -579,7 +581,13 @@ export default function Backrooms({ onQuit, onWin }: { onQuit: () => void; onWin
     const room = roomRef.current, sock = net.sock;
     if (!room || !sock) return;
     enter();
-    game.current!.start(room.seed, { sock, id: sock.id!, life: DIFFICULTY[room.difficulty].life, players: room.players.length, index: Math.max(0, room.players.findIndex((p) => p.id === sock.id)), inv: invRef.current ?? undefined, mission: room.mission, level: room.levelId, caps: room.caps });
+    game.current!.onLevelError = () => {
+      sock.emit('leave');
+      net.setRoom(null);
+      setNotice('COULD NOT LOAD THE LEVEL');
+      setScreen('lobby');
+    };
+    game.current!.start(room.seed, { sock, id: sock.id!, life: DIFFICULTY[room.difficulty].life, players: room.players.length, index: Math.max(0, room.players.findIndex((p) => p.id === sock.id)), inv: invRef.current ?? undefined, mission: room.mission, level: room.levelId, caps: room.caps, look: room.players.find(p => p.id === sock.id)?.look });
     setNotice('');
     setComputer(false);
     setScreen('play');
@@ -754,7 +762,7 @@ export default function Backrooms({ onQuit, onWin }: { onQuit: () => void; onWin
     <div ref={root} className="br" data-screen={screen}>
       {(screen === 'menu' || screen === 'settings' || screen === 'achv' || (screen === 'lobby' && !net.room)) && <Static still={reduced.current} scenes={game.current?.stills ?? []} />}
       <div ref={gl} className="br-stage" />
-      {lvl != null && screen !== 'load' && <BootLoading over title="POOLROOMS" label="BUILDING THE LEVEL" progress={lvl} />}
+      {lvl != null && screen !== 'load' && <BootLoading over title={net.room?.levelId === 'parking' ? 'THE HABITABLE ZONE' : 'POOLROOMS'} label="BUILDING THE LEVEL" progress={lvl} />}
       {screen === 'load' && <BootLoading title="BACKROOMS" label={LOAD_PHASES[loadP.phase].label} progress={loadP.f} error={failed ? 'FAILED TO LOAD' : undefined} />}
       {screen === 'menu' && (
         <nav className="br-menu" aria-label="Backrooms">
@@ -773,6 +781,7 @@ export default function Backrooms({ onQuit, onWin }: { onQuit: () => void; onWin
                 PLAY
               </button>
             </li>
+
             <li>
               <button type="button" className="br-opt" onClick={() => setScreen('achv')}>
                 ACHIEVEMENTS
@@ -929,7 +938,7 @@ export default function Backrooms({ onQuit, onWin }: { onQuit: () => void; onWin
           <p className="br-spectate__keys">← → SWITCH · V VIEW · C FREE CAM{hud.specView === 'free' ? ' · WASD FLY · SHIFT FAST' : ''}</p>
         </div>
       )}
-      {acct.me?.admin && (screen === 'play' || screen === 'wait') && <AdminConsole game={game} sock={net.sock} room={net.room} me={net.me} />}
+      {acct.me?.admin && (screen === 'play' || screen === 'wait') && !(hud?.parking && hud.inv.escaped) && <AdminConsole game={game} sock={net.sock} room={net.room} me={net.me} />}
       {(screen === 'play' || screen === 'wait') && mp && net.sock && (
         <div className="br-chatbox">
           <ChatLog msgs={msgs} fade={!chat} max={6} />
@@ -963,7 +972,7 @@ export default function Backrooms({ onQuit, onWin }: { onQuit: () => void; onWin
         <TotemUi hud={hud} touch={touch} avatars={Object.fromEntries((net.room?.players ?? []).map((p) => [p.id, p.avatar]))} onPick={(id) => game.current?.useTotem(id)} onClose={() => game.current?.closeTotem()} />
       )}
       {screen === 'play' && hud?.note && !hud.bag && <p className="br-click">{hud.note}</p>}
-      {screen === 'play' && hud?.needClick && !hud.bag && <p className="br-click">CLICK TO CONTINUE</p>}
+      {screen === 'play' && hud?.needClick && !hud.bag && !(hud.parking && hud.inv.escaped) && <p className="br-click">CLICK TO CONTINUE</p>}
       {screen === 'play' && hud?.hint && !hud.bag && !hud.aiming && hud.spectating == null && (
         <p className="br-hint">
           [{touch ? 'GRAB' : 'G'}] PICK UP {hud.hint.toUpperCase()}
@@ -973,6 +982,15 @@ export default function Backrooms({ onQuit, onWin }: { onQuit: () => void; onWin
         <p className="br-hint">
           [{touch ? 'GRAB' : 'G'}] {hud.act}
         </p>
+      )}
+      {screen === 'play' && hud?.parking?.prompt && !hud.bag && <p className="br-hint">{touch ? hud.parking.prompt.replace(/\bE\b/g, 'USE') : hud.parking.prompt}</p>}
+      {screen === 'play' && hud?.parking?.repair != null && !hud.bag && (
+        <div className="br-parking-repair" role="progressbar" aria-label="Activating generator" aria-valuemin={0} aria-valuemax={8} aria-valuenow={hud.parking.repair * 8}>
+          <svg viewBox="0 0 48 48" aria-hidden="true">
+            <circle cx="24" cy="24" r="20" />
+            <circle cx="24" cy="24" r="20" pathLength="100" strokeDasharray="100" strokeDashoffset={100 * (1 - hud.parking.repair)} />
+          </svg>
+        </div>
       )}
       {screen === 'play' && hud?.hide && !hud.bag && !hud.aiming && hud.spectating == null && (
         <p className="br-hint">
@@ -1009,6 +1027,7 @@ export default function Backrooms({ onQuit, onWin }: { onQuit: () => void; onWin
           inv={hud.inv}
           assets={game.current.assets!}
           look={net.room?.players.find((p) => p.id === net.me)?.look}
+          parkingMission={hud.parking ? hud.mission ?? undefined : undefined}
           reduced={reduced.current}
           onPlace={(s, g) => game.current!.player?.place(s, g)}
           onLight={() => game.current!.player?.toggleLight()}
@@ -1018,12 +1037,12 @@ export default function Backrooms({ onQuit, onWin }: { onQuit: () => void; onWin
             const p = game.current!.player;
             if (p && HOT[id]?.have(p.own)) HOT[id].use(p);
           }}
-          onDrop={(id) => game.current!.dropItem(id as ItemId)}
+          onDrop={hud.parking ? undefined : id => game.current!.dropItem(id as ItemId)}
           onTank={(on) => game.current!.setTank(on)}
           onClose={() => game.current!.closeBag()}
         />
       )}
-      {screen === 'play' && touch && game.current && !hud?.bag && <Touch input={game.current.input} hand={hand} aiming={!!hud?.aiming} />}
+      {screen === 'play' && touch && game.current && !hud?.bag && <Touch input={game.current.input} hand={hand} aiming={!!hud?.aiming} parking={game.current.inParking} />}
       {screen === 'pause' && (
         <div className="br-pause" role="dialog" aria-labelledby="br-pause-t">
           <p className="br-pause__head" id="br-pause-t">

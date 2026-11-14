@@ -17,6 +17,7 @@ export interface Controls {
   grab: boolean; // G: recoger
   bagHeld?: boolean; // E mantenida: reparacion local del generador.
   bag: boolean; // E: el inventario
+  inventory?: boolean; // Tab: inventario cuando E se usa para interactuar.
   aim: boolean; // clic derecho mantenido: mirar por la cámara
   zoom: number; // la rueda mirando por la cámara (pasos)
   fire: boolean;
@@ -40,7 +41,7 @@ export interface Controls {
   slotHeld?: number;
   useHeld?: boolean;
 }
-export type Pulse = 'jump' | 'flash' | 'grab' | 'bag' | 'fire' | 'reload' | 'swap' | 'use' | 'pause' | 'drop';
+export type Pulse = 'jump' | 'flash' | 'grab' | 'bag' | 'inventory' | 'fire' | 'reload' | 'swap' | 'use' | 'pause' | 'drop';
 
 const MOUSE = 0.0022; // radianes por píxel de ratón
 const TOUCH = 0.006; // por píxel de dedo
@@ -61,7 +62,7 @@ export class Input {
   private look = new THREE.Vector2();
   private stickV = new THREE.Vector2();
   private pulses = new Set<Pulse>();
-  private holds = new Set<'run' | 'aim'>();
+  private holds = new Set<'run' | 'aim' | 'bag'>();
   private zoomV = 0;
   private toggled = false;
   private fireDown = false;
@@ -80,6 +81,7 @@ export class Input {
   private asked = -1e9; // cuándo se pidió el puntero por última vez (pedirlo dos veces seguidas da error)
   /** Si hay que leer (en pausa o en el menú no: nada se acumula). */
   active = false;
+  tabInventory = false;
   /** Con el inventario abierto el puntero va suelto: soltarlo no pausa y un clic no lo vuelve a bloquear. */
   private suspend_ = false;
   /** Quien más suelta el puntero (la consola de admin) lo hace con su propia llave: lo que haga el juego con `suspend` no la pisa ni la deja colgada. */
@@ -110,11 +112,16 @@ export class Input {
     };
     const KEYS: Record<string, Pulse> = { Space: 'jump', KeyF: 'flash', KeyG: 'grab', KeyE: 'bag', KeyR: 'reload', KeyQ: 'swap', KeyX: 'use', KeyY: 'drop' };
     on('keydown', (e) => {
-      if (!this.active || (e.target as HTMLElement | null)?.tagName === 'INPUT') return; // escribiendo (el chat): no es para el juego
+      if (!this.active || e.defaultPrevented || (e.target as HTMLElement | null)?.tagName === 'INPUT') return; // escribiendo (el chat): no es para el juego
       if (e.repeat) return; // (la repetición de Esc tras reanudar volvía a pausar)
       // tras reanudar con Esc el navegador no da el puntero hasta un gesto: cualquier otra tecla lo es
       if (this.needClick && e.code !== 'Escape' && !this.suspend) this.lock(true);
       if (e.code === 'Escape') return this.pulses.add(this.suspend ? 'bag' : 'pause'); // con el inventario abierto, lo cierra
+      if (e.code === 'Tab' && this.tabInventory) {
+        e.preventDefault();
+        this.pulses.add('inventory');
+        return;
+      }
       if (/^Digit[1-4]$/.test(e.code)) this.slotV = +e.code.slice(5) - 1;
       this.keys.add(e.code);
       // contener la respiración alternando (ajuste): Space la pone y la quita; entrar o salir de un escondite (E) la suelta
@@ -268,7 +275,7 @@ export class Input {
   press(p: Pulse) {
     if (this.active) this.pulses.add(p);
   }
-  hold(name: 'run' | 'aim', on: boolean) {
+  hold(name: 'run' | 'aim' | 'bag', on: boolean) {
     if (on) this.holds.add(name);
     else this.holds.delete(name);
   }
@@ -288,7 +295,8 @@ export class Input {
       flash: p.has('flash'),
       grab: p.has('grab'),
       bag: p.has('bag'),
-      bagHeld: this.active && !this.suspend && k.has('KeyE'),
+      inventory: p.has('inventory'),
+      bagHeld: this.active && !this.suspend && (k.has('KeyE') || this.holds.has('bag')),
       aim: this.holds.has('aim'),
       zoom: this.zoomV,
       fire: p.has('fire'),

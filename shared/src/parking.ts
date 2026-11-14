@@ -1,3 +1,5 @@
+import type { SkinAgent } from './parking-skinwalker-ai';
+import type { Smiler } from './parking-smiler-ai';
 /** Parking por semilla: plantas desplazadas, reservas arquitectónicas y navegación en metros. */
 export const PARKING_HEIGHT = 4.2;
 export const PARKING_SLAB = .65;
@@ -287,4 +289,28 @@ function buildNavigation(map: ParkingMap) {
     for (let step = 0; step <= 24; step++) { const t = step / 24, i = add({ x: l.x + t * l.w, z: l.z + l.d / 2, y: -l.top * PARKING_HEIGHT - t * PARKING_HEIGHT, floor: t < .5 ? l.top : l.bottom }); join(previous, i); previous = i; }
     const end = add({ x: l.x + l.w + .6, z: l.z + l.d / 2, y: -l.bottom * PARKING_HEIGHT, floor: l.bottom }); join(previous, end); attach(end);
   }
+}
+
+export type ParkingInteraction = { kind: 'tape' | 'repair' | 'elevator' | 'door' | 'loot'; id?: string; held?: boolean };
+export interface ParkingSnapshot {
+  repaired: string[];
+  tapes: string[];
+  survivalElapsed?: number;
+  repair?: { id: string; by: string; seconds: number };
+  elevatorOpenedAt: number | null;
+  doors: Record<string, number>;
+  looted: string[];
+  skinwalkers: Pick<SkinAgent,'id'|'pos'|'yaw'|'state'|'beast'|'transform'|'attackAt'|'moving'|'fakeTask'>[];
+  smilers: Smiler[];
+  gaze: Record<string,number>;
+}
+
+export function parkingSpawn(map: ParkingMap, slot: number): ParkingPoint {
+  if (!slot) return { ...map.spawn };
+  const angle = slot * 2.3999632297;
+  for (const radius of [1.25, .65]) {
+    const point = parkingFits(map, map.spawn.x + Math.cos(angle) * radius, map.spawn.z + Math.sin(angle) * radius, map.spawn.y);
+    if (point) return point;
+  }
+  return { ...map.spawn };
 }

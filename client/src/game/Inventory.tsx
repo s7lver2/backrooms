@@ -1,7 +1,7 @@
 'use client';
 import { memo, useEffect, useMemo, useRef, useState, type MutableRefObject } from 'react';
 import { DEFAULT_LOOK, SHOP, type Look } from '@backrooms/shared';
-import type { Assets, Inv } from './game';
+import type { Assets, Inv, MissionHud } from './game';
 import { FITS, type Gear, type Slot } from './player';
 import { gearIcons, type IconKey } from './invIcons';
 import { HOT, HOT_SLOTS } from './quickslots';
@@ -90,6 +90,7 @@ function Inventory({
   onTank,
   onClose,
   bag,
+  parkingMission,
 }: {
   /** Montado siempre (montarlo al abrir cuesta ~0,1 s): cerrado, solo se oculta y no se vuelve a pintar. */
   open: boolean;
@@ -109,6 +110,7 @@ function Inventory({
   onClose: () => void;
   /** La disposición de la mochila (solo de la sesión): la guarda quien monta el menú para que sobreviva a cerrarlo. */
   bag?: MutableRefObject<(Cell | null)[]>;
+  parkingMission?: MissionHud;
 }) {
   const [tab, setTab] = useState<'items' | 'photos'>('items');
   // la foto ampliada (índice) o ninguna
@@ -421,7 +423,7 @@ function Inventory({
                 );
               })}
             </div>
-            <p className="br-inv__keys">DRAG TO ARRANGE. SHIFT+DRAG SPLITS ONE. DROP OUTSIDE TO THROW IT. DOUBLE CLICK EQUIPS. ESC CANCELS.</p>
+            <p className="br-inv__keys">DRAG TO ARRANGE. SHIFT+DRAG SPLITS ONE. {onDrop && 'DROP OUTSIDE TO THROW IT. '}DOUBLE CLICK EQUIPS. ESC CANCELS.</p>
           </section>
 
           <section className="iv-col" aria-label="Details">
@@ -452,8 +454,12 @@ function Inventory({
                 )}
               </div>
             </div>
-            <p className="br-inv__head">TAPES {inv.tapes}/8</p>
-            <ul className="br-inv__goals">
+            <p className="br-inv__head">{parkingMission ? 'MISSION' : `TAPES ${inv.tapes}/8`}</p>
+            {parkingMission ? <ul className="br-inv__goals">
+              <li data-done={parkingMission.done || undefined}>
+                <span>{parkingMission.done ? 'FIND THE ELEVATOR' : parkingMission.line}</span>
+              </li>
+            </ul> : <ul className="br-inv__goals">
               {goals.map(([t, n, of]) => (
                 <li key={t} data-done={n >= of || undefined}>
                   <span>{t}</span>
@@ -462,13 +468,13 @@ function Inventory({
                   </span>
                 </li>
               ))}
-            </ul>
+            </ul>}
             <p className="br-inv__head">BIOMETRICS</p>
             <ul className="br-inv__goals">
-              <li data-low={inv.sanity < 0.3 || undefined}>
+              {!parkingMission && <li data-low={inv.sanity < 0.3 || undefined}>
                 <span>SANITY</span>
                 <Bar v={inv.sanity} />
-              </li>
+              </li>}
               <li data-low={inv.stamina < 0.25 || undefined}>
                 <span>STAMINA</span>
                 <Bar v={inv.stamina} />

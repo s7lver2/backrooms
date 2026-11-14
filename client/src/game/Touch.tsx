@@ -10,7 +10,7 @@ import type { Input, Pulse } from './input';
 
 const R = 56; // radio del joystick, px
 
-export default function Touch({ input, hand, aiming }: { input: Input; hand: 'none' | 'camera' | 'gun'; aiming: boolean }) {
+export default function Touch({ input, hand, aiming, parking = false }: { input: Input; hand: 'none' | 'camera' | 'gun'; aiming: boolean; parking?: boolean }) {
   const base = useRef<HTMLDivElement>(null);
   const knob = useRef<HTMLDivElement>(null);
   const stick = useRef<{ id: number; x: number; y: number } | null>(null);
@@ -64,10 +64,19 @@ export default function Touch({ input, hand, aiming }: { input: Input; hand: 'no
           [ II ]
         </button>
         {btn('GRAB', 'grab')}
-        {btn('BAG', 'bag')}
+        {parking ? (
+          <>
+            <button type="button"
+              onPointerDown={e => { e.currentTarget.setPointerCapture(e.pointerId); input.press('bag'); input.hold('bag', true); }}
+              onLostPointerCapture={() => input.hold('bag', false)}>
+              [ USE ]
+            </button>
+            {btn('BAG', 'inventory')}
+          </>
+        ) : btn('BAG', 'bag')}
         {btn('LIGHT', 'flash')}
         {btn('SWAP', 'swap')}
-        {btn('JUMP', 'jump')}
+        {!parking && btn('JUMP', 'jump')}
         <button type="button" onPointerDown={() => input.hold('run', true)} onPointerUp={() => input.hold('run', false)} onPointerCancel={() => input.hold('run', false)} onPointerLeave={() => input.hold('run', false)}>
           [ RUN ]
         </button>

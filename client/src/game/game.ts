@@ -28,6 +28,7 @@ import { loadAnimations } from './anim/animator';
 import { RunLevel, type RunHud } from './runlevel';
 import { PoolTest } from './pool';
 import { PoolLevel, loadPoolKit, type PoolKit } from './poolmap';
+import type { ParkingRound } from './parking-round';
 import { WaitingRoom } from './waiting';
 import { Tvs } from './mission';
 import { holdStill } from './still';
@@ -39,6 +40,7 @@ import { gearIcons } from './invIcons';
 import { prepAvatar } from './InvAvatar';
 import { AMMO_PACK, canHold, ITEM_IDS, START_INV, type AdminFx, makeMission, missionLine, tvCount, type ActiveMission, type Inventory, type ItemId, type MissionKind, type Maze, type LevelCaps, levelCaps, NOISE_RUN, NOISE_SHOT, type Noise } from '@backrooms/shared';
 import { Breath, DEFAULT_LOOK, HIT_DAMAGE, HP_MAX, REVIVE_IMMUNE, totemSpot, type Look, hideStates, tickHides, startOffset, type HideState, type PlayerState, type RoomView, type WorldSnapshot } from '@backrooms/shared';
+import { parkingOptionsForMission, PARKING_HEIGHT } from '@backrooms/shared';
 
 /** Lo que el juego necesita de una sala: el socket y quién soy. */
 export interface Mp {
@@ -58,6 +60,7 @@ export interface Mp {
   level?: string;
   /** Capacidades del nivel que manda el servidor (LevelCaps): qué componentes del jugador están activos. */
   caps?: LevelCaps;
+  look?: Look;
 }
 
 /** Lo que enseña el inventario. */
@@ -151,6 +154,7 @@ export interface Hud {
   needClick: boolean;
   /** La misión de la ronda y su progreso (la línea del HUD: «PHOTOS 1/3», «TVS 2/4», «SURVIVE 3:20»). `done`: el ascensor está abierto. */
   mission: MissionHud | null;
+  parking?: { floor: string; pendingFloors: string; prompt: string; repair: number | null; open: boolean };
   /** Tras subir el primero al ascensor: si yo ya subí y los segundos que quedan para cerrar la ronda. Null si nadie ha subido. */
   ascent: { boarded: boolean; left: number } | null;
   /** Lo que haría G ahora si no es recoger algo («TURN OFF TV»). */
@@ -369,6 +373,11 @@ export class BackroomsGame {
   // el Tótem de la vida: el selector abierto, quién corre «Run for your life» (id → nombre), un aviso suelto y la inmunidad al volver
   private run?: RunLevel;
   private pool?: PoolTest | PoolLevel;
+  private parking?: ParkingRound;
+  private parkingBoardRequest = 0;
+  private parkingToken = 0;
+  private disposed = false;
+  get inParking() { return !!this.parking; }
   private fx?: { ao: GTAOPass; smaa: SMAAPass };
   private bloom?: UnrealBloomPass;
   private nextDraw = 0;
@@ -527,6 +536,9 @@ export class BackroomsGame {
     resize();
     addEventListener('resize', resize);
     this.offs.push(() => removeEventListener('resize', resize));
+    const resumeParkingAudio = () => this.parking?.audio?.resume();
+    canvas.addEventListener('pointerdown', resumeParkingAudio);
+    this.offs.push(() => canvas.removeEventListener('pointerdown', resumeParkingAudio));
   }
 
   /** Quitar o devolver el sonido (vale también antes de empezar: se aplica al crear el audio). */
@@ -538,6 +550,7 @@ export class BackroomsGame {
   setMuted(m: boolean) {
     this.muted = m;
     this.audio?.setMuted(m);
+    this.parking?.audio?.setLocalMute(m);
   }
 
   /**
@@ -672,6 +685,14 @@ export class BackroomsGame {
   }
 
   start(seed: number, mp?: Mp) {
+    if (mp?.level === 'parking') {
+      void this.startParking(seed, mp).catch(error => {
+        console.error('Habitable Zone failed to load', error);
+        this.onLevelError?.();
+      });
+      return;
+    }
+    this.endParking();
     this.seed0 = seed;
     this.fadeIn = this.waiting ? 0.9 : 0; // de la sala de espera a la partida: el negro de la entrada se abre
     this.leaveWaiting();
@@ -772,11 +793,13 @@ export class BackroomsGame {
 
   private frame() {
     if (this.capped()) return;
-    const dt = Math.min(this.clock.getDelta(), 0.05) * (this.mp ? 1 : this.cheats.slow); // (cámara lenta: solo en solitario)
+    const realDt = this.clock.getDelta();
+    const dt = Math.min(realDt, 0.05) * (this.mp ? 1 : this.cheats.slow); // (cámara lenta: solo en solitario)
     this.lastFrame = performance.now();
     // en una sala la pausa no detiene el mundo (los demás siguen jugando): solo se sueltan los mandos
     if (this.paused && (!this.mp || this.run)) return;
     const c = this.input.read();
+    if (this.parking) return this.parkingFrame(dt, c);
     if (this.run) return this.runFrame(dt, c);
     this.vhs.uniforms.uPool.value = this.film.uniforms.uVhs.value = this.pool instanceof PoolLevel ? 1 : 0; // (el aspecto de cinta de las Poolrooms: sin amarillo, con barrido y croma)
     if (this.pool) return this.poolFrame(dt, c);
@@ -881,7 +904,10 @@ export class BackroomsGame {
     if (pl && this.mp?.inv?.tank) inv.tank = true;
     const hidden = !!p && p.hideState !== 'out';
     const ms = this.mission, up = this.ascent;
-    return { mission: ms ? { kind: ms.kind, text: ms.text, line: missionLine(ms), progress: ms.progress, goal: ms.goal, done: ms.done } : null, ascent: up ? { boarded: !!this.mp && up.boarded.includes(this.mp.id), left: Math.max(0, up.left - (performance.now() - up.at) / 1000) } : null, act: hidden || this.run ? null : this.tvs?.hint ?? pl?.act ?? null, totem: this.totemHud(), needClick: this.input.needClick, bag: this.bagOpen, note: this.gadgets?.note ?? null, hint: hidden || this.run || this.tvs?.hint ? null : this.gadgets?.hint ?? this.items?.hint ?? pl?.hint ?? null, hide: this.dying >= 0 || this.winning || this.spectating ? null : hidden ? (p!.hideState === 'hidden' ? 'leave' : null) : this.hideNear() ? 'hide' : null, breath: p?.concealed ? { air: this.breath.air, warn: this.inspected, held: this.holding } : null, drink: p?.dead ? 0 : p?.drinking ?? 0, refill: pl?.fill ?? 0, inv, aiming: !!p?.aiming, scoped: !!p?.scoped && !this.spectating, zoom: p?.zoom ?? 1, focus: !!this.items?.focus, tapes: this.items?.tapes ?? 0, photos: this.items?.photos ?? 0, ammo: p?.has.gun ? p.ammo : null, spare: p?.spare ?? 0, battery, time: this.t, hp: p?.hp ?? HP_MAX, hps: this.hps, spectating: this.spectating && !this.run ? (this.remotes.get(this.watching)?.name ?? '') : null, watchList: this.spectating && !this.run ? [...this.remotes.values()].map((r) => ({ name: r.name, on: r.id === this.watching && this.specView !== 'free', dead: r.dead })) : undefined, specView: this.spectating && !this.run ? this.specView : undefined };
+    const pr = this.parking;
+    if (pr) inv.tapes = pr.level.tapesCollected;
+    const parking = pr ? { floor: pr.floorLabel, pendingFloors: pr.pendingFloors, prompt: pr.prompt, repair: pr.level.repair.active ? pr.level.repair.progress : null, open: pr.level.elevatorOpen } : undefined;
+    return { parking, mission: ms ? { kind: ms.kind, text: ms.text, line: missionLine(ms), progress: ms.progress, goal: ms.goal, done: ms.done } : null, ascent: up ? { boarded: !!this.mp && up.boarded.includes(this.mp.id), left: Math.max(0, up.left - (performance.now() - up.at) / 1000) } : null, act: hidden || this.run ? null : this.tvs?.hint ?? pl?.act ?? null, totem: this.totemHud(), needClick: this.input.needClick, bag: this.bagOpen, note: this.gadgets?.note ?? null, hint: hidden || this.run || this.tvs?.hint ? null : this.gadgets?.hint ?? this.items?.hint ?? pl?.hint ?? null, hide: this.dying >= 0 || this.winning || this.spectating ? null : hidden ? (p!.hideState === 'hidden' ? 'leave' : null) : this.hideNear() ? 'hide' : null, breath: p?.concealed ? { air: this.breath.air, warn: this.inspected, held: this.holding } : null, drink: p?.dead ? 0 : p?.drinking ?? 0, refill: pl?.fill ?? 0, inv, aiming: !!p?.aiming, scoped: !!p?.scoped && !this.spectating, zoom: p?.zoom ?? 1, focus: !!this.items?.focus, tapes: this.items?.tapes ?? 0, photos: this.items?.photos ?? 0, ammo: p?.has.gun ? p.ammo : null, spare: p?.spare ?? 0, battery, time: this.t, hp: p?.hp ?? HP_MAX, hps: this.hps, spectating: this.spectating && !this.run ? (this.remotes.get(this.watching)?.name ?? '') : null, watchList: this.spectating && !this.run ? [...this.remotes.values()].map((r) => ({ name: r.name, on: r.id === this.watching && this.specView !== 'free', dead: r.dead })) : undefined, specView: this.spectating && !this.run ? this.specView : undefined };
   }
 
   /** Lo abierto que es el sitio: las celdas libres en 7 × 7 alrededor (0–1). */
@@ -1144,6 +1170,16 @@ export class BackroomsGame {
     const was = !!this.mission?.done;
     this.mission = r.mission;
     this.ascent = r.ascent ? { left: r.ascent.left, at: performance.now(), boarded: r.ascent.boarded } : null;
+    if (this.parking && r.mission?.kind === 'survive') {
+      const level = this.parking.level;
+      level.advanceSurvival(Math.max(0, r.mission.progress - (r.mission.goal - level.survivalRemaining)));
+    }
+    if (this.parking && this.mp && r.ascent?.boarded.includes(this.mp.id) && !this.winning) {
+      this.winning = true;
+      this.player!.frozen = this.player!.lookFree = true;
+      this.bagOpen = false;
+      this.parking.level.boardElevator();
+    }
     if (r.mission?.done && !was) this.missionDone();
     if (this.items) this.items.ready = !!r.mission?.done;
   }
@@ -1152,7 +1188,8 @@ export class BackroomsGame {
   private missionDone() {
     if (this.items) this.items.ready = true;
     this.note = { text: 'MISSION COMPLETE · GO TO THE ELEVATOR', until: performance.now() + 6000 };
-    this.audio?.done();
+    if (this.parking) this.parking.objectiveComplete();
+    else this.audio?.done();
   }
 
   /** Y: suelta una unidad del objeto elegido de la barra rápida. */
@@ -1241,6 +1278,7 @@ export class BackroomsGame {
   /** Congela la partida (el último fotograma se queda) y avisa al caparazón. */
   pause() {
     if (this.paused) return;
+    this.parking?.interrupt();
     this.paused = true;
     this.input.active = false;
     this.input.clear();
@@ -1251,6 +1289,7 @@ export class BackroomsGame {
     this.paused = false;
     this.input.active = true;
     this.input.lock();
+    this.parking?.audio?.resume();
     this.clock.getDelta();
   }
 
@@ -1398,6 +1437,7 @@ export class BackroomsGame {
    */
   async warmLevel(seed: number, players: number, level = 'level0') {
     const a = this.assets;
+    if (level === 'parking') return void (await import('./parking-round'));
     if (level === 'poolrooms') return void (await loadPoolKit()); // (el nivel se arma al empezar; las piezas ya están bajadas y leídas)
     if (!a) return;
     const tick = () => new Promise((r) => setTimeout(r, 30));
@@ -1556,11 +1596,12 @@ export class BackroomsGame {
     const onPlayers = (all: Record<string, PlayerState & { name: string; dead: boolean }>) => {
       for (const id in all) this.hps[id] = all[id].hp ?? HP_MAX;
       if (this.player && all[mp.id]?.hp !== undefined) this.player.hp = all[mp.id].hp!;
-      this.syncRemotes(all, mp.id, this.pool instanceof PoolLevel ? this.pool.scene : this.scene);
+      this.syncRemotes(all, mp.id, this.parking?.level.scene ?? (this.pool instanceof PoolLevel ? this.pool.scene : this.scene));
     };
     const onWorld = (w: WorldSnapshot) => this.applyWorld(w);
     const onDead = (id: string) => {
       if (id !== mp.id) return this.remotes.get(id)?.die();
+      if (this.parking && this.player) return void (this.player.hp = 0);
       if (this.pool instanceof PoolLevel) return this.poolDied(this.pool);
       if (this.dying >= 0 || this.winning || !this.player) return;
       // quien te ha pillado: la entidad más cerca (el servidor lo sabe antes de que llegue el siguiente snapshot)
@@ -1608,7 +1649,11 @@ export class BackroomsGame {
       this.black = 0;
       this.corrupt(0);
       this.immuneUntil = performance.now() + REVIVE_IMMUNE;
-      this.player?.revive(new THREE.Vector3(m.x, 0, m.z), m.yaw);
+      this.player?.revive(new THREE.Vector3(m.x, this.parking ? m.y : 0, m.z), m.yaw);
+      if (this.parking) {
+        const point = this.parking.level.fits(m.x, m.z, m.y);
+        if (point) Object.assign(this.parking.position, point);
+      }
       for (const r of this.remotes.values()) r.setFirstPerson(false);
       this.input.suspend = false;
       this.input.soft();
@@ -1616,7 +1661,11 @@ export class BackroomsGame {
     };
     // la sala cambia (misión, progreso, ascensor): lo que el servidor dice manda
     const onRoom = (r: RoomView) => this.roomUpdate(r);
+    const onInv = (inventory: Inventory) => {
+      if (this.parking) this.player?.apply(this.parkingInventory(inventory));
+    };
     s.on('room', onRoom);
+    s.on('inv', onInv);
     s.on('players', onPlayers);
     s.on('world', onWorld);
     s.on('dead', onDead);
@@ -1629,7 +1678,7 @@ export class BackroomsGame {
     // con la pestaña oculta o la ventana sin foco el navegador para los fotogramas: la sala sigue sabiendo dónde estoy
     const beat = setInterval(() => performance.now() - this.lastFrame > 150 && !this.spectating && this.sendState(), 1000 / 15);
     this.offNet.push(() => clearInterval(beat));
-    this.offNet.push(() => (s.off('room', onRoom), s.off('players', onPlayers), s.off('world', onWorld), s.off('dead', onDead), s.off('reviving', onReviving), s.off('revived', onRevived), s.off('runFailed', onRunFailed), removeEventListener('keydown', key)));
+    this.offNet.push(() => (s.off('room', onRoom), s.off('inv', onInv), s.off('players', onPlayers), s.off('world', onWorld), s.off('dead', onDead), s.off('reviving', onReviving), s.off('revived', onRevived), s.off('runFailed', onRunFailed), removeEventListener('keydown', key)));
     if (items) (items.claim = (id, done) => s.emit('pickup', id, done)), (items.onPhoto = () => s.emit('photo'));
   }
 
@@ -1647,7 +1696,10 @@ export class BackroomsGame {
         r.setLook(this.looks.get(id) ?? DEFAULT_LOOK);
         // en la sala de espera: sombra falsa y pasos (con volumen y lado según dónde esté respecto a mí)
         r.floorShadow = !!this.waiting && parent === this.waiting.scene;
-        r.onStep = r.floorShadow ? (rr, run) => this.remoteStep(rr, run) : undefined;
+        r.stepRunSpeed = this.parking ? 4 : 2.4;
+        r.onStep = this.parking
+          ? (rr, run) => this.parking?.teammateStep(rr.pos, run)
+          : r.floorShadow ? (rr, run) => this.remoteStep(rr, run) : undefined;
         parent.add(r.root);
         this.remotes.set(id, r);
       }
@@ -1686,6 +1738,10 @@ export class BackroomsGame {
   /** El snapshot del servidor: las entidades (las nuevas se crean, las que faltan han muerto) y los objetos. */
   private applyWorld(w: WorldSnapshot) {
     const world = this.world, mp = this.mp;
+    if (this.parking && mp) {
+      if (w.parking) this.parking.sync(w.parking, mp.id);
+      return;
+    }
     if (!world || !mp) return;
     const here = new Set<number>(), now = performance.now(), t = w.t ?? now;
     // al volver de otra pestaña el reloj de interpolación y los estados guardados son de antes del parón (los paquetes llegan en
@@ -1816,13 +1872,14 @@ export class BackroomsGame {
     this.flash.intensity = 0;
   }
 
-  private sendState() {
+  private sendState(reliable = false) {
     const p = this.player;
     if (!p || !this.mp) return;
     if (this.pool instanceof PoolLevel) return this.poolState(this.pool);
     // volatile: si el túnel va atascado, este estado se pierde en vez de encolarse (el siguiente lleva lo último); t: la hora de ahora, para que
     // los demás reconstruyan mi ritmo aunque los paquetes lleguen tarde o juntos
-    this.mp.sock.volatile.emit('state', { x: p.pos.x, y: p.pos.y, z: p.pos.z, yaw: p.yaw, pitch: p.pitch, anim: 'Neutral Idle', dance: p.dancing || undefined, variant: p.variant || undefined, light: p.lightOn, duck: p.duck, held: p.concealed || p.hand === 'watergun' ? 'none' : p.hand, hiding: p.concealed, holding: this.holding, t: performance.now() });
+    const socket = reliable ? this.mp.sock : this.mp.sock.volatile;
+    socket.emit('state', { x: p.pos.x, y: p.pos.y, z: p.pos.z, yaw: p.yaw, pitch: p.pitch, anim: 'Neutral Idle', dance: p.dancing || undefined, variant: p.variant || undefined, light: p.lightOn, duck: p.duck, held: p.concealed || p.hand === 'watergun' ? 'none' : p.hand, hiding: p.concealed, holding: this.holding, t: performance.now() });
   }
 
   /** Estado de la red para depurar (consola: `__game.netInfo()`): ping, jitter y retraso de dibujo de cada jugador y del mundo. */
@@ -2028,9 +2085,143 @@ fps ${(1 / Math.max(dt, 1e-3)).toFixed(0)}`;
   private picAt = -9;
   private poolStat?: { n: number; ms: number; el: HTMLPreElement };
 
+  private parkingInventory(inventory: Inventory): Inventory {
+    return { ...inventory, gun: false, ammo: 0, watergun: false, tank: false, totem: 0, caution: false, radar: false };
+  }
+
+  private async startParking(seed: number, mp: Mp) {
+    this.stop();
+    const token = this.parkingToken;
+    this.seed0 = seed;
+    this.caps = levelCaps('parking');
+    this.hides = [];
+    this.hideIdx = -1;
+    this.onLevelLoad?.(.02);
+    const still = holdStill();
+    const look = mp.look ?? DEFAULT_LOOK;
+    let round: ParkingRound | undefined;
+    try {
+      await new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
+      const { ParkingRound } = await import('./parking-round');
+      if (this.disposed || token !== this.parkingToken) return false;
+      if (!mp.mission) throw new Error('The Habitable Zone room has no selected mission');
+      round = this.parking = new ParkingRound(seed, parkingOptionsForMission(mp.mission), mp.index ?? 0, this.renderer, this.opts.low);
+      await round.load(this.assets!, look, f => {
+        if (this.parking === round) this.onLevelLoad?.(f);
+      });
+      if (this.parking !== round) return false;
+      const { player, audio } = round.start(this.assets!, look, this.parkingInventory(mp.inv ?? START_INV), mp.life ?? 90, this.camera, this.flash, this.opts.reduced);
+      this.player = player;
+      this.audio = audio;
+      audio.setLocalMute(this.muted);
+      audio.setVolume(this.volume);
+      audio.resume();
+      this.mission = mp.mission ?? null;
+      player.onDrink = () => {
+        audio.drink();
+        mp.sock.emit('drink');
+      };
+      const pass = this.composer.passes[0] as RenderPass;
+      pass.scene = round.level.scene;
+      round.level.scene.add(this.camera);
+      this.onLevelLoad?.(.87);
+      await compileGently(this.renderer, round.level.scene, this.camera, undefined, f => {
+        if (this.parking === round) this.onLevelLoad?.(.87 + f * .13);
+      });
+      if (this.parking !== round) return false;
+      this.t = 0;
+      this.paused = false;
+      this.parkingBoardRequest = 0;
+      this.sendT = 0;
+      this.input.suspend = false;
+      this.input.tabInventory = true;
+      this.wire(mp);
+      this.input.begin();
+      this.clock.start();
+      this.renderer.setAnimationLoop(() => this.frame());
+      return true;
+    } catch (error) {
+      if (token !== this.parkingToken || this.disposed) return false;
+      this.stop();
+      this.onLevelLoad?.(null);
+      throw error;
+    } finally {
+      still();
+      if (this.parking === round) this.onLevelLoad?.(null);
+    }
+  }
+
+  private parkingFrame(dt: number, c: Controls) {
+    const round = this.parking!, player = this.player!;
+    if (c.pause && !this.winning && !this.paused) this.pause();
+    const active = !this.paused && !document.hidden && (!this.input.suspend || this.bagOpen);
+    if (active && !this.winning && this.dying < 0) {
+      if (this.bagOpen && c.bag) {
+        this.closeBag();
+        c.bag = false;
+      } else if (!this.bagOpen && c.inventory) this.openBag();
+      if (this.bagOpen) c.bag = c.grab = false;
+    }
+    if (!active || this.bagOpen) c = { ...c, move: _none, look: _none, bag: false, grab: false, bagHeld: false, flash: false, slot: -1, wheel: 0, use: false, useHeld: false, aim: false };
+    this.t += dt;
+    round.setListening(!this.paused && !document.hidden);
+    const aboard = round.update(dt, c, this.camera, active, this.t, action => {
+      this.sendState(true);
+      this.mp?.sock.emit('parkingInteract', action);
+    });
+    if (aboard && !this.winning && this.t >= this.parkingBoardRequest) {
+      this.parkingBoardRequest = this.t + .25;
+      this.sendState(true);
+      this.mp?.sock.emit('ascend', { ...(this.mp.inv ?? START_INV), ...player.inventory, gun: this.mp.inv?.gun ?? false, ammo: this.mp.inv?.ammo ?? 0, watergun: this.mp.inv?.watergun ?? false, tank: this.mp.inv?.tank ?? false, totem: this.mp.inv?.totem ?? 0, caution: this.mp.inv?.caution ?? false, radar: this.mp.inv?.radar ?? false });
+    }
+    if (player.hp <= 0 && this.dying < 0 && !this.winning) {
+      player.dead = true;
+      this.flash.intensity = 0;
+      if (this.bagOpen) this.closeBag();
+      this.dying = this.t;
+    }
+    if (this.dying >= 0 && !this.spectating && this.t - this.dying >= 2) this.spectate();
+    this.netFrame(dt, c);
+    if (this.spectating) {
+      const pos = this.camera.position;
+      const floor = THREE.MathUtils.clamp(Math.round((EYE - pos.y) / PARKING_HEIGHT), 0, round.level.map.floors.length - 1);
+      const viewer = { x: pos.x, y: pos.y - EYE, z: pos.z, floor };
+      round.render(dt, this.t, this.camera, viewer);
+    } else round.render(dt, this.t, this.camera);
+    if (this.winning && !this.opts.reduced) this.camera.position.y += round.level.elevatorShake;
+    const uniforms = this.vhs.uniforms;
+    uniforms.uTime.value = this.film.uniforms.uTime.value = this.t;
+    uniforms.uAspect.value = this.camera.aspect;
+    uniforms.uPool.value = 1;
+    uniforms.uFlash.value = 0;
+    uniforms.uCorrupt.value = this.dying >= 0 && !this.spectating ? Math.min(.9, (this.t - this.dying) * .55) : round.gaze * (this.opts.reduced ? .35 : .85);
+    uniforms.uBlack.value = 0;
+    this.vhs.enabled = player.aiming || uniforms.uCorrupt.value > 0 || this.winning;
+    this.composer.render(dt);
+  }
+
+  private endParking() {
+    this.parkingToken++;
+    const round = this.parking;
+    if (!round) return;
+    this.parking = undefined;
+    this.input.tabInventory = false;
+    this.player?.dispose();
+    this.player = undefined;
+    this.audio?.dispose();
+    this.audio = undefined;
+    round.dispose();
+    this.scene.add(this.camera);
+    const pass = this.composer.passes[0] as RenderPass;
+    pass.scene = this.scene;
+    this.vhs.uniforms.uCorrupt.value = this.vhs.uniforms.uBlack.value = 0;
+    this.onLevelLoad?.(null);
+  }
+
   /** Una ronda de las Poolrooms con compañeros: el mapa y el movimiento son de PoolLevel; la sala (misión, ascensor, compañeros) funciona como siempre. */
   /** La carga de un nivel al empezar la ronda: cuánto lleva (0–1), o null al acabar. */
   onLevelLoad?: (f: number | null) => void;
+  onLevelError?: () => void;
 
   private async startPool(seed: number, mp: Mp) {
     const tok = ++this.poolTok;
@@ -2266,8 +2457,20 @@ fps ${(1 / Math.max(dt, 1e-3)).toFixed(0)}`;
     const p = this.player, pl = this.pool instanceof PoolLevel ? this.pool : undefined;
     if (fx.k === 'ammo') return void (this.cheats.ammo = fx.on); // (el servidor lo ordena a este cliente: también si está muerto)
     if (!p || p.dead) return;
-    if (fx.k === 'tp') pl ? pl.teleport(fx.x, fx.z, fx.yaw, fx.y) : p.spawn(new THREE.Vector3(fx.x, 0, fx.z), fx.yaw);
-    else if (fx.k === 'give') (p.receive(fx.item), this.poolInv());
+    if (fx.k === 'tp') {
+      const parking = this.parking;
+      if (parking) {
+        const position = parking.level.fits(fx.x, fx.z, fx.y);
+        if (!position) return;
+        Object.assign(parking.position, position);
+        p.spawn(new THREE.Vector3(position.x, position.y, position.z), fx.yaw);
+      } else if (pl) pl.teleport(fx.x, fx.z, fx.yaw, fx.y);
+      else p.spawn(new THREE.Vector3(fx.x, 0, fx.z), fx.yaw);
+    } else if (fx.k === 'give') {
+      if (this.parking && !['flashlight', 'water', 'camera'].includes(fx.item)) return;
+      p.receive(fx.item);
+      this.poolInv();
+    }
     else ((p.hp = HP_MAX), (p.stamina = 1), (p.sanity = 1), pl && (pl.o2 = 1));
   }
 
@@ -2315,7 +2518,7 @@ fps ${(1 / Math.max(dt, 1e-3)).toFixed(0)}`;
     const pl = this.pool instanceof PoolLevel ? this.pool : undefined, p = this.player;
     const s = pl ? pl.state : p ? { x: p.pos.x, y: p.pos.y, z: p.pos.z, yaw: p.yaw, pitch: 0 } : { x: 0, y: 0, z: 0, yaw: 0, pitch: 0 };
     const seed = pl ? pl.seed : this.seed0, f = (n: number) => n.toFixed(3);
-    const txt = `seed ${seed}  level ${this.mp?.level ?? (pl ? 'poolrooms' : 'level0')}
+    const txt = `seed ${seed}  level ${this.mp?.level ?? (this.parking ? 'parking' : pl ? 'poolrooms' : 'level0')}
 x ${f(s.x)}  y ${f(s.y)}  z ${f(s.z)}  yaw ${f(s.yaw)}  pitch ${f(s.pitch)}`;
     this.composer.render(0);
     const png = new Promise<Blob>((ok, no) => this.renderer.domElement.toBlob((b) => (b ? ok(b) : no(new Error('toBlob'))), 'image/png'));
@@ -2335,7 +2538,7 @@ x ${f(s.x)}  y ${f(s.y)}  z ${f(s.z)}  yaw ${f(s.yaw)}  pitch ${f(s.pitch)}`;
     const pl = this.pool instanceof PoolLevel ? this.pool : undefined, p = this.player;
     const s = pl ? pl.state : p ? { x: p.pos.x, y: p.pos.y, z: p.pos.z, yaw: p.yaw } : undefined;
     return [
-      `level ${this.mp?.level ?? (pl ? 'poolrooms' : 'level0')}  seed ${pl ? pl.seed : this.seed0}${s ? `  pos ${f(s.x)} ${f(s.y)} ${f(s.z)}  yaw ${f(s.yaw)}` : ''}`,
+      `level ${this.mp?.level ?? (this.parking ? 'parking' : pl ? 'poolrooms' : 'level0')}  seed ${pl ? pl.seed : this.seed0}${s ? `  pos ${f(s.x)} ${f(s.y)} ${f(s.z)}  yaw ${f(s.yaw)}` : ''}`,
       `gpu ${gl.getParameter(ext ? ext.UNMASKED_RENDERER_WEBGL : gl.RENDERER)}  ${gl.getParameter(gl.VERSION)}${gl.isContextLost() ? '  CONTEXT LOST' : ''}  gl.getError ${gl.getError()}`,
       `canvas ${this.canvas.width}x${this.canvas.height}  dpr ${devicePixelRatio}  low ${this.opts.low}  resScale ${settings.resScale}  ao ${!!this.fx?.ao.enabled}  smaa ${!!this.fx?.smaa.enabled}`,
       `programs ${i.programs?.length ?? '-'}  geometries ${i.memory.geometries}  textures ${i.memory.textures}  calls ${i.render.calls}  tris ${i.render.triangles}`,
@@ -2393,12 +2596,13 @@ x ${f(s.x)}  y ${f(s.y)}  z ${f(s.z)}  yaw ${f(s.yaw)}  pitch ${f(s.pitch)}`;
   /** Solo: lo que enseña el panel de depuración. */
   adminInfo() {
     const m = this.mission;
-    return { level: 'level0', seed: this.seed0, t: Math.round(this.t), ents: this.entities.filter((e) => e.alive).length, mission: m ? `${m.text} ${m.progress}/${m.goal}${m.done ? ' DONE' : ''}` : '-', hp: Math.round(this.player?.hp ?? 0), rtt: netStats.rtt };
+    return { level: this.parking ? 'parking' : 'level0', seed: this.seed0, t: Math.round(this.t), ents: this.parking?.enemies?.ai.agents.length ?? this.entities.filter((e) => e.alive).length, mission: m ? `${m.text} ${m.progress}/${m.goal}${m.done ? ' DONE' : ''}` : '-', hp: Math.round(this.player?.hp ?? 0), rtt: netStats.rtt };
   }
 
   /** Saca al jugador de la partida (la sala vuelve al lobby): se para todo y queda el lienzo en negro. */
   stop() {
     this.renderer.setAnimationLoop(null);
+    this.endParking();
     this.endRun();
     this.endPool();
     this.totemOpen = false;
@@ -2437,7 +2641,9 @@ x ${f(s.x)}  y ${f(s.y)}  z ${f(s.z)}  yaw ${f(s.yaw)}  pitch ${f(s.pitch)}`;
   }
 
   dispose() {
+    this.disposed = true;
     this.renderer.setAnimationLoop(null);
+    this.endParking();
     this.endRun();
     this.stopMp();
     this.spare.forEach((r) => r.dispose());

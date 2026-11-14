@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { ElevatorCab } from './elevator';
 import type { ParkingCue } from './parking-audio';
 import { ParkingAtmosphere } from './parking-atmosphere';
 import { parkingLampState } from './parking-lighting';
@@ -6,7 +7,7 @@ import { GLTFLoader, type GLTF } from 'three/examples/jsm/loaders/GLTFLoader.js'
 import { MeshoptDecoder } from 'three/examples/jsm/libs/meshopt_decoder.module.js';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { DecalGeometry } from 'three/examples/jsm/geometries/DecalGeometry.js';
-import { PARKING_HEIGHT as H, PARKING_SLAB, parkingContains, parkingFits, parkingDoorBlocks, parkingLeafBlocks, parkingWorkbench, parkingArea, parkingFloorLabel, parkingGeneratorBounds, type ParkingRoom, type ParkingMap, type ParkingFloor, type ParkingPoint, type ParkingRect } from '@backrooms/shared';
+import { PARKING_HEIGHT as H, PARKING_SLAB, parkingContains, parkingFits, parkingDoorBlocks, parkingLeafBlocks, parkingWorkbench, parkingArea, parkingFloorLabel, parkingGeneratorBounds, type ParkingRoom, type ParkingMap, type ParkingFloor, type ParkingPoint, type ParkingRect, type WorldSnapshot } from '@backrooms/shared';
 
 type Placement = { x: number; y: number; z: number; yaw?: number; sx?: number; sy?: number; sz?: number };
 type Part = { name?: string; geometry: THREE.BufferGeometry; material: THREE.Material | THREE.Material[] };
@@ -43,20 +44,20 @@ export class ParkingLevel {
   private hinges: Hinge[] = [];
   private doorStates: Record<string, number> = {};
   private storageItems = new Map<string, { mesh: THREE.Object3D; locker: Hinge; kind: 'WATER' | 'FLASHLIGHT' }>();
-  readonly inventory = { WATER: 0, FLASHLIGHT: 0 };
+  takeItem?: (kind: 'water' | 'flashlight') => boolean;
   private lastTime = 0;
   private notice = '';
   private noticeUntil = 0;
   private generators = new Map<string, { root: THREE.Object3D; bounds: THREE.Box3; floor: number; repaired: boolean; indicator: THREE.MeshBasicMaterial }>();
   private readonly tapes = new Map<string, THREE.Group>();
-  private elevatorDoors: { mesh: THREE.Mesh; direction: number }[] = [];
+  private elevatorCab?: ElevatorCab;
   private elevatorSeam?: THREE.Mesh;
   private elevatorSignal?: THREE.MeshBasicMaterial;
   private elevatorOpening = false;
-  private elevatorTravel = 0;
   private survivalTime = 0;
   private repairId = '';
   private repairStarted = -1;
+  private repairSound = '';
   private poweredFloors = new Set<number>();
   readonly repair = { active: false, progress: 0, repaired: 0, total: 0, powered: false, finished: false };
 
@@ -72,16 +73,17 @@ export class ParkingLevel {
   private own<T extends { dispose(): void }>(r: T): T { this.resources.add(r); return r; }
   private material(options: THREE.MeshStandardMaterialParameters) { return this.own(new THREE.MeshStandardMaterial(options)); }
 
-  async load(progress: (text: string) => void) {
+  async load(progress: (text: string) => void, prefabs?: { water: GLTF; flashlight: GLTF; vhs: GLTF }) {
     const loader = new GLTFLoader().setMeshoptDecoder(MeshoptDecoder), tex = new THREE.TextureLoader();
     const names: Record<string, string> = {
       lamp: 'parking/fluorescent-kit.glb', pipe: 'parking/pipe-kit.glb', duct: 'parking/duct-detailed-kit.glb',
       car: 'parking/car.glb',
-      storage: 'parking/interactive-locker.glb', pillar: 'parking/garage-pillar.glb', water: 'backrooms/water.glb', flashlight: 'backrooms/flashlight.glb', shelf: 'backrooms/shelf.glb', chest: 'parking/tool-chest.glb', table: 'backrooms/desk.glb', chair: 'parking/office-chair.glb', elevator: 'backrooms/elevator.glb',
+      storage: 'parking/interactive-locker.glb', pillar: 'parking/garage-pillar.glb', water: 'backrooms/water.glb', flashlight: 'backrooms/flashlight.glb', shelf: 'backrooms/shelf.glb', chest: 'parking/tool-chest.glb', table: 'backrooms/desk.glb', chair: 'parking/office-chair.glb',
       box: 'parking/electrical-box.glb', cone: 'parking/traffic-cone.glb', barrier: 'parking/weathered-barrier.glb', trash: 'parking/damaged-trash-can.glb', sign: 'parking/emergency-light.glb',
     };
     if (this.map.options.mission === 'generators') names.generator = 'parking/generator-repair.glb';
-    const assets: Record<string, GLTF> = {};
+    const assets: Record<string, GLTF> = prefabs ? { water: prefabs.water, flashlight: prefabs.flashlight } : {};
+    if (prefabs) { delete names.water; delete names.flashlight; }
     let completed = 0;
     const track = (asset: GLTF) => asset.scene.traverse(o => {
       const mesh = o as THREE.Mesh; if (!mesh.isMesh) return;
@@ -126,7 +128,6 @@ export class ParkingLevel {
 
       const box = prototype(assets.box, null, .65), boxBounds = new THREE.Box3();
       for (const p of box) { p.geometry.computeBoundingBox(); boxBounds.union(p.geometry.boundingBox!); }
-      const elevator = prototype(assets.elevator, ['BASE_01_0', 'R_01_0', 'L_01_0'], 2.8);
       // El modelo original queda intacto en disco; las instancias solo cambian de posición.
       const generator = assets.generator ? this.parts(assets.generator, null, null) : null;
       const paper = this.labelTexture();
@@ -249,10 +250,11 @@ export class ParkingLevel {
           this.generators.set(objective.id, { root, bounds, floor: f.index, repaired: false, indicator });
         }
       }
-      this.buildElevator(elevator, wall);
+      this.buildElevator(wall);
       this.repair.total = this.generators.size;
       if (this.map.options.mission === 'tapes') {
-        const tapes = await loader.loadAsync('/models/backrooms/vhs.glb'); track(tapes);
+        const tapes = prefabs?.vhs ?? await loader.loadAsync('/models/backrooms/vhs.glb');
+        if (!prefabs) track(tapes);
         if (this.alive) {
           const parts = prototype(tapes, null, .25, 'x');
           for (const objective of this.map.objectives) {
@@ -308,62 +310,35 @@ export class ParkingLevel {
     } finally { if (!this.alive) this.releaseResources(); }
   }
 
-  private buildElevator(parts: Part[], wall: THREE.Material) {
+  private buildElevator(wall: THREE.Material) {
     const e = this.map.elevator;
-    const root = new THREE.Group();
-    root.position.set(e.x, e.y, e.z);
+    const height = 2.8;
+    const cab = this.elevatorCab = this.own(new ElevatorCab(e.footprint.d, 2.5, height, e.floor + 1, true, 1.92));
+    const root = cab.group;
+    root.position.set(e.x + e.inward * .18, e.y, e.z);
     root.rotation.y = e.yaw;
+    root.userData.parkingAction = 'elevator';
+    for (const leaf of cab.doorLeaves) leaf.userData.parkingDynamic = true;
     this.decks[e.floor].add(root);
 
-    const bounds = new THREE.Box3();
-    for (const part of parts) {
-      part.geometry.computeBoundingBox();
-      bounds.union(part.geometry.boundingBox!);
-    }
-    const facade = new THREE.Group();
-    facade.position.z = .19 - bounds.max.z;
-    facade.userData.parkingAction = 'elevator';
-    root.add(facade);
-    for (const part of parts) {
-      const mesh = new THREE.Mesh(part.geometry, part.material);
-      mesh.name = part.name ?? '';
-      facade.add(mesh);
-      if (part.name === 'R_01_0' || part.name === 'L_01_0') {
-        mesh.userData.parkingDynamic = true;
-        this.elevatorDoors.push({ mesh, direction: part.name === 'R_01_0' ? -1 : 1 });
-      }
-    }
-    const steel = this.material({ color: 0x555d58, roughness: .75, metalness: .18 });
     const trim = this.material({ color: 0x292e2c, roughness: .85 });
     const add = (name: string, material: THREE.Material, x: number, y: number, z: number, w: number, h: number, d: number) => {
       const mesh = new THREE.Mesh(this.own(new THREE.BoxGeometry(w, h, d)), material);
       mesh.name = name; mesh.position.set(x, y, z); root.add(mesh);
       return mesh;
     };
-    // The authored leaves leave an 8 mm seam. Treat it as part of the closed door for center-ray interaction and LOS.
-    this.elevatorSeam = add('Elevator door seam', this.own(new THREE.MeshBasicMaterial({ visible: false })), 0, 1.24, .06, .024, 2.3, .014);
-    this.elevatorSeam.userData.parkingAction = 'elevator';
-    add('Elevator header', wall, 0, (2.8 + H - PARKING_SLAB) / 2, 0, e.footprint.d, H - PARKING_SLAB - 2.8, .36);
-    for (const side of [-1, 1]) {
-      add('Cabin side', steel, side * 1.07, 1.22, -1.29, .16, 2.44, 2.22);
-      add('Door pocket', trim, side * 1.46, 1.22, -.17, 1.12, 2.44, .14);
-      add('Door pocket cap', trim, side * 1.95, 1.22, .035, .14, 2.44, .28);
-      add('Cabin bumper', trim, side * .974, .24, -1.34, .04, .1, 2.05);
-    }
-    add('Cabin rear', steel, 0, 1.22, -2.43, 2.3, 2.44, .14);
-    add('Cabin ceiling', steel, 0, 2.48, -1.27, 2.3, .13, 2.45);
-    add('Cabin floor', trim, 0, .018, -1.22, 1.99, .036, 2.29);
-    add('Cabin lamp', this.own(new THREE.MeshBasicMaterial({ color: 0x8c9684 })), 0, 2.397, -1.26, .67, .035, .18);
-    const panel = add('Elevator call panel', trim, 1.12, 1.4, .208, .16, .36, .07);
-    panel.userData.parkingAction = 'elevator';
+    // Keep center rays on the closed doorway even at the join between the leaves.
+    this.elevatorSeam = add('Elevator door seam', this.own(new THREE.MeshBasicMaterial({ visible: false })), 0, 1.05, 0, .024, 2.1, .014);
+    const headerHeight = H - PARKING_SLAB - height;
+    add('Elevator header', wall, 0, height + headerHeight / 2, -.18, e.footprint.d, headerHeight, .36);
+    add('Elevator call panel', trim, 1.12, 1.4, .028, .16, .36, .07);
     this.elevatorSignal = this.own(new THREE.MeshBasicMaterial({ color: 0x8e4837 }));
-    const signal = add('Elevator status light', this.elevatorSignal, 1.12, 1.46, .249, .054, .07, .014);
-    signal.userData.parkingAction = 'elevator';
+    add('Elevator status light', this.elevatorSignal, 1.12, 1.46, .069, .054, .07, .014);
   }
 
   get tapesCollected() { return this.map.options.mission === 'tapes' ? this.map.objectives.length - this.tapes.size : 0; }
   get survivalRemaining() { return Math.max(0, (this.map.options.minutes ?? 5) * 60 - this.survivalTime); }
-  get elevatorOpen() { return this.elevatorTravel === 1; }
+  get elevatorOpen() { return this.elevatorCab?.isFullyOpen ?? false; }
   get elevatorUnlocked() {
     if (this.map.options.mission === 'generators') return this.repair.powered;
     if (this.map.options.mission === 'tapes') return this.tapesCollected === this.map.objectives.length;
@@ -382,19 +357,76 @@ export class ParkingLevel {
     if (this.map.options.mission !== 'survive') return;
     this.survivalTime = 0;
     this.elevatorOpening = false;
-    this.elevatorTravel = 0;
+    this.elevatorCab?.resetClosed();
     if (this.elevatorSeam) this.elevatorSeam.visible = true;
-    for (const door of this.elevatorDoors) door.mesh.position.x = 0;
   }
   enterElevator(previous: ParkingPoint, next: ParkingPoint) {
     const e = this.map.elevator;
-    if (this.repair.finished || this.elevatorTravel < 1 || next.floor !== e.floor || previous.floor !== e.floor) return false;
+    if (this.repair.finished || !this.elevatorOpen || next.floor !== e.floor || previous.floor !== e.floor) return false;
     if ((previous.x - e.x) * e.inward < -.85 || (next.x - e.x) * e.inward >= -.85 || Math.abs(next.z - e.z) > .67) return false;
+    this.boardElevator();
+    return true;
+  }
+
+  boardElevator() {
+    if (this.repair.finished) return;
     this.repair.finished = true;
+    this.elevatorCab?.board();
     this.onSound?.('escaped');
     this.notice = 'ESCAPED THROUGH THE ELEVATOR';
     this.noticeUntil = Infinity;
-    return true;
+  }
+
+  syncRoom(state: NonNullable<WorldSnapshot['parking']>, playerId: string) {
+    for (const id of state.tapes) {
+      if (this.collectTape(id)) this.onSound?.('tape', this.map.objectives.find(o => o.id === id));
+    }
+    for (const id of state.repaired) {
+      const generator = this.generators.get(id);
+      if (generator && !generator.repaired) {
+        this.activateGenerator(generator);
+        this.onSound?.('generatorStart', this.map.objectives.find(o => o.id === id));
+      }
+    }
+    for (const hinge of this.hinges) {
+      const target = state.doors[hinge.id] ?? 0;
+      if (target === hinge.target) continue;
+      hinge.target = target;
+      this.onSound?.(hinge.kind === 'room' ? 'roomDoor' : 'lockerDoor', this.hingeSoundPosition(hinge));
+    }
+    for (const id of state.looted) {
+      const item = this.storageItems.get(id);
+      if (!item) continue;
+      item.mesh.traverse(object => { object.visible = false; });
+      this.storageItems.delete(id);
+      this.onSound?.('pickup', this.hingeSoundPosition(item.locker));
+    }
+    const sharedRepair = state.repair;
+    const repairSound = sharedRepair ? `${sharedRepair.id}/${sharedRepair.by}/${Math.floor(sharedRepair.seconds / 1.35)}` : '';
+    if (sharedRepair && repairSound !== this.repairSound) {
+      this.onSound?.('repairTool', this.map.objectives.find(o => o.id === sharedRepair.id));
+    }
+    this.repairSound = repairSound;
+    const repair = sharedRepair?.by === playerId ? sharedRepair : undefined;
+    this.repair.active = !!repair;
+    this.repair.progress = repair ? Math.min(1, repair.seconds / 8) : 0;
+    if (state.elevatorOpenedAt !== null && !this.elevatorOpening) {
+      this.elevatorOpening = true;
+      this.elevatorCab?.open();
+      if (this.elevatorSeam) this.elevatorSeam.visible = false;
+      this.onSound?.('elevatorMotor', this.map.elevator);
+    }
+  }
+
+  roomInteraction(camera: THREE.Camera, position: ParkingPoint) {
+    const target = this.focus(camera, position);
+    if (!target) return;
+    const { id } = target;
+    if (id === 'elevator') return { kind: 'elevator', id } as const;
+    if (this.tapes.has(id)) return { kind: 'tape', id } as const;
+    if (this.storageItems.has(id)) return { kind: 'loot', id } as const;
+    if (this.generators.has(id)) return { kind: 'repair', id } as const;
+    return { kind: 'door', id } as const;
   }
 
   tapeView(index: number) {
@@ -412,7 +444,7 @@ export class ParkingLevel {
     const e = this.map.elevator, depth = (x - e.x) * e.inward, lateral = Math.abs(z - e.z);
     // The generated wall keeps NPC navigation closed. Only this cabin corridor overrides it for the player.
     if (Math.abs(feet - e.y) < .8 && depth < .38 && depth > -2.75 && lateral < 2.2) {
-      if (player && this.elevatorTravel === 1 && depth > -2.10 && lateral < .67) return { x, z, y: e.y, floor: e.floor };
+      if (player && this.elevatorOpen && depth > -2.10 && lateral < .67) return { x, z, y: e.y, floor: e.floor };
       return null;
     }
     const p = parkingFits(this.map, x, z, feet, .25, this.doorStates);
@@ -457,6 +489,22 @@ export class ParkingLevel {
       if(entry.dynamic){entry.source.updateWorldMatrix(true,false);entry.mesh.matrixWorld.copy(entry.source.matrixWorld);entry.bounds.copy(entry.source.geometry.boundingBox!).applyMatrix4(entry.mesh.matrixWorld);}
       if(entry.bounds.distanceToPoint(origin)>length||!ray.ray.intersectsBox(entry.bounds))continue;if(ray.intersectObject(entry.mesh,false).length)return false;
     }return true;
+  }
+
+  flashDistance(from: THREE.Vector3, direction: THREE.Vector3, floor: number) {
+    const ray = new THREE.Raycaster(from, direction, .04, 12);
+    for (const entry of this.interactionMeshes) {
+      if (Math.abs(entry.floor - floor) > 1 || !entry.source.visible) continue;
+      if (entry.dynamic) {
+        entry.source.updateWorldMatrix(true, false);
+        entry.mesh.matrixWorld.copy(entry.source.matrixWorld);
+        entry.bounds.copy(entry.source.geometry.boundingBox!).applyMatrix4(entry.mesh.matrixWorld);
+      }
+      if (entry.bounds.distanceToPoint(from) > ray.far || !ray.ray.intersectsBox(entry.bounds)) continue;
+      const hit = ray.intersectObject(entry.mesh, false)[0];
+      if (hit) ray.far = hit.distance;
+    }
+    return ray.far;
   }
   private lampOutput(lamp: ParkingLamp) {
     if (this.map.options.mission === 'generators')
@@ -505,10 +553,10 @@ export class ParkingLevel {
     if (id) {
       const generator = this.generators.get(id);
       if (generator && generator.floor === p.floor) return { id, label: generator.repaired ? `GENERATOR ACTIVE - FLOOR ${parkingFloorLabel(generator.floor)} POWER ON` : 'HOLD E - ACTIVATE GENERATOR - 8 SECONDS' };
-      if (id === 'elevator') return { id, label: !this.elevatorUnlocked ? 'ELEVATOR LOCKED - COMPLETE THE OBJECTIVE' : this.elevatorOpening ? (this.elevatorTravel === 1 ? 'STEP INTO THE ELEVATOR' : 'ELEVATOR OPENING') : 'E - OPEN ELEVATOR' };
+      if (id === 'elevator') return { id, label: !this.elevatorUnlocked ? 'ELEVATOR LOCKED - COMPLETE THE OBJECTIVE' : this.elevatorOpening ? (this.elevatorOpen ? 'STEP INTO THE ELEVATOR' : 'ELEVATOR OPENING') : 'E - OPEN ELEVATOR' };
       if (this.tapes.has(id)) return { id, label: 'E - COLLECT VHS TAPE' };
       const item = this.storageItems.get(id);
-      if (item && item.locker.floor === p.floor && item.locker.current > .8) return { id, label: `E · TAKE ${item.kind} · PREVIEW STORAGE` };
+      if (item && item.locker.floor === p.floor && item.locker.current > .8) return { id, label: `E · TAKE ${item.kind === 'WATER' ? 'ALMOND WATER' : 'SPARE FLASHLIGHT'}` };
       const hinge = this.hinges.find(h => h.id === id && h.floor === p.floor);
       if (hinge) return { id, label: `E · ${hinge.target ? 'CLOSE' : 'OPEN'} ${hinge.kind === 'room' ? 'ROOM DOOR' : 'LOCKER'}` };
       return;
@@ -518,34 +566,43 @@ export class ParkingLevel {
   prompt(camera: THREE.Camera, p: ParkingPoint) { return this.lastTime < this.noticeUntil ? this.notice : this.focus(camera, p)?.label ?? ''; }
 
   interact(camera: THREE.Camera, p: ParkingPoint) {
-    const target = this.focus(camera, p); if (!target) return;
-    if (this.generators.has(target.id)) return;
+    const target = this.focus(camera, p); if (!target) return false;
+    if (this.generators.has(target.id)) return true;
     if (target.id === 'elevator') {
       if (!this.elevatorUnlocked) this.onSound?.('blocked', this.map.elevator);
       if (this.elevatorUnlocked && !this.elevatorOpening) {
         this.elevatorOpening = true;
+        this.elevatorCab?.open();
         this.onSound?.('elevatorMotor', this.map.elevator);
         if (this.elevatorSeam) this.elevatorSeam.visible = false;
       }
-      return;
+      return true;
     }
-    const tape = this.tapes.get(target.id);
-    if (tape) {
-      tape.traverse(object => { object.visible = false; });
-      this.tapes.delete(target.id);
+    if (this.collectTape(target.id)) {
       this.onSound?.('tape', this.map.objectives.find(o => o.id === target.id));
       this.notice = `VHS TAPE COLLECTED - ${this.tapesCollected}/${this.map.objectives.length}`;
       this.noticeUntil = this.lastTime + 1.5;
-      return;
+      return true;
     }
     const item = this.storageItems.get(target.id);
-    if (item) { this.onSound?.('pickup', { ...p }); this.inventory[item.kind]++; item.mesh.visible = false; this.storageItems.delete(target.id); this.notice = `${item.kind} ADDED · PREVIEW STORAGE ONLY`; this.noticeUntil = this.lastTime + 2; return; }
+    if (item) {
+      const kind = item.kind === 'WATER' ? 'water' : 'flashlight';
+      if (this.takeItem?.(kind)) {
+        this.onSound?.('pickup', p);
+        item.mesh.traverse(object => { object.visible = false; });
+        this.storageItems.delete(target.id);
+        this.notice = kind === 'water' ? 'ALMOND WATER ADDED' : 'SPARE FLASHLIGHT ADDED';
+      } else this.notice = 'INVENTORY FULL';
+      this.noticeUntil = this.lastTime + 2;
+      return true;
+    }
     const h = this.hinges.find(h => h.id === target.id)!;
     if (h.target && Array.from({ length: 12 }, (_, i) => h.current * i / 11).some(open => h.blocks(p, open, .3))) {
-      this.onSound?.('blocked', p); this.notice = 'STEP CLEAR TO CLOSE'; this.noticeUntil = this.lastTime + 1.5; return;
+      this.onSound?.('blocked', p); this.notice = 'STEP CLEAR TO CLOSE'; this.noticeUntil = this.lastTime + 1.5; return true;
     }
     h.target = 1 - h.target;
     this.onSound?.(h.kind === 'room' ? 'roomDoor' : 'lockerDoor', this.hingeSoundPosition(h));
+    return true;
   }
 
   private hingeSoundPosition(h: Hinge): ParkingPoint {
@@ -553,11 +610,14 @@ export class ParkingLevel {
     return { x: position.x, y: this.map.floors[h.floor].y + 1.2, z: position.z, floor: h.floor };
   }
 
-  audioFootstep(p: ParkingPoint, run: boolean) {
+  audioFootstep(p: ParkingPoint, run: boolean, positional = false) {
     const link = this.map.links.find(l => (l.top === p.floor || l.bottom === p.floor) && parkingContains(l,p.x,p.z));
-    this.onSound?.(link?.kind ?? (run ? 'sprint' : 'walk'));
-    if (this.atmosphere?.wetAt(p)) this.onSound?.('splash');
+    const source = positional ? p : undefined;
+    this.onSound?.(link?.kind ?? (run ? 'sprint' : 'walk'), source);
+    if (this.atmosphere?.wetAt(p)) this.onSound?.('splash', source);
   }
+
+  wetAt(p: ParkingPoint) { return this.atmosphere?.wetAt(p) ?? false; }
 
   audioEnvironment(p: ParkingPoint) {
     const room = this.map.floors[p.floor].rooms.some(r => parkingContains(r,p.x,p.z));
@@ -577,7 +637,7 @@ export class ParkingLevel {
   }
 
   generatorView(index: number) {
-    const list=[...this.generators.entries()],entry=list[index%list.length];if(!entry)return;
+    const list=[...this.generators.entries()].filter(([, g]) => !g.repaired),entry=list[index%list.length];if(!entry)return;
     const [id,g]=entry,c=g.bounds.getCenter(new THREE.Vector3()),target=new THREE.Vector3(c.x,g.bounds.min.y+.85,c.z);
     for(const [x,z] of [[c.x,g.bounds.max.z+1.1],[c.x,g.bounds.min.z-1.1],[g.bounds.max.x+1.1,c.z],[g.bounds.min.x-1.1,c.z]]) {
       const p=this.fits(x,z,this.map.floors[g.floor].y);if(p?.floor===g.floor)return {id,position:p,target};
@@ -601,10 +661,35 @@ export class ParkingLevel {
       return;
     }
     this.onSound?.('generatorStart', { x: generator.root.position.x, y: p.y+.65, z: generator.root.position.z, floor: p.floor });
-    generator.repaired=true;generator.indicator.color.setHex(0x75946e);this.poweredFloors.add(generator.floor);
-    this.repair.repaired++;this.repair.active=false;this.repair.powered=this.repair.total>0&&this.repair.repaired===this.repair.total;
+    this.activateGenerator(generator);
     this.notice=`GENERATOR ACTIVATED · FLOOR ${parkingFloorLabel(generator.floor)} POWER RESTORED`;this.noticeUntil=this.lastTime+3;
   }
+
+  private collectTape(id: string) {
+    const tape = this.tapes.get(id);
+    if (!tape) return false;
+    tape.traverse(object => { object.visible = false; });
+    this.tapes.delete(id);
+    return true;
+  }
+
+  private activateGenerator(generator: { repaired: boolean; indicator: THREE.MeshBasicMaterial; floor: number }) {
+    if (generator.repaired) return;
+    generator.repaired = true;
+    generator.indicator.color.setHex(0x75946e);
+    this.poweredFloors.add(generator.floor);
+    this.repair.repaired++;
+    this.repair.active = false;
+    this.repair.powered = this.repair.repaired === this.repair.total;
+  }
+
+  debugCompleteObjective() {
+    for (const id of this.tapes.keys()) this.collectTape(id);
+    for (const generator of this.generators.values()) this.activateGenerator(generator);
+    this.advanceSurvival(this.survivalRemaining);
+  }
+
+  get elevatorShake() { return this.elevatorCab?.shake ?? 0; }
 
   private addServices(parent: THREE.Object3D, floor: ParkingFloor, pipe: Part[], duct: Part[]) {
     const bounds = (parts: Part[]) => {
@@ -956,16 +1041,14 @@ export class ParkingLevel {
     this.scene.add(this.dust);
   }
 
-  private readonly playDrip = (p: ParkingPoint) => this.onSound?.('drip', p);
-
   update(time: number, p: ParkingPoint, lightingTime = time) {
     this.lightingTime = lightingTime;
     const started = performance.now();
     const dt = Math.min(.05, Math.max(0, time - this.lastTime)); this.lastTime = time;
-    if (this.elevatorOpening && this.elevatorTravel < 1) {
-      this.elevatorTravel = Math.min(1, this.elevatorTravel + dt / .85);
-      for (const door of this.elevatorDoors) door.mesh.position.x = door.direction * .94 * THREE.MathUtils.smoothstep(this.elevatorTravel, 0, 1);
-      if (this.elevatorTravel === 1) this.onSound?.('elevatorOpen', this.map.elevator);
+    if (this.elevatorOpening) {
+      const wasOpen = this.elevatorOpen;
+      this.elevatorCab?.update(dt);
+      if (!wasOpen && this.elevatorOpen) this.onSound?.('elevatorOpen', this.map.elevator);
     }
     this.elevatorSignal?.color.setHex(this.elevatorUnlocked ? 0x80a574 : 0x8e4837);
     for (const h of this.hinges) {
@@ -994,10 +1077,7 @@ export class ParkingLevel {
 
     }
     if (this.dust) { this.dust.position.set(p.x, -p.floor * H, p.z); this.dust.rotation.y=time*.006; }
-    if(this.atmosphere){
-      this.atmosphere.onDrip = this.playDrip;
-      this.atmosphere.update(time,p,this.lampOutputs);
-    }
+    this.atmosphere?.update(time,p,this.lampOutputs);
     this.performance.updateMs = performance.now() - started;
   }
 

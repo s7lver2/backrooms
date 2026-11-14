@@ -2,6 +2,7 @@ import {
   Breath, levelCaps, seesXZ, CELL, DIFFICULTY, HIT_DAMAGE, EntitySim, TV_REACH, centerOf, generateMaze, poolMaze, hideStates, itemSpots, solidAt, tickHides, totemSpot, tvPoint, tvSites, NOISE_RUN, NOISE_SHOT,
   type Difficulty, type Inventory, type Look, type Mission, type HideState, type EntState, type ItemSpot, type Kind, type Maze, type Noise, type PlayerState, type SimTarget, type WorldSnapshot,
 } from '@backrooms/shared';
+import { ParkingMatch } from './parking-match';
 
 /*
  * Lo que el servidor sabe de una partida en marcha: el mapa de la semilla, los objetos que quedan, las
@@ -93,6 +94,7 @@ interface Ent {
 }
 
 export class Match {
+  parking?: ParkingMatch;
   readonly maze: Maze;
   private items = new Map<string, ItemSpot>();
   private taken = new Set<string>();
@@ -122,7 +124,7 @@ export class Match {
   /** Nivel sin entidades (las Poolrooms, mientras no tengan sus propias). */
   private noEnts: boolean;
 
-  constructor(readonly seed: number, difficulty: Difficulty = 'normal', players = 1, levelId = 'level0') {
+  constructor(readonly seed: number, difficulty: Difficulty = 'normal', players = 1, readonly levelId = 'level0') {
     this.speed = DIFFICULTY[difficulty].speed;
     this.grace = DIFFICULTY[difficulty].grace;
     const caps = levelCaps(levelId);
@@ -131,7 +133,7 @@ export class Match {
     this.maze.totem = this.noEnts ? null : totemSpot(this.maze, seed, players);
     this.hides = hideStates(this.maze);
     const D = DIFFICULTY[difficulty];
-    for (const it of itemSpots(this.maze)) this.items.set(it.id, it);
+    if (levelId !== 'parking') for (const it of itemSpots(this.maze)) this.items.set(it.id, it);
     // el loot según la dificultad: solo lo prescindible (latas, linternas, rifles extra); lo que pide una misión o da una ventaja grande no. Lo quitado cuenta como ya cogido: el cliente no lo pinta
     for (const it of [...this.items.values()]) {
       const n = Number(it.id.slice(1)) || 0;
@@ -145,6 +147,7 @@ export class Match {
   /** Se juega esta misión (la elegida en la pizarra). */
   setMission(m: Mission) {
     this.mission = m;
+    if (this.levelId === 'parking') { this.parking = new ParkingMatch(this.seed, m); return; }
     // las cintas solo hay si la misión es encontrarlas
     if (m.kind !== 'tapes' && m.kind !== 'soaps') for (const id of [...this.items.keys()]) if (id[0] === 't' && this.items.get(id)?.kind === 'tape') this.items.delete(id);
     this.tvs =m.kind === 'tvs' ? tvSites(this.maze, m.goal) : [];
@@ -157,6 +160,7 @@ export class Match {
 
   /** El progreso de la misión (fotos, cintas, segundos o televisiones apagadas), sin pasar de la meta. */
   get progress() {
+    if (this.parking) return this.parking.progress;
     const m = this.mission;
     if (!m) return 0;
     const v = m.kind === 'photos' ? this.photos : m.kind === 'tapes' || m.kind === 'soaps' ? this.tapes : m.kind === 'survive' ? Math.floor(this.age) : this.tvOff.size;
@@ -175,7 +179,7 @@ export class Match {
 
   /** Dónde empiezan todos. */
   get start() {
-    return centerOf(this.maze.start);
+    return this.parking?.map.spawn ?? centerOf(this.maze.start);
   }
 
   private spawn(kind: Kind, at: { x: number; y: number }, speed = 1, hp = 1) {
@@ -185,6 +189,7 @@ export class Match {
 
   /** Admin: una entidad en una celda abierta cerca de (x, z) (a 3–7 celdas), o en el arranque más lejano si no hay. */
   adminSpawn(kind: Kind, x: number, z: number) {
+    if (this.parking) return;
     const m = this.maze, cx = Math.floor(x / CELL), cy = Math.floor(z / CELL);
     const open: { x: number; y: number }[] = [];
     for (let y = Math.max(0, cy - 7); y <= Math.min(m.h - 1, cy + 7); y++)
@@ -216,6 +221,7 @@ export class Match {
   /** Un paso de la IA (la llaman 20 veces por segundo). `caught` se llama por cada jugador al que alcanza una. */
   tick(dt: number, players: Player[], caught: (p: Player, entityId: number) => void) {
     this.age += dt;
+    if (this.parking) { this.parking.frozen=this.frozen; this.parking.tick(dt, players, Date.now(), p=>caught(p,-1)); return; }
     const targets: SimTarget[] = [];
     this.hiding(dt, players);
     const hidden = this.age > this.grace ? this.hides.filter((h) => h.occ) : [];
@@ -248,6 +254,10 @@ export class Match {
   }
 
   snapshot(): WorldSnapshot {
+    if (this.parking) {
+      const parking = this.parking.snapshot();
+      return { parking, ents: [], taken: parking.tapes, tapes: parking.tapes.length };
+    }
     return {
       ents: this.ents.map((e) => ({ id: e.id, kind: e.sim.kind, x: e.sim.x, z: e.sim.z, yaw: e.sim.facing, state: e.sim.state, hp: e.sim.hp, speed: e.sim.speed }) satisfies EntState),
       taken: [...this.taken],
@@ -361,6 +371,7 @@ export class Match {
 
   /** Entrar en el ascensor (abierto: la misión está cumplida). */
   canBoard(p: Player) {
+    if (this.parking) return this.parking.canBoard(p);
     const c = centerOf(this.maze.elevator);
     return !p.dead && !p.boarded && Math.hypot(p.st.x - c.x, p.st.z - c.z) < 2.5;
   }

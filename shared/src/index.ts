@@ -1,3 +1,4 @@
+import type { ParkingInteraction, ParkingSnapshot } from './parking';
 /** Lo que comparten el cliente y el servidor: los puertos fijos, el protocolo de las salas y la lógica de la partida. */
 export * from './maze';
 export * from './pools';
@@ -7,6 +8,8 @@ export * from './progress';
 export * from './missions';
 export * from './caps';
 export * from './parking';
+export * from './parking-skinwalker-ai';
+export * from './parking-smiler-ai';
 import type { EntState, Kind } from './sim';
 import type { Look } from './progress';
 import type { LevelCaps } from './caps';
@@ -177,6 +180,7 @@ export type Joined = { id: string; room: RoomView } | { error: string };
 /** Un objeto de la partida: cinta, linterna, cámara o rifle. */
 export type ItemKind = 'tape' | 'flashlight' | 'camera' | 'gun' | 'water' | 'totem' | 'radar' | 'tank' | 'watergun';
 export interface WorldSnapshot {
+  parking?: ParkingSnapshot;
   /** Reloj del servidor (Date.now()) al tomar el snapshot: las entidades se interpolan con él, no con la hora de llegada. */
   t?: number;
   ents: EntState[];
@@ -253,6 +257,7 @@ export interface ClientToServer {
    * (inventario del inicio + lo recogido, menos lo soltado) y es lo que conserva para la siguiente ronda.
    */
   ascend: (inv: Inventory) => void;
+  parkingInteract: (action: ParkingInteraction, cb?: (ok: boolean) => void) => void;
   /** Votación (fase `starting`, tras la entrada): votar una misión por su id (cambia el voto anterior; '' lo quita). */
   vote: (missionId: string) => void;
   /**
