@@ -295,7 +295,7 @@ export class Match {
       }
       if (id === undefined) continue;
       const p = players.find((q) => q.id === id);
-      if (!p) continue;
+      if (!p || p.dead || p.boarded) continue;
       // un golpe quita vida; muere con la vida a cero o si lo pillan en un nicho (sin salida)
       p.hp = (p.hide ?? -1) >= 0 || e.sim.kind === 'faceling' ? 0 : Math.max(0, p.hp - HIT_DAMAGE); // (el personal no deja heridos)
       e.sim.state = 'attack'; // ataca y vuelve a lo suyo (ver recover)
@@ -383,7 +383,7 @@ export class Match {
   /** Un tiro a una entidad: se acepta si va con el rifle y está a tiro; muere al llegar su hp a cero (true) y otra la sustituye. */
   hit(p: Player, entityId: number) {
     const i = this.ents.findIndex((e) => e.id === entityId);
-    if (i < 0 || p.dead || p.st.held !== 'gun') return false;
+    if (i < 0 || p.dead || p.boarded || !p.cap.gun || p.st.held !== 'gun') return false;
     const e = this.ents[i];
     if (this.far(p.st, e.sim) > SHOT_REACH) return false;
     this.noise(p.st.x, p.st.z, NOISE_SHOT);
@@ -413,7 +413,7 @@ export class Match {
    */
   photo(p: Player): number | undefined {
     const now = Date.now();
-    if (p.dead || p.st.held !== 'camera' || now - (p.lastPhoto ?? 0) < 800) return undefined;
+    if (p.dead || p.boarded || !p.cap.camera || p.st.held !== 'camera' || now - (p.lastPhoto ?? 0) < 800) return undefined;
     p.lastPhoto = now;
     const s = p.st, fx = -Math.sin(s.yaw), fz = -Math.cos(s.yaw), m = this.maze;
     for (const e of this.ents) {
