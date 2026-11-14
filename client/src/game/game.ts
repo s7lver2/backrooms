@@ -2,9 +2,6 @@ import { DEV_LOCAL } from '../devGate';
 import { claimPickup } from '../pickup-claim';
 import { dlog } from '../dlog';
 import * as THREE from 'three';
-import { Line2 } from 'three/examples/jsm/lines/Line2.js';
-import { LineGeometry } from 'three/examples/jsm/lines/LineGeometry.js';
-import { LineMaterial } from 'three/examples/jsm/lines/LineMaterial.js';
 import { glow, lootModel, pulse } from './rarityFx';
 import { itemModel, loadItemModels } from './itemModels';
 import { perks } from './perks';
@@ -3026,14 +3023,14 @@ fps ${(1 / Math.max(dt, 1e-3)).toFixed(0)}`;
 
   // ── los objetos de las Suites ─────────────────────────────────────────────
   private throwS = 0.6;
-  private arc?: { line: Line2; dots: THREE.Points; ring: THREE.Mesh };
+  private arc?: { line: THREE.Mesh; dots: THREE.Points; ring: THREE.Mesh };
   /** El arco del lanzamiento (pokeball y granada) mientras se mantiene el clic: la trayectoria con sus rebotes (shared/throw.ts, la misma del servidor). */
   private arcFrame() {
     const p = this.player, w = this.world;
     const scene = this.parking?.level.scene ?? (this.pool instanceof PoolLevel ? this.pool.scene : this.scene);
     if (!this.arc) {
       // la trayectoria: una línea blanca ancha (Line2: el ancho se da en píxeles), puntos blancos en cada rebote y un aro donde se queda
-      const line = new Line2(new LineGeometry(), new LineMaterial({ color: 0xffffff, linewidth: 4, transparent: true, opacity: 0.92, depthTest: false, depthWrite: false, toneMapped: false }));
+      const line = new THREE.Mesh(new THREE.BufferGeometry(), new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.92, depthTest: false, depthWrite: false, side: THREE.DoubleSide, toneMapped: false })); // (una cinta de cuadriláteros que mira a la cámara: Line2 no se veía)
       const dots = new THREE.Points(new THREE.BufferGeometry().setAttribute('position', new THREE.BufferAttribute(new Float32Array(12 * 3), 3)), new THREE.PointsMaterial({ color: 0xffffff, size: 0.2, depthTest: false, toneMapped: false }));
       const ring = new THREE.Mesh(new THREE.RingGeometry(0.2, 0.3, 28).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.9, depthTest: false, depthWrite: false, side: THREE.DoubleSide, toneMapped: false }));
       for (const o of [line, dots, ring]) (o.frustumCulled = false), (o.renderOrder = 10), (o.visible = false);
@@ -3065,8 +3062,20 @@ fps ${(1 / Math.max(dt, 1e-3)).toFixed(0)}`;
       hits = [...f.bounces, f.end];
     }
     const n = Math.min(102, pts.length / 3);
-    (line.geometry as LineGeometry).setPositions(pts.slice(0, n * 3));
-    (line.material as LineMaterial).resolution.set(this.renderer.domElement.width, this.renderer.domElement.height);
+    // la cinta: dos vértices por punto, a un lado y a otro, perpendiculares al trayecto y a la vista (6 cm de ancho)
+    const cam = this.camera.position, pos = new Float32Array(n * 6), idx: number[] = [], t = new THREE.Vector3(), sd = new THREE.Vector3(), to = new THREE.Vector3();
+    for (let i = 0; i < n; i++) {
+      const a = Math.max(0, i - 1) * 3, b = Math.min(n - 1, i + 1) * 3;
+      t.set(pts[b] - pts[a], pts[b + 1] - pts[a + 1], pts[b + 2] - pts[a + 2]);
+      to.set(cam.x - pts[i * 3], cam.y - pts[i * 3 + 1], cam.z - pts[i * 3 + 2]);
+      sd.crossVectors(t, to).normalize().multiplyScalar(0.035);
+      pos.set([pts[i * 3] + sd.x, pts[i * 3 + 1] + sd.y, pts[i * 3 + 2] + sd.z, pts[i * 3] - sd.x, pts[i * 3 + 1] - sd.y, pts[i * 3 + 2] - sd.z], i * 6);
+      if (i < n - 1) idx.push(i * 2, i * 2 + 1, i * 2 + 2, i * 2 + 1, i * 2 + 3, i * 2 + 2);
+    }
+    line.geometry.dispose();
+    line.geometry.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+    line.geometry.setIndex(idx);
+    line.geometry.computeBoundingSphere();
     const dp = dots.geometry.getAttribute('position') as THREE.BufferAttribute, nb = Math.min(12, hits.length);
     hits.slice(0, nb).forEach((b, i) => dp.setXYZ(i, b[0], b[1], b[2]));
     dp.needsUpdate = true;
