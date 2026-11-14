@@ -185,7 +185,10 @@ export function hideStates(m: Maze): HideState[] {
     return { idx, x: n.x, z: n.z, fx: n.x + dx * CELL, fz: n.z + dy * CELL, yaw: Math.atan2(-dx, -dy), occ: null, cd: 0, by: null };
   });
 }
-export const tickHides = (hs: HideState[], dt: number) => hs.forEach((h) => (h.cd = Math.max(0, h.cd - dt)));
+export function tickHides(hs: HideState[], dt: number) {
+  if (!Number.isFinite(dt) || dt <= 0) return;
+  hs.forEach((h) => (h.cd = Math.max(0, h.cd - dt)));
+}
 
 /**
  * Contener la respiración: 6 s seguidos (1 = lleno), se recupera en 4 al soltar; si se agota, un jadeo y
@@ -199,6 +202,7 @@ export class Breath {
   /** Un paso; devuelve si de verdad contiene (quiere, y le queda aire). */
   step(dt: number, want: boolean, slack = 1) {
     this.gasped = false;
+    if (!Number.isFinite(dt) || dt < 0) return false;
     const hold = want && !this.winded && this.air > 0;
     this.air = Math.max(0, Math.min(1, this.air + (hold ? -1 / (6 * slack) : 1 / 4) * dt));
     if (hold && this.air <= 0) (this.winded = true), (this.gasped = true);
@@ -493,6 +497,7 @@ export class EntitySim {
    * del jugador al que alcanza en este paso (si lo hay).
    */
   update(dt: number, targets: SimTarget[], god = false, hides: HideState[] = [], noises: Noise[] = []): string | undefined {
+    if (!Number.isFinite(dt) || dt <= 0) return undefined;
     this.moving = false;
     // dentro de una pared o un nicho (no debería): a la celda abierta más cercana
     if (this.alive && this.solid(this.x, this.z)) this.unstick();

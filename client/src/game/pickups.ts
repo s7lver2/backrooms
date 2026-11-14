@@ -45,6 +45,9 @@ export interface Pickup {
   phys?: { v: THREE.Vector3; spin: THREE.Vector3; rest: boolean; floor: number };
 }
 
+/** Un asset compartido, o una fábrica cuyo modelo procedural pertenece a este objeto. */
+export type PickupModel = [THREE.Object3D, number] | ((rarity?: number) => [THREE.Object3D, number]);
+
 const LABEL: Record<Pickup['kind'], string> = { tape: 'tape', camera: 'camcorder', gun: 'rifle', flashlight: 'flashlight', water: 'almond water', totem: 'totem of life', radar: 'radar', ammo: 'ammo', caution: 'caution tape', tank: 'diving tank', watergun: 'water gun', loot: 'artifact', uno: 'uno reverse', monster: 'monster', pokeball: 'pokeball', grenade: 'smoke grenade', nokia: 'nokia', bat: 'baseball bat', locker: 'locker', gen: 'power switch' };
 
 export class PickupField {
@@ -69,6 +72,8 @@ export class PickupField {
   hint: string | null = null;
   private nearDx = 0;
   private ghosts = new Map<Pickup, THREE.Object3D[]>();
+  private resources = new Map<Pickup, Set<{ dispose(): void }>>();
+  protected disposed = false;
 
   constructor(protected host: PickupHost, protected camera: THREE.Camera, public audio?: GameAudio) {
     host.root.add(this.root);
@@ -100,18 +105,32 @@ export class PickupField {
   }
 
   /** Pone un objeto en el suelo (los del mapa y los soltados). */
-  put(id: string, kind: Pickup['kind'], c: Cell, src: THREE.Object3D, size: number, rot = 0, at?: { x: number; z: number }, drop?: boolean, rar = spotRarity(id, c)) {
+  put(id: string, kind: Pickup['kind'], c: Cell, src: THREE.Object3D, size: number, rot = 0, at?: { x: number; z: number }, drop?: boolean, rar = spotRarity(id, c), ownSource = false) {
+    if (this.disposed) return;
+    const resources = new Set<{ dispose(): void }>();
+    // Los modelos procedurales son nuestros; los GLTF conservan geometrías, materiales y texturas compartidos.
+    if (ownSource) src.traverse((o) => {
+      const mesh = o as THREE.Mesh;
+      if (mesh.geometry) resources.add(mesh.geometry);
+      if (mesh.material) (Array.isArray(mesh.material) ? mesh.material : [mesh.material]).forEach((m) => resources.add(m));
+    });
     const g = this.shape(kind, src, size);
     // que se vea con la linterna: un brillo propio leve, del color de cada material (con su textura), no un gris plano
     g.traverse((o) => {
-      const mesh = o as THREE.Mesh, mat = mesh.material as THREE.MeshStandardMaterial | undefined;
-      if (!mat?.isMeshStandardMaterial) return;
-      const own = (mesh.material = mat.clone()) as THREE.MeshStandardMaterial;
-      // la lata es casi blanca: con el brillo de los demás se quema; se queda mate y casi sin brillo propio
-      const gl = kind === 'water' ? 0.04 : 0.22;
-      if (kind === 'water') (own.color.multiplyScalar(0.7), (own.roughness = 1), (own.metalness = 0));
-      if (own.map) (own.emissiveMap = own.map), own.emissive.setScalar(gl);
-      else own.emissive.copy(own.color).multiplyScalar(gl * 1.4);
+      const mesh = o as THREE.Mesh;
+      if (!mesh.material) return;
+      const clone = (mat: THREE.Material) => {
+        if (!(mat as THREE.MeshStandardMaterial).isMeshStandardMaterial) return mat;
+        const own = mat.clone() as THREE.MeshStandardMaterial;
+        resources.add(own);
+        // la lata es casi blanca: con el brillo de los demás se quema; se queda mate y casi sin brillo propio
+        const gl = kind === 'water' ? 0.04 : 0.22;
+        if (kind === 'water') (own.color.multiplyScalar(0.7), (own.roughness = 1), (own.metalness = 0));
+        if (own.map) (own.emissiveMap = own.map), own.emissive.setScalar(gl);
+        else own.emissive.copy(own.color).multiplyScalar(gl * 1.4);
+        return own;
+      };
+      mesh.material = Array.isArray(mesh.material) ? mesh.material.map(clone) : clone(mesh.material);
     });
     const holder = new THREE.Group();
     holder.add(g);
@@ -120,7 +139,7 @@ export class PickupField {
     holder.position.set(p.x, y, p.z);
     holder.rotation.set(0, rot, 0);
     const fx = kind === 'tape' || kind === 'locker' ? undefined : glow(rar); // (las cintas son de la misión: sin rareza)
-    if (fx) holder.add(fx);
+    if (fx) (holder.add(fx), resources.add(fx.material));
     this.root.add(holder);
     let phys: Pickup['phys'];
     if (drop) {
@@ -129,7 +148,9 @@ export class PickupField {
       holder.position.y = fl + 1.1;
       phys = { v: new THREE.Vector3(Math.cos(a) * 0.9, 1.6, Math.sin(a) * 0.9), spin: new THREE.Vector3((u - 0.5) * 9, (u - 0.3) * 6, (0.5 - u) * 9), rest: false, floor: fl + 0.03 + size * 0.35 };
     }
-    this.pickups.push({ id, obj: holder, kind, taken: false, drop, y, fx, phys });
+    const pickup = { id, obj: holder, kind, taken: false, drop, y, fx, phys };
+    this.pickups.push(pickup);
+    this.resources.set(pickup, resources);
   }
 
   /** ¿Hay corriente? (todos los cuadros eléctricos del mapa activados; sin cuadros, siempre.) */
@@ -217,6 +238,7 @@ export class PickupField {
 
   /** Cada fotograma: flotan y giran, el aviso de lo que hay a tiro y, con G, la mano baja a por ello. */
   tick(t: number, dt: number, c: Controls) {
+    if (this.disposed) return;
     const pl = this.player;
     for (const p of this.pickups) {
       if (p.taken) continue;
@@ -238,6 +260,7 @@ export class PickupField {
       // la mano baja a por él; es tuyo cuando llega
       const take = (p: Pickup) => {
         const got = () => {
+          if (this.disposed) return;
           p.obj.visible = false;
           this.audio?.pickup(p.fx?.userData.glow?.k ?? 0);
           if (p.kind === 'loot') return; // el botín lo lleva el servidor (llega con `bag`)
@@ -267,6 +290,7 @@ export class PickupField {
       if (p && this.claim) {
         p.pending = true;
         this.claim(p.id, (ok) => {
+          if (this.disposed) return;
           p.pending = false;
           // si no: lo ha cogido otro (el aviso del servidor, `sync`/`syncDrops`, lo quita) o no cabe / no llegas: sigue ahí, sin esconderlo por si acaso
           if (ok) take(p);
@@ -287,15 +311,35 @@ export class PickupField {
    * Los objetos soltados que hay ahora en el suelo (lista del servidor): los nuevos se ponen con su modelo (`models`: tipo → [modelo, tamaño]), los que
    * ya no están se quitan (los recogió alguien o caducaron).
    */
-  syncDrops(list: Drop[], models: Partial<Record<ItemId | 'loot', [THREE.Object3D, number]>>, rarModel: (q?: number) => THREE.Object3D) {
+  syncDrops(list: Drop[], models: Partial<Record<ItemId | 'loot', PickupModel>>) {
+    if (this.disposed) return;
     const here = new Set(list.map((d) => d.id));
     for (const p of this.pickups)
-      if (p.drop && !here.has(p.id)) (p.taken = true), p.obj.removeFromParent();
+      if (p.drop && !here.has(p.id)) this.remove(p);
     this.pickups = this.pickups.filter((p) => !(p.drop && !here.has(p.id)));
     for (const d of list) {
       if (this.pickups.some((p) => p.id === d.id) || !models[d.kind]) continue;
-      const [src, size] = models[d.kind]!;
-      this.put(d.id, d.kind as Pickup['kind'], this.host.cellAt(d.x, d.z), d.kind === 'loot' ? rarModel(d.q?.r) : src, size, (d.x * 3.1 + d.z) % 6.28, { x: d.x, z: d.z }, true, d.q?.r ?? 0);
+      const model = models[d.kind]!, own = typeof model === 'function';
+      const [src, size] = own ? model(d.q?.r) : model;
+      this.put(d.id, d.kind as Pickup['kind'], this.host.cellAt(d.x, d.z), src, size, (d.x * 3.1 + d.z) % 6.28, { x: d.x, z: d.z }, true, d.q?.r ?? 0, own);
     }
+  }
+
+  private remove(p: Pickup) {
+    p.taken = true;
+    p.obj.removeFromParent();
+    this.ghosts.get(p)?.forEach((g) => g.removeFromParent());
+    this.ghosts.delete(p);
+    this.doors.delete(p);
+    this.resources.get(p)?.forEach((resource) => resource.dispose());
+    this.resources.delete(p);
+  }
+
+  /** Libera solo las copias y los modelos propios, conservando los assets compartidos. */
+  dispose() {
+    this.disposed = true;
+    for (const p of this.pickups) this.remove(p);
+    this.pickups = [];
+    this.root.removeFromParent();
   }
 }
