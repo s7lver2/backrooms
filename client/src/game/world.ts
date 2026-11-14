@@ -1005,7 +1005,7 @@ export class World implements Terrain {
       dado.color.set(0x77766f);
       [conc, paint, dado, rail].forEach((m) => lightmapped(m));
       [conc, paint, dado].forEach((m) => ((m.emissiveMap = m.map), m.emissive.set(0x8a826e))); // (el hueco es alto y sin focos: luz propia, que se vea la escalera)
-      const RISE = 0.15, TREAD = 0.3, N = 9, Z0 = 7.5, ZT = Z0 - N * TREAD, H1 = RISE * N, TOP = 2 * H1, HW = 2.25, SH = 2 * HEIGHT + 0.3; // SH: el techo del hueco
+      const RISE = 0.17, TREAD = 0.3, N = 9, Z0 = 7.5, ZT = Z0 - N * TREAD, H1 = RISE * N, TOP = 2 * H1, HW = 2.25, SH = 2 * HEIGHT + 0.3; // SH: el techo del hueco
       const tiled = (g: THREE.BufferGeometry, w: number, h: number) => (g.attributes.uv.array.forEach((_, i, a) => (a[i] *= (i % 2 ? h : w) / 1.5)), g);
       const signTex = (txt: string, bg: string, size = 30) => {
         const cv = Object.assign(document.createElement('canvas'), { width: 256, height: 96 }), g = cv.getContext('2d')!;
@@ -1112,7 +1112,9 @@ export class World implements Terrain {
         if (FL > 1) add(tiled(new THREE.PlaneGeometry(2 * HW, Z0 - 1.5).rotateX(-Math.PI / 2), 2 * HW, Z0 - 1.5), c.x, y0 + 0.006, (Z0 + 1.5) / 2); // el fondo del hueco
         else add(tiled(new THREE.PlaneGeometry(CELL, Z0 - 1.5).rotateX(-Math.PI / 2), CELL, Z0 - 1.5), c.x, 0.006, (Z0 + 1.5) / 2);
         add(tiled(new THREE.PlaneGeometry(2 * HW, 9).rotateX(Math.PI / 2), 2 * HW, 9), c.x, SHT - 0.006, 6, paint);
-        for (let k = 0; k <= LV; k++) for (const z of [3.4, 8.2]) add(new THREE.PlaneGeometry(1.5, 0.5).rotateX(Math.PI / 2), c.x, base(k) + TOP - 0.016, z, new THREE.MeshBasicMaterial({ color: 0xfff2d0 })); // los plafones de cada nivel
+        // los plafones, pegados bajo la losa de arriba (antes flotaban a media altura y el del rellano se fundía con su suelo)
+        const lamp = new THREE.MeshBasicMaterial({ color: 0xfff2d0 });
+        for (let k = 0; k <= LV; k++) for (const [z, up] of [[3.4, TOP + H1 - 0.31], [8.2, TOP - 0.31]] as const) add(new THREE.PlaneGeometry(1.5, 0.5).rotateX(Math.PI / 2), c.x, k === LV ? SHT - 0.02 : base(k) + up, z, lamp);
         for (const [sx, rot] of [[-1, Math.PI / 2], [1, -Math.PI / 2]] as const) {
           add(tiled(new THREE.PlaneGeometry(9, WH).rotateY(rot), 9, WH), c.x + sx * (HW - 0.006), y0 + WH / 2, 6, paint);
           for (let k = 0; k <= LV; k++) add(tiled(new THREE.PlaneGeometry(9, 1.05).rotateY(rot), 9, 1.05), c.x + sx * (HW - 0.012), base(k) + 0.525, 6, dado);
@@ -1169,6 +1171,16 @@ export class World implements Terrain {
         norm.add(frame);
       }
       norm.add(inner);
+      if (kind === 'wardrobe') {
+        // una rendija oscura entre las puertas (el modelo es una sola pieza: se simula una puerta entreabierta), en las dos caras anchas
+        const nb = new THREE.Box3().setFromObject(norm), ns = nb.getSize(new THREE.Vector3()), wx = ns.x >= ns.z, slit = new THREE.Group();
+        for (const s of [-1, 1]) {
+          const m = new THREE.Mesh(new THREE.BoxGeometry(wx ? 0.035 : 0.03, ns.y * 0.78, wx ? 0.03 : 0.035), new THREE.MeshBasicMaterial({ color: 0x050302 }));
+          m.position.set(wx ? 0 : s * (ns.x / 2 + 0.002), nb.min.y + ns.y * 0.47, wx ? s * (ns.z / 2 + 0.002) : 0);
+          slit.add(m);
+        }
+        for (const im of instanced(slit, ms, (mat) => mat, this.hotel)) this.root.add(im);
+      }
       for (const im of instanced(norm, ms, (mat) => ((mat.side = THREE.DoubleSide), t.tint && (mat as THREE.MeshStandardMaterial).color.set(t.tint), lightmapped(mat)), this.hotel)) ((im.receiveShadow = kind !== 'wardrobe'), (im.castShadow = kind === 'bed' || kind === 'sofa'), this.root.add(im)); // (el armario, de dos caras y casi cerrado, se rayaba con sus propias sombras)
     }
 
