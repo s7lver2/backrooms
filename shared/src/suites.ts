@@ -142,15 +142,19 @@ export function suitesMaze(seed: number, floor = 1): Maze {
           if (k === 1) gens[sid === g0 ? 0 : 1] = gc;
         }
         // contra la pared del sofá y la del escritorio, lo que toque, donde quepa
-        const sofa = spot(busyA, 1.9);
-        if (sofa !== null) put('sofa', wallA(0.62), sofa, faceA, 0.8);
-        if (chance(0.75)) {
+        // (la suite con el cuadro eléctrico del ascensor siempre tiene armario —y se coloca antes que el sofá, para que quepa—)
+        const ward = () => {
           const t = spot(busyA, 1.2);
           if (t !== null) {
             const c = put('wardrobe', wallA(0.55), t, faceA, 0.5), Z = zAt(t);
             hides.push({ cell: c, side: faceA, at: [wallA(0.55), Z], front: [wallA(0.55) + (ws > 0 ? 1.1 : -1.1), Z] }); // (se puede uno esconder en él)
           }
-        }
+        };
+        const panelRoom = sid === g0 || sid === g1;
+        if (panelRoom) ward();
+        const sofa = spot(busyA, 1.9);
+        if (sofa !== null) put('sofa', wallA(0.62), sofa, faceA, 0.8);
+        if (!panelRoom && chance(0.75)) ward();
         if (chance(0.7)) { const t = spot(busyA, 0.9); if (t !== null) put('wingchair', wallA(0.55), t, faceA, 0.35); }
         if (chance(0.6)) { const t = spot(busyA, 0.4); if (t !== null) put('bin', wallA(0.3), t, faceA); }
         if (chance(0.65)) { const t = spot(busyB, 0.6); if (t !== null) put('bistro', wallB(0.5), t, faceB, 0.3); }
