@@ -95,7 +95,7 @@ export const HOT: Record<string, HotDef> = {
     icon: 'watergun',
     have: (o) => !!o.watergun,
     frac: (o) => o.squirt,
-    use: (p) => (p.hand === 'watergun' ? p.hold('none') : p.hold('watergun')), // (en las Poolrooms la saca PoolLevel, ver Game.poolHot)
+    use: (p) => (p.hand === 'watergun' ? p.hold('none') : p.hold('watergun')),
     held: (p) => p.hand === 'watergun',
     info: 'Hold the left click to spray. Hold G at a drinking fountain in the Poolrooms to refill it; it cannot be refilled in the Backrooms.',
   },

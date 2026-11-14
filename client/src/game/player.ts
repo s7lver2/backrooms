@@ -1,3 +1,5 @@
+import { EYE, WALK, RUN, JUMP, G } from './locomotion';
+import { WaterJet, type JetProbe } from './waterjet';
 import * as THREE from 'three';
 import type { Controls } from './input';
 import type { World } from './world';
@@ -29,7 +31,7 @@ const V = (x: number, y: number, z: number) => new THREE.Vector3(x, y, z);
 const D = Math.PI / 180;
 const wrap = (a: number) => THREE.MathUtils.euclideanModulo(a + Math.PI, Math.PI * 2) - Math.PI;
 
-export const EYE = 1.62;
+export { EYE, WALK, RUN, JUMP };
 const _rest = new THREE.Vector3(), _eye = new THREE.Vector3();
 /** Dónde va la linterna montada en el rifle (espacio del rifle: metros y grados). */
 const MOUNT = { pos: [0, -0.05, -0.12] as [number, number, number], rot: [0, 0, 0] as [number, number, number] };
@@ -38,13 +40,12 @@ const _hl = new THREE.Vector3(), _hd = new THREE.Vector3(), _hq = new THREE.Quat
 // como a FLASH_D0 y no ciega contra el suelo o una pared cercana); más lejos, alcance completo
 const FLICKER_MAX = 0.2; // probabilidad máxima de que la linterna parpadee al encenderla (con la pila casi a cero)
 const FLASH_D0 = 4, FLASH_DECAY = 1.2, _fo = new THREE.Vector3(), _ft = new THREE.Vector3(), _v0 = new THREE.Vector3();
-const JET_P = 120; // partículas del chorro de la pistola de agua (antes 48: ahora más denso, rápido y grueso)
 const REACH_T = 0.85; // lo que dura recoger algo, en segundos
 const DRINK_T = 0.05; // lo que se mantiene la lata para beberla (s): antes 0,5; ahora casi instantáneo (>0 para no dividir por cero en la barra)
 /** Balance: enfocar con la camcorder (mirar por el visor) frena un 8 %. */
 export const CAM_AIM_SLOW = 0.92;
 const UNO_T = 1.2; // s manteniendo la carta
-export const WALK = 1.7, RUN = 3.85, JUMP = Math.sqrt(2 * 9.8 * 0.9), G = 9.8, R = 0.3;
+const R = 0.3;
 
 /** Un modelo escalado para que su lado mayor mida `size`, centrado en el origen y girado `ry`. */
 export function fit(o: THREE.Object3D, size: number, ry = 0) {
@@ -105,14 +106,25 @@ export class Player {
   squirt = 1;
   private wetT = 0;
   private stunT = 0;
-  private jetAcc = 0;
   private tankLvl?: (k: number) => void;
   private jetT = 0;
   jetting = false;
   /** La barra de las Poolrooms la lleva PoolLevel: allí esta pistola no se saca. */
   poolMode = false;
   /** Poolrooms: lo que PoolLevel dice del cuerpo este fotograma (velocidad real, en el aire, velocidad vertical). */
-  ext?: { speed: number; air: boolean; vy: number };
+  /**
+   * Un mundo con su propio movimiento (las Poolrooms: agua, tubos, plantas): el Player le pide que mueva el cuerpo y se queda con lo que devuelve; la cámara,
+   * los pasos y las manos siguen siendo suyos. Sin él, el Player mueve el cuerpo por la rejilla del nivel (World).
+   */
+  terrain?: {
+    drive(dt: number, c: Controls, yaw: number, pitch: number): { x: number; y: number; z: number; speed: number; air: boolean; vy: number; swim: boolean; eye: number; jetOk: boolean };
+    /** Dónde está el suelo (o el agua) y las paredes, para las gotas de la pistola de agua. */
+    jetProbe: JetProbe;
+    splash(x: number, z: number, amp: number): void;
+    /** ¿Hay un bebedero para recargar aquí? */
+    refillNear(x: number, y: number, z: number): boolean;
+  };
+  private eyeBase = EYE;
   /** Cuánto baja la vista el agachado ahora (m): quien le da la altura de la cámara lo suma para no bajarla dos veces. */
   get duckLift() {
     return this.duckD * this.duckK;
@@ -123,7 +135,20 @@ export class Player {
     return this.poolGear.tank && this.tankOn && perks.stats.back;
   }
   onSquirt?: (x: number, z: number, yaw: number) => void;
-  private readonly jet = { pts: undefined as THREE.Points | undefined, v: new Float32Array(JET_P * 3), life: new Float32Array(JET_P), i: 0 };
+  private readonly jet = new WaterJet();
+  private jetOk = true;
+  private fillT = 0;
+  /** Recargando la pistola en un bebedero, y el aviso de «mantén para recargar». */
+  refilling = false;
+  refillAct: string | null = null;
+  /** Echando agua ahora mismo (para el sonido). */
+  get spraying() {
+    return this.jetting && this.jetOk && this.squirt > 0;
+  }
+  /** Cuánto lleva recargado (0–1). */
+  get fill() {
+    return this.refilling ? Math.min(1, this.fillT / 1.5) : 0;
+  }
   /** Se bebió una lata (sonido). */
   onDrink?: () => void;
   private lens?: THREE.MeshStandardMaterial;
@@ -382,13 +407,22 @@ export class Player {
     // el borde de un pozo es un muro mientras se pisa suelo (se desliza por él, como por las paredes): sin ese colisionador, una pasarela de 0,75 m
     // se pierde con cualquier giro de ratón. Ya no se cae saltando (saltar y agacharse sin parar acababa en el pozo); quien ya está dentro del borde no se frena. Los mundos falsos no tienen pitAt.
     const edge = (x: number, z: number) => !this.falling && !!this.world.pitAt?.(x, z) && !this.world.pitAt(this.pos.x, this.pos.z);
-    if (this.noclip || !(this.blocked(this.pos.x + v.x, this.pos.z) || edge(this.pos.x + v.x, this.pos.z))) this.pos.x += v.x;
-    if (this.noclip || !(this.blocked(this.pos.x, this.pos.z + v.z) || edge(this.pos.x, this.pos.z + v.z))) this.pos.z += v.z;
-    if (this.poolMode && this.ext) speed = this.ext.speed; // (Poolrooms: la velocidad real de PoolLevel, para que el Animator case los pasos)
+    let tb: ReturnType<NonNullable<Player['terrain']>['drive']> | undefined;
+    if (this.poolMode && this.terrain) {
+      // Poolrooms: el mundo mueve el cuerpo (con las constantes de locomotion.ts) y el Player toma el resultado
+      tb = this.terrain.drive(dt, c, this.yaw, this.pitch);
+      this.pos.set(tb.x, tb.y, tb.z);
+      speed = tb.swim ? 0 : tb.speed; // (la velocidad real, para que el Animator case los pasos)
+      this.eyeBase = tb.eye;
+      this.jetOk = tb.jetOk;
+    } else {
+      if (this.noclip || !(this.blocked(this.pos.x + v.x, this.pos.z) || edge(this.pos.x + v.x, this.pos.z))) this.pos.x += v.x;
+      if (this.noclip || !(this.blocked(this.pos.x, this.pos.z + v.z) || edge(this.pos.x, this.pos.z + v.z))) this.pos.z += v.z;
+    }
     this.speed = speed;
 
     // saltar y caer: sobre un hueco no hay suelo
-    if (this.poolMode) (this.velY = this.ext?.vy ?? 0), (this.ground = !this.ext?.air), (this.falling = false); // (en las Poolrooms la altura la pone PoolLevel: aquí no hay suelo en 0, y la gravedad hacía temblar el cuerpo en el agua)
+    if (tb) (this.velY = tb.vy), (this.ground = !tb.air), (this.falling = false); // (en las Poolrooms la altura la pone PoolLevel: aquí no hay suelo en 0, y la gravedad hacía temblar el cuerpo en el agua)
     else {
       if (c.jump && this.ground && !this.falling) (this.velY = JUMP * this.jumpMul), (this.ground = false);
       const floor = this.falling || this.world.voidAt(this.pos.x, this.pos.z) ? -Infinity : (this.world.floorAt?.(this.pos.x, this.pos.z) ?? 0); // (los mundos falsos no tienen escaleras)
@@ -462,7 +496,7 @@ export class Player {
     const neck = this.poolMode ? 0 : Math.sin(down * 1.45) * 0.12; // (en las Poolrooms la cámara es de PoolLevel y no se mueve: si el Player la adelantara, los brazos irían a otro sitio que los objetos)
     // (agachado en un nicho, algo hacia el fondo: de espaldas a la salida)
     const bx = Math.sin(this.hideYaw) * 0.32 * hk, bz = Math.cos(this.hideYaw) * 0.32 * hk;
-    this.camera.position.set(this.pos.x - Math.sin(this.yaw) * neck + bx, this.pos.y + EYE - 0.5 * rk - 0.82 * hk - this.duckD * this.duckK + bobY, this.pos.z - Math.cos(this.yaw) * neck + bz);
+    this.camera.position.set(this.pos.x - Math.sin(this.yaw) * neck + bx, this.pos.y + this.eyeBase - 0.5 * rk - 0.82 * hk - this.duckD * this.duckK + bobY, this.pos.z - Math.cos(this.yaw) * neck + bz);
     this.recoil = Math.max(0, this.recoil - dt * 5);
     // al recoger, la vista se va al objeto
     let pitch = this.pitch;
@@ -709,47 +743,30 @@ export class Player {
     const wg = this.items.watergun;
     if (this.hand === 'watergun' && !wg.children.length) {
       const m = poolPart('watergun');
-      if (m) (wg.add(fit(m.clone(true), 0.4)), (this.tankLvl = tankFx(wg)));
+      if (m) (wg.add(fit(m.clone(true), 0.4)), (this.tankLvl = tankFx(wg)), this.poolMode && wg.traverse((o) => o.layers.set(1))); // (en las Poolrooms, capa 1: el reflejo del agua no lo repinta)
       else void loadPoolKit();
     }
     if (wg.visible) this.tankLvl?.(this.squirt); // el agua dentro del depósito
     this.jetting = this.hand === 'watergun' && !this.dead && !this.frozen && this.hideState === 'out' && !!(c.fire || c.fireHeld) && this.squirt > 0;
     const J = this.jet;
-    if (!J.pts) {
-      const g = new THREE.BufferGeometry();
-      g.setAttribute('position', new THREE.BufferAttribute(new Float32Array(JET_P * 3).fill(-999), 3));
-      J.pts = new THREE.Points(g, new THREE.PointsMaterial({ size: 0.18, color: 0xbfe8ff, transparent: true, opacity: 0.9, depthWrite: false }));
-      J.pts.frustumCulled = false;
-      this.world.root.add(J.pts);
-    }
-    const pos = J.pts.geometry.getAttribute('position') as THREE.BufferAttribute;
-    if (this.jetting) {
-      this.squirt = Math.max(0, this.squirt - dt / 6);
-      this.jetAcc += dt * 120;
-      const cp = Math.cos(this.pitch), fx = -Math.sin(this.yaw) * cp, fy = Math.sin(this.pitch), fz = -Math.cos(this.yaw) * cp;
-      while (this.jetAcc >= 1) {
-        this.jetAcc--;
-        const k = J.i++ % JET_P, r = () => (Math.random() - 0.5) * 0.7;
-        pos.setXYZ(k, this.pos.x + fx * 0.6 + Math.cos(this.yaw) * 0.18, this.pos.y + EYE - 0.2 + fy * 0.6, this.pos.z + fz * 0.6 - Math.sin(this.yaw) * 0.18);
-        // converge en el punto que apunta la mira (a 9 m), con algo de arriba para compensar la caída
-        const dx = this.pos.x + fx * 9 - pos.getX(k), dy = this.pos.y + EYE + fy * 9 - pos.getY(k), dz = this.pos.z + fz * 9 - pos.getZ(k), dl = Math.hypot(dx, dy, dz) || 1;
-        J.v[k * 3] = (dx / dl) * 15 + r();
-        J.v[k * 3 + 1] = (dy / dl) * 15 + r() * 0.6 + 2.6;
-        J.v[k * 3 + 2] = (dz / dl) * 15 + r();
-        J.life[k] = 0.7;
-      }
+    if (!J.points.parent) this.world.root.add(J.points);
+    // dispara mientras se mantiene el clic: no bajo el agua ni dentro de un tubo (lo dice el mundo)
+    const t = this.terrain, eye = _eye.set(this.pos.x, this.pos.y + this.eyeBase, this.pos.z), go = this.jetting && this.jetOk;
+    if (go) {
+      this.squirt = Math.max(0, this.squirt - dt / (6 * boostOf(perks, 'watergun'))); // (la rareza de la pistola: un depósito que dura más)
       if ((this.jetT -= dt) <= 0) (this.jetT = 1 / 15), this.onSquirt?.(this.pos.x, this.pos.z, this.yaw);
-    } else this.jetAcc = 0;
-    for (let k = 0; k < JET_P; k++) {
-      if (J.life[k] <= 0) continue;
-      if ((J.life[k] -= dt) <= 0) {
-        pos.setY(k, -999);
-        continue;
-      }
-      J.v[k * 3 + 1] -= 6 * dt;
-      pos.setXYZ(k, pos.getX(k) + J.v[k * 3] * dt, pos.getY(k) + J.v[k * 3 + 1] * dt, pos.getZ(k) + J.v[k * 3 + 2] * dt);
     }
-    pos.needsUpdate = true;
+    // el mundo dice dónde está el suelo (o el agua) y las paredes; sin él, la rejilla del nivel
+    const probe = t?.jetProbe ?? ((x: number, _y: number, z: number) => (this.world.solid(x, z) ? null : { gy: this.world.floorAt?.(x, z) ?? 0, wet: false }));
+    J.update(dt, go ? eye : null, this.yaw, this.pitch, probe, t?.splash);
+    // recargar junto a un bebedero (las Poolrooms): mantener G ~1,5 s
+    const at = !!t?.refillNear?.(this.pos.x, this.pos.y, this.pos.z) && this.poolGear.watergun && this.squirt < 1;
+    this.refilling = at && !!c.grabHeld;
+    this.refillAct = at ? 'HOLD TO REFILL' : null;
+    if (this.refilling) {
+      this.fillT += dt;
+      if (this.fillT >= 1.5) (this.squirt = 1), (this.fillT = 0);
+    } else this.fillT = 0;
   }
 
   /** Le ha dado la pistola de agua de otro (el servidor lo avisa): mojado frena a la mitad, parado no se mueve. */
@@ -759,7 +776,6 @@ export class Player {
   }
 
   hold(h: Player['hand']) {
-    if (h === 'watergun' && this.poolMode) return;
     this.hand = h;
     if (h !== 'none') (this.gadget = 'none'), (this.prop = 'none');
     this.items.camera.visible = h === 'camera';
@@ -1005,7 +1021,7 @@ export class Player {
   dispose() {
     this.cos.dispose();
     for (const it of Object.values(this.items)) it.removeFromParent();
-    this.jet.pts?.removeFromParent();
+    this.jet.dispose();
     this.rig.root.removeFromParent();
     this.rig.mixer.stopAllAction();
   }

@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { ElevatorCab } from './elevator';
+import type { Terrain } from './terrain';
 import { Rig } from './rig';
 import { Reflector } from 'three/examples/jsm/objects/Reflector.js';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
@@ -447,7 +448,7 @@ const serviceProp = (kind: 'trolley' | 'cart') => {
   return g;
 };
 
-export class World {
+export class World implements Terrain {
   readonly root = new THREE.Group();
   readonly elevator: THREE.Object3D;
   /** El lado abierto del ascensor (hacia donde mira). */
@@ -1452,7 +1453,7 @@ export class World {
   /** Las escaleras de servicio (Las Suites): dónde están y sus medidas. */
   private stairs: { xl: number; xm0: number; xm1: number; xr: number; z0: number; z1: number; ZT: number; Z0: number; RISE: number; H1: number; TOP: number }[] = [];
   /** La altura del suelo en ese punto: 0, o la del peldaño, descansillo o rellano de la escalera de servicio. */
-  floorAt(x: number, z: number) {
+  floorAt(x: number, z: number, _y?: number): number {
     for (const s of this.stairs) {
       if (x < s.xl || x > s.xr || z < s.z0 || z > s.z1) continue;
       if (z <= s.ZT) return s.H1; // el descansillo
@@ -1461,6 +1462,14 @@ export class World {
       return z >= s.Z0 ? s.TOP : s.H1 + s.RISE * Math.ceil((z - s.ZT) / 0.3); // el segundo y el rellano
     }
     return 0;
+  }
+  /** Terrain: cabe un cuerpo de radio r (sin pared ni mueble; la altura no cuenta aquí). */
+  fits(x: number, z: number, _y: number, r = 0.3) {
+    return !this.solid(x, z) && !this.furniture(x, z, r);
+  }
+  /** Terrain: aquí no hay agua. */
+  liquidAt(_x: number, _z: number, _y?: number): { surface: number; depth: number } | null {
+    return null;
   }
   /** Cierra la puerta doble del vestíbulo (a la espalda de quien acaba de entrar). */
   closeGrand() {

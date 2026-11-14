@@ -1020,7 +1020,7 @@ export default function Backrooms({ onQuit, onWin }: { onQuit: () => void; onWin
           assets={game.current.assets}
           onUse={(i) => {
             const pl = game.current?.player;
-            if (!pl || game.current?.inPool) return void game.current?.poolHot(i);
+            if (!pl) return;
             pl.hotSel = i;
             pl.useHot(i);
           }}

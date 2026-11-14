@@ -10,7 +10,7 @@ import { CELL, SUITE_L, generateMaze, suitesMaze, wrapX } from './maze';
 import { World, center, HEIGHT } from './world';
 import { FLASH } from './lightmap';
 import { Input, type Controls } from './input';
-import { Player, EYE, fit, CAM_AIM_SLOW, WALK, RUN, JUMP } from './player';
+import { Player, EYE, fit, CAM_AIM_SLOW } from './player';
 import { HOT } from './quickslots';
 import { EffectComposer } from 'three/examples/jsm/postprocessing/EffectComposer.js';
 import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js';
@@ -951,11 +951,10 @@ export class BackroomsGame {
     const gear = p?.inventory;
     if (gear) Object.assign(inv, { tank: gear.tank, tankOn: p!.tankOn, watergun: gear.watergun, squirt: p!.squirt });
     const pl = this.pool instanceof PoolLevel ? this.pool : undefined;
-    if (pl && this.mp?.inv?.watergun) Object.assign(inv, { watergun: true, squirt: pl.squirtLeft, hand: pl.gunOn ? 'watergun' : 'none' });
     if (pl && this.mp?.inv?.tank) inv.tank = true;
     const hidden = !!p && p.hideState !== 'out';
     const ms = this.mission, up = this.ascent;
-    return { mission: ms ? { kind: ms.kind, text: ms.text, line: missionLine(ms), progress: ms.progress, goal: ms.goal, done: ms.done } : null, ascent: up ? { boarded: !!this.mp && up.boarded.includes(this.mp.id), left: Math.max(0, up.left - (performance.now() - up.at) / 1000) } : null, act: hidden || this.run ? null : this.tvs?.hint ?? this.doorAct ?? pl?.act ?? null, totem: this.totemHud(), needClick: this.input.needClick, bag: this.bagOpen && !this.shopOpen, shop: this.bagOpen && this.shopOpen, note: this.gadgets?.note ?? null, hint: hidden || this.run || this.tvs?.hint ? null : this.gadgets?.hint ?? this.items?.hint ?? pl?.hint ?? null, hide: this.dying >= 0 || this.winning || this.spectating ? null : hidden ? (p!.hideState === 'hidden' ? 'leave' : null) : this.hideNear() ? 'hide' : null, breath: p?.concealed ? { air: this.breath.air, warn: this.inspected, held: this.holding } : null, drink: p?.dead ? 0 : p?.drinking || p?.drinkingMonster || p?.drinkingUno || 0, drinkName: p?.prop === 'monster' ? 'MONSTER' : p?.prop === 'uno' ? 'UNO REVERSE' : 'ALMOND WATER', refill: pl?.fill ?? 0, inv, aiming: !!p?.aiming, scoped: !!p?.scoped && !this.spectating, zoom: p?.zoom ?? 1, focus: !!this.items?.focus, tapes: this.items?.tapes ?? 0, photos: this.items?.photos ?? 0, ammo: p?.has.gun ? p.ammo : null, spare: p?.spare ?? 0, battery, time: this.t, hp: p?.hp ?? HP_MAX, hps: this.hps, spectating: this.spectating && !this.run ? (this.remotes.get(this.watching)?.name ?? '') : null, watchList: this.spectating && !this.run ? [...this.remotes.values()].map((r) => ({ name: r.name, on: r.id === this.watching && this.specView !== 'free', dead: r.dead })) : undefined, specView: this.spectating && !this.run ? this.specView : undefined };
+    return { mission: ms ? { kind: ms.kind, text: ms.text, line: missionLine(ms), progress: ms.progress, goal: ms.goal, done: ms.done } : null, ascent: up ? { boarded: !!this.mp && up.boarded.includes(this.mp.id), left: Math.max(0, up.left - (performance.now() - up.at) / 1000) } : null, act: hidden || this.run ? null : this.tvs?.hint ?? this.doorAct ?? (pl ? p?.refillAct : null) ?? null, totem: this.totemHud(), needClick: this.input.needClick, bag: this.bagOpen && !this.shopOpen, shop: this.bagOpen && this.shopOpen, note: this.gadgets?.note ?? null, hint: hidden || this.run || this.tvs?.hint ? null : this.gadgets?.hint ?? this.items?.hint ?? pl?.pickups.hint ?? null, hide: this.dying >= 0 || this.winning || this.spectating ? null : hidden ? (p!.hideState === 'hidden' ? 'leave' : null) : this.hideNear() ? 'hide' : null, breath: p?.concealed ? { air: this.breath.air, warn: this.inspected, held: this.holding } : null, drink: p?.dead ? 0 : p?.drinking || p?.drinkingMonster || p?.drinkingUno || 0, drinkName: p?.prop === 'monster' ? 'MONSTER' : p?.prop === 'uno' ? 'UNO REVERSE' : 'ALMOND WATER', refill: p?.fill ?? 0, inv, aiming: !!p?.aiming, scoped: !!p?.scoped && !this.spectating, zoom: p?.zoom ?? 1, focus: !!this.items?.focus, tapes: this.items?.tapes ?? 0, photos: this.items?.photos ?? 0, ammo: p?.has.gun ? p.ammo : null, spare: p?.spare ?? 0, battery, time: this.t, hp: p?.hp ?? HP_MAX, hps: this.hps, spectating: this.spectating && !this.run ? (this.remotes.get(this.watching)?.name ?? '') : null, watchList: this.spectating && !this.run ? [...this.remotes.values()].map((r) => ({ name: r.name, on: r.id === this.watching && this.specView !== 'free', dead: r.dead })) : undefined, specView: this.spectating && !this.run ? this.specView : undefined };
   }
 
   /** Lo abierto que es el sitio: las celdas libres en 7 × 7 alrededor (0–1). */
@@ -1254,8 +1253,6 @@ export class BackroomsGame {
     if (!(pl instanceof PoolLevel) || !mp || !p) return;
     mp.inv = p.inventory;
     pl.tank = p.tankWorn;
-    if (!mp.inv.watergun) pl.gunOn = false;
-    pl.hasGun = !!mp.inv.watergun;
   }
 
   /** Dentro del ascensor: las puertas se cierran, la grabación se corta a negro y «Noclip». */
@@ -1264,9 +1261,11 @@ export class BackroomsGame {
     this.winning = true;
     this.viaStairs = stairs;
     this.player!.frozen = this.player!.lookFree = true; // quieto, pero mira alrededor: el viaje se ve desde dentro
-    if (!stairs) this.world?.cab.board(); // (por la escalera no hay cabina: se corta a negro sin más)
+    const pl = this.pool instanceof PoolLevel ? this.pool : undefined;
+    if (pl) (pl.hold = true), (this.note = { text: 'GOING UP', until: performance.now() + 3000 });
+    if (!stairs) (this.world?.cab ?? pl?.cab)?.board(); // (por la escalera no hay cabina: se corta a negro sin más)
     this.bagOpen = false;
-    unlock('backrooms');
+    if (!pl) unlock('backrooms');
     this.mp?.sock.emit('ascend', this.player!.inventory); // sube con lo que lleva; el servidor lo acota y cierra la ronda cuando suben todos o se acaba el tiempo
     setTimeout(() => this.onWin?.(), (stairs ? 0 : RIDE * 1000) + 2600);
   }
@@ -1872,7 +1871,7 @@ export class BackroomsGame {
       }
     this.items?.sync(w.taken, w.tapes);
     if (this.pool instanceof PoolLevel) {
-      this.pool.sync(w.taken);
+      this.pool.pickups.sync(w.taken, w.tapes);
       this.pool.syncDrops(w.drops ?? []);
       for (const d of w.drops ?? []) this.dropKind.set(d.id, d.kind);
     }
@@ -1976,14 +1975,15 @@ export class BackroomsGame {
   private sendState() {
     const p = this.player;
     if (!p || !this.mp) return;
-    if (this.pool instanceof PoolLevel) return this.poolState(this.pool);
     // volatile: si el túnel va atascado, este estado se pierde en vez de encolarse (el siguiente lleva lo último); t: la hora de ahora, para que
     // los demás reconstruyan mi ritmo aunque los paquetes lleguen tarde o juntos
+    const pl = this.pool instanceof PoolLevel ? this.pool : undefined;
+    if (pl && this.spectating) return; // (de espectador la cámara va por el mapa: el cuerpo se queda donde cayó)
     // Las Suites: al servidor se le cuenta siempre la copia del medio del pasillo (donde están los objetos); el salto al entrar o salir del vestíbulo es un teletransporte legítimo (`tp`)
-    const sx = this.caps.hotel ? wrapX(p.pos.x) : p.pos.x;
-    if (Math.abs(sx - this.sentX) > 10) this.tp++;
-    this.sentX = sx;
-    this.mp.sock.volatile.emit('state', { x: sx, tp: this.tp, y: p.pos.y, z: p.pos.z, yaw: p.yaw, pitch: p.pitch, anim: 'Neutral Idle', dance: p.dancing || undefined, variant: p.variant || undefined, light: p.lightOn, duck: p.duck, held: p.concealed || p.hand === 'watergun' ? 'none' : p.hand, hiding: p.concealed, holding: this.holding, t: performance.now() });
+    const at = pl ? pl.state : { x: this.caps.hotel ? wrapX(p.pos.x) : p.pos.x, y: p.pos.y, z: p.pos.z, yaw: p.yaw, pitch: p.pitch };
+    if (Math.abs(at.x - this.sentX) > 10) this.tp++; // (un teletransporte —Uno Reverse, admin, bucle de Las Suites— se cuenta aparte: el servidor no lo recorta)
+    this.sentX = at.x;
+    this.mp.sock.volatile.emit('state', { x: at.x, tp: this.tp, y: at.y, z: at.z, yaw: at.yaw, pitch: at.pitch, anim: 'Neutral Idle', dance: p.dancing || undefined, variant: p.variant || undefined, light: p.lightOn, duck: p.duck, tank: pl ? p.tankWorn : undefined, held: p.concealed || p.hand === 'watergun' ? 'none' : p.hand, jam: pl ? Math.round(pl.jam) : undefined, hiding: p.concealed, holding: this.holding, t: performance.now() });
   }
 
   /** Estado de la red para depurar (consola: `__game.netInfo()`): ping, jitter y retraso de dibujo de cada jugador y del mundo. */
@@ -2125,9 +2125,18 @@ export class BackroomsGame {
       if (c.bag) this.bagOpen ? this.closeBag() : pl instanceof PoolLevel && (pl.dead || this.winning) ? undefined : this.openBag();
       if (pl instanceof PoolLevel) c = this.poolMatch(pl, dt, c);
     }
-    if (pl instanceof PoolLevel && me) (pl.walkSp = WALK * perks.stats.speed * me.speedMul), (pl.runSp = RUN * perks.stats.speed * me.speedMul), (pl.jumpV = JUMP * me.jumpMul); // (las del Player: el mismo personaje en todos los niveles)
-    pl.update(dt, me?.winded && c.run ? { ...c, run: false } : c); // sin aguante no se corre (el Player lo gasta en poolHands)
-    this.poolHands(pl, dt, c);
+    if (pl instanceof PoolLevel && me) {
+      // el mismo Player de siempre mueve el cuerpo (con las constantes de locomotion.ts y a través del mundo, que sabe de agua, tubos y plantas) y pone la cámara
+      pl.speedK = perks.stats.speed * me.speedMul;
+      pl.jumpK = me.jumpMul;
+      pl.slowMul = (me.aiming ? CAM_AIM_SLOW : 1) * me.buffSpeed; // enfocar con la camcorder frena (igual que en el laberinto)
+      const cc = pl.pre(dt, me.winded && c.run ? { ...c, run: false } : c); // sin aguante no se corre (el Player lo gasta)
+      this.poolHands(pl, dt, cc);
+      if (!pl.dead && !this.winning) pl.pickups.tick(this.t, dt, cc); // lo recogible (pickups.ts), como en el nivel 0
+      pl.sqShow = me.hand === 'watergun' && !pl.dead;
+      pl.sqVal = me.squirt;
+      pl.post(dt, cc);
+    } else pl.update(dt, c);
     if (pl instanceof PoolLevel && me) for (const e of this.entities) e.alive && e.update(dt, me.pos, pl.camera.position, null, false, true); // las entidades de la sala (el servidor las lleva)
     if (this.spectating) this.specCam(dt, c);
     // la cinta (líneas de barrido, croma) fuera del nivel: solo el grano de la película, que se mueve
@@ -2159,39 +2168,21 @@ fps ${(1 / Math.max(dt, 1e-3)).toFixed(0)}`;
       s.n = s.ms = 0;
     }
   }
-  /** Las manos y la linterna del Player encima de la cámara del nivel: se le da mi posición y mirada, se le deja pintar y se devuelve la cámara tal como la dejó PoolLevel. */
-  private handY?: number;
-  private poolHands(pl: PoolTest | PoolLevel, dt: number, c: Controls) {
+  /** El Player de siempre en las Poolrooms: mueve el cuerpo por el mundo (`terrain`), pone la cámara, las manos, el cuerpo y la linterna. */
+  private poolHands(pl: PoolLevel, dt: number, c: Controls) {
     const me = this.player;
-    if (!me || !(pl instanceof PoolLevel)) return;
-    const cam = pl.camera, pos = cam.position.clone(), rot = cam.rotation.clone(), st = pl.state;
-    // el mismo Player de siempre: PoolLevel pone la física (posición, salto, nado) y se la pasa; el Player lleva el cuerpo (pasos a la velocidad real, salto, agachado) y las manos
-    me.ext = { speed: st.swim ? 0 : st.speed, air: st.air, vy: st.vy };
-    pl.slowMul = (me.aiming ? CAM_AIM_SLOW : 1) * me.buffSpeed; // enfocar con la camcorder frena (igual que en el laberinto)
-    // (la altura se suaviza: PoolLevel sube peldaños y flota con sacudidas que, pegadas a las manos, las hacían temblar)
-    const ty = cam.position.y - EYE + me.duckLift;
-    this.handY = this.handY === undefined || Math.abs(this.handY - ty) > 0.5 ? ty : this.handY + (ty - this.handY) * (st.air ? 1 : Math.min(1, dt * 9)); // (en el aire sin suavizar: si no, los brazos iban por detrás de lo que llevan en la mano)
-    // muerto, el cuerpo se queda tumbado donde cayó (st sigue a la cámara del espectador: ver haunt)
-    const dp = pl.dead ? this.deathAt : undefined;
-    me.pos.set(dp?.x ?? st.x, dp ? dp.y : this.handY, dp?.z ?? st.z); // (la vista agachada ya la baja PoolLevel: se le suma lo que el Player baja la suya)
-    me.yaw = dp?.yaw ?? st.yaw;
-    me.pitch = st.pitch;
-    me.dead = pl.dead; // muerto: el Player tumba el cuerpo y esconde las manos
-    // el salto lo hace PoolLevel (el Player lo ve en st.air); la barra rápida y la rueda las lleva poolMatch
+    if (!me) return;
+    me.dead = pl.dead; // muerto: el Player tumba el cuerpo donde cayó y esconde las manos (la cámara la pone entonces PoolLevel / el espectador)
     // la cámara de fotos sí se apunta (clic derecho, zoom) y dispara, salvo nadando o muerto
-    const cam_ok = !pl.dead && !st.swim && !this.winning;
-    // (sin `look`: la mirada ya es la de PoolLevel; si el Player la sumara otra vez, las manos irían un fotograma por delante de la cámara)
-    me.update(dt, { ...c, look: _none, jump: false, crouch: !!c.crouch && !st.swim && !pl.dead, aim: c.aim && cam_ok, zoom: cam_ok ? c.zoom : 0, slot: -1, wheel: 0, use: false, swap: false });
+    const swim = pl.state.swim, cam_ok = !pl.dead && !swim && !this.winning;
+    me.update(dt, { ...c, crouch: !!c.crouch && !swim && !pl.dead, aim: c.aim && cam_ok, zoom: cam_ok ? c.zoom : 0, ...(this.winning ? { slot: -1, wheel: 0, use: false, swap: false } : {}) }); // (la barra rápida y la rueda, como en el nivel 0, las lleva el Player)
     if (!cam_ok && me.aiming) (me.aiming = false), (me.zoom = 1);
-    if (st.swim && !pl.dead) me.rig.root.visible = false;
+    if (swim && !pl.dead) me.rig.root.visible = false;
     if (c.fire && cam_ok && me.hand === 'camera' && me.aiming && this.t - this.picAt > 0.8) {
       this.picAt = this.t;
       this.picSnap = true;
       this.audio?.shutter();
     }
-    cam.position.copy(pos);
-    cam.rotation.copy(rot);
-    cam.updateMatrixWorld();
   }
   /** Lo nuevo del jugador que avisa al servidor: la Monster (se gasta) y la carta Uno Reverse (cambia de sitio con otro al azar). */
   private hookGear(p: Player) {
@@ -2249,6 +2240,8 @@ fps ${(1 / Math.max(dt, 1e-3)).toFixed(0)}`;
     this.poolWorld = { root: p.scene, cellAt: (x: number, z: number) => ({ x: Math.floor(x / CELL), y: Math.floor(z / CELL) }) } as unknown as World;
     const me = (this.player = new Player(stub, this.assets!, p.camera, this.flash, this.opts.reduced));
     me.poolMode = true;
+    me.terrain = p;
+    (me.yaw = p.state.yaw), (me.pitch = p.state.pitch); // (la mirada es del Player: empieza donde mira el nivel)
     me.load(mp.inv ?? START_INV);
     me.onDrink = () => (this.audio?.drink(), mp.sock.emit('drink')); // X con una lata: el servidor da la vida; aquí aguante y cordura
     this.hookGear(me);
@@ -2280,18 +2273,12 @@ fps ${(1 / Math.max(dt, 1e-3)).toFixed(0)}`;
     gd.net(mp.sock);
     // jabones (pickup), tanque, pistola de agua (squirt) y lo que me hacen los demás con ella (wet)
     p.tank = me.tankWorn;
-    p.hasGun = !!mp.inv?.watergun; // (quien entra ya con la pistola: sin esto no podía recargarla con ella guardada)
-    p.claim =(id, done) => mp.sock.emit('pickup', id, (ok: boolean) => (done(ok), ok || (this.note = { text: 'CANNOT TAKE THAT (ALREADY HAVE IT OR TOO FAR)', until: performance.now() + 2000 })));
-    // lo recogido (latas w, linternas f, tanque k, pistola p) pasa a mi inventario local; los jabones no cuentan
-    p.onTake = (id) => {
-      const kind = id[0] === 'd' ? (this.dropKind.get(id) as ItemId | undefined) : ({ w: 'water', f: 'flashlight', c: 'camera', k: 'tank', p: 'watergun' } as const)[id[0] as 'w'];
-      if (!kind || (kind as string) === 'loot') return; // (el botín lo lleva el servidor: llega con `bag`)
-      me.receive(kind);
-      mp.inv = me.inventory;
-      p.tank = me.tankWorn;
-      p.hasGun = !!mp.inv.watergun;
-    };
-    p.onSquirt = (x, z, yaw) => mp.sock.volatile.emit('squirt', { x, z, yaw });
+    const pk = p.pickups;
+    pk.bind(me);
+    pk.audio = this.audio;
+    pk.claim = (id, done) => mp.sock.emit('pickup', id, (ok: boolean) => (done(ok), ok || (this.note = { text: 'CANNOT TAKE THAT (ALREADY HAVE IT OR TOO FAR)', until: performance.now() + 2000 })));
+    pk.onGot = () => ((mp.inv = me.inventory), (p.tank = me.tankWorn)); // (lo recogido pasa a mi inventario local; el botín lo lleva el servidor: llega con `bag`)
+    me.onSquirt = (x, z, yaw) => mp.sock.volatile.emit('squirt', { x, z, yaw });
     const onWet = (m: { kind: 'wet' | 'stun'; ms: number }) => p.hit(m.kind, m.ms);
     mp.sock.on('wet', onWet);
     this.offNet.push(() => mp.sock.off('wet', onWet));
@@ -2310,43 +2297,17 @@ fps ${(1 / Math.max(dt, 1e-3)).toFixed(0)}`;
   private dropKind = new Map<string, string>();
   private poolSend = 0;
   private sqSnd = 0;
-  /**
-   * La barra rápida en las Poolrooms: la del jugador, salvo la pistola de agua, que aquí la lleva PoolLevel (`gunOn`). Su ranura es la que tenga en la barra,
-   * como cualquier otro objeto; con ella fuera no hay nada más en la mano, y al sacar otra cosa (o elegir una ranura vacía) se guarda. `toggle`: usar la ranura
-   * (tecla, X, clic) guarda lo que ya está fuera; la rueda solo saca.
-   */
-  poolHot(i: number, toggle = true) {
-    const p = this.pool, me = this.player;
-    if (!(p instanceof PoolLevel) || !me || i >= perks.stats.hot) return; // (solo las ranuras que dan las mejoras)
-    me.hotSel = i;
-    if (me.hot[i] === 'watergun' && this.mp?.inv?.watergun) {
-      p.gunOn = toggle ? !p.gunOn : true;
-      if (p.gunOn) me.empty();
-      if (toggle) this.audio?.click();
-    } else (p.gunOn = false), toggle ? me.useHot(i) : me.pickHot(i);
-  }
   /** Ponerse (o guardar en la mochila) la bombona de buceo. */
   setTank(on: boolean) {
     if (!this.player) return;
     this.player.tankOn = on;
     this.poolInv();
   }
-  /** ¿Se está jugando dentro de las Poolrooms con compañeros? (la barra rápida lo usa) */
-  get inPool() {
-    return this.pool instanceof PoolLevel;
-  }
-
   /** Cada fotograma de una ronda en las Poolrooms: los demás, mi estado a 15 Hz y la salida (con la misión cumplida, al acercarse se sube). */
   private poolMatch(p: PoolLevel, dt: number, c: Controls): Controls {
     this.t += dt;
     const me = this.player, st = p.state;
-    if (!p.dead && !this.winning) {
-      if (c.slot >= 0) this.poolHot(c.slot);
-      else if (c.use) this.poolHot(me?.hotSel ?? 0);
-      const slots = perks.stats.hot;
-      if (c.wheel && me && slots) this.poolHot((Math.min(me.hotSel, slots - 1) + Math.sign(c.wheel) + slots) % slots, false);
-      if (c.drop) this.dropSelected();
-    }
+    if (c.drop && !p.dead && !this.winning) this.dropSelected(); // (la barra rápida y la rueda las lleva el Player, como en el nivel 0)
     if (this.gadgets) c = this.gadgets.update(dt, c); // cinta de acordonar y radar: se llevan los clics que gastan
     // sonido: pasos en seco o chapoteo (y brazadas al nadar), el zumbido de los tubos y los ruidos lejanos
     if (st.speed > 0.4 && !st.ride && !p.dead) {
@@ -2358,20 +2319,15 @@ fps ${(1 / Math.max(dt, 1e-3)).toFixed(0)}`;
     this.audio?.ambient(dt, 0.7, 0);
     if (p.dead && !this.spectating && this.t - this.deadAt > 3.5) this.spectate(); // tras caer, a mirar por los ojos de un compañero
     this.sqSnd -= dt;
-    if (this.cheats.ammo) p.squirtLeft = 1;
-    if ((p.jetting || p.refilling) && this.sqSnd <= 0) (this.sqSnd = p.jetting ? 0.12 : 0.4), p.jetting ? this.audio?.squirt() : this.audio?.refill();
+    if (me && this.cheats.ammo) me.squirt = 1;
+    if (me && (me.spraying || me.refilling) && this.sqSnd <= 0) (this.sqSnd = me.spraying ? 0.12 : 0.4), me.spraying ? this.audio?.squirt() : this.audio?.refill();
     for (const r of this.remotes.values()) r.update(dt);
     this.poolSend += dt;
-    if (this.poolSend >= 1 / 15) (this.poolSend = 0), this.poolState(p);
+    if (this.poolSend >= 1 / 15) (this.poolSend = 0), this.sendState();
     const dExit = p.dead ? Infinity : Math.hypot(st.x - p.exit.x, st.z - p.exit.z), near = dExit < 2.2 && st.y < 1;
     if (this.mission?.done && dExit < 4) p.cab.open(); // la misión está hecha: se abre al acercarse
     if (this.mission?.done && dExit < 0.45 && st.y < 1 && !this.winning) {
-      this.winning = true;
-      p.hold = true;
-      p.cab.board();
-      this.mp?.sock.emit('ascend', this.player?.inventory ?? this.mp.inv ?? START_INV); // lo que lleva el Player de verdad (mp.inv solo se refresca al recoger)
-      this.note = { text: 'GOING UP', until: performance.now() + 3000 };
-      setTimeout(() => this.onWin?.(), RIDE * 1000 + 2600);
+      this.win();
     } else if (!this.mission?.done && near && performance.now() > this.note.until) this.note = { text: 'THE DOOR IS SEALED · FINISH THE MISSION', until: performance.now() + 2500 };
     if (this.winning) {
       if (p.cab.rideT > RIDE) this.black = Math.min(1, this.black + dt / 1.5);
@@ -2381,19 +2337,9 @@ fps ${(1 / Math.max(dt, 1e-3)).toFixed(0)}`;
     return c;
   }
 
-  /** Mi estado para la sala (15 Hz y, con la pestaña oculta, el latido de wire). */
-  private poolState(p: PoolLevel) {
-    if (!this.mp || this.spectating) return;
-    const st = p.state;
-    this.mp.sock.volatile.emit('state', { x: st.x, y: st.y, z: st.z, yaw: st.yaw, pitch: st.pitch, anim: 'Neutral Idle', dance: this.player?.dancing || undefined, variant: this.player?.variant || undefined, light: !!this.player?.lightOn, duck: !!this.player?.duck, tank: !!this.player?.tankWorn, held: 'none', jam: Math.round(p.jam), t: performance.now() });
-  }
-
   /** El servidor me mata (admin, tótem...): sin mandos, la cámara cae y, pasado un rato, a mirar a los compañeros. */
-  private deathAt?: { x: number; y: number; z: number; yaw: number };
   private poolDied(p: PoolLevel) {
-    this.deathAt = { x: p.state.x, y: p.state.y, z: p.state.z, yaw: p.state.yaw };
     p.dead = true;
-    p.gunOn = false;
     this.deadAt = this.t;
     this.flash.intensity = 0;
     if (this.bagOpen) this.closeBag();
@@ -2456,7 +2402,7 @@ fps ${(1 / Math.max(dt, 1e-3)).toFixed(0)}`;
     const p = this.player, pl = this.pool instanceof PoolLevel ? this.pool : undefined;
     if (fx.k === 'ammo') return void (this.cheats.ammo = fx.on); // (el servidor lo ordena a este cliente: también si está muerto)
     if (!p || p.dead) return;
-    if (fx.k === 'tp') pl ? pl.teleport(fx.x, fx.z, fx.yaw, fx.y) : p.spawn(new THREE.Vector3(fx.x, 0, fx.z), fx.yaw);
+    if (fx.k === 'tp') pl ? (pl.teleport(fx.x, fx.z, fx.yaw, fx.y), (p.yaw = fx.yaw)) : p.spawn(new THREE.Vector3(fx.x, 0, fx.z), fx.yaw);
     else if (fx.k === 'give') (p.receive(fx.item), this.poolInv());
     else ((p.hp = perks.stats.hp), (p.stamina = 1), (p.sanity = 1), pl && (pl.o2 = 1));
   }
