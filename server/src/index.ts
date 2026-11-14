@@ -302,9 +302,10 @@ function without(inv: Inventory, kind: ItemId | 'loot', i: number): { inv: Inven
 /** Recoger un objeto soltado: cerca de donde está y si cabe; el primero se lo lleva. */
 function takeDrop(r: RoomState, p: Player, id: string) {
   const d = r.drops.get(id);
-  if (!d || p.dead || Math.hypot(p.st.x - d.x, p.st.z - d.z) > 3.6 || !fitsDrop(p.cap, d, p)) return false;
+  const spent = d?.kind === 'pokeball' && d.q?.c === 'player'; // (recoger la bola de un compañero atrapado lo libera y la bola se destruye)
+  if (!d || p.dead || Math.hypot(p.st.x - d.x, p.st.z - d.z) > 3.6 || (!spent && !fitsDrop(p.cap, d, p))) return false;
   r.drops.delete(id);
-  p.cap = withDrop(p.cap, d);
+  if (!spent) p.cap = withDrop(p.cap, d);
   bag(p);
   return true;
 }
@@ -1272,6 +1273,11 @@ io.on('connection', (sock) => {
         for (let t = .015; t <= 2; t += .015) {
           duration = t;
           const point = { x: x + vx * t, y: startY + vy * t - 8 * t * t, z: z + vz * t };
+          const floor = match.floorAt(point.x, point.z, point.y + 0.3); // (el suelo de esa planta: la botella se rompe en él, no lo atraviesa)
+          if (floor !== null && point.y <= floor + 0.05) {
+            path.push({ x: point.x, y: floor + 0.05, z: point.z });
+            break;
+          }
           if (!match.openItemPath(point.x, point.z, point.y)) break;
           path.push(point);
           target = [...r.players.values()].find(q => q !== p && !q.dead && !q.boarded
@@ -1337,7 +1343,7 @@ io.on('connection', (sock) => {
       const c = o.player ? 'player' : 'released' in o ? undefined : o.ent ?? was.c, id = 'd' + (++dropNo).toString(36);
       fx({ k: 'throw', what: 'pokeball', path: fl.pts, s: (fl.pts.length / 3) * FLIGHT_DT });
       p.cap = removeItem(p.cap, 'pokeball');
-      r.drops.set(id, { id, kind: 'pokeball', x: o.at[0], z: o.at[1], by: p.id, at: now, q: { r: was.r, w: was.w, ...(c ? { c } : {}) } });
+      if (!('released' in o)) r.drops.set(id, { id, kind: 'pokeball', x: o.at[0], z: o.at[1], by: p.id, at: now, q: { r: was.r, w: was.w, ...(c ? { c } : {}) } }); // (soltar a la entidad gasta la bola)
       if (o.player) {
         // un compañero: queda caído hasta que alguien recupere la bola del suelo (o ésta desaparezca)
         (o.player.ball = id), (o.player.ballAt = o.at), (o.player.dead = true);

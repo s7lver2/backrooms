@@ -111,6 +111,8 @@ interface Ent {
   /** Un golpe de bate: sale despedida hacia (dx, dz) a 16 m/s hasta recorrer `left` m (no es un salto: se ve volar) y queda aturdida un momento. */
   knock?: { dx: number; dz: number; left: number; by: { st: { x: number; z: number } } };
   stun?: number;
+  /** Soltada de una pokeball: pelea de tu lado mientras dura el hechizo y después desaparece. */
+  summoned?: boolean;
   charm?: { until: number; by: string; prev: { passive: boolean; enraged: boolean; roused: boolean } };
 }
 
@@ -376,7 +378,13 @@ export class Match {
       if (e.stun && this.age < e.stun) continue;
       let tg = targets;
       if (e.charm) {
-        if (this.age >= e.charm.until) (Object.assign(e.sim, e.charm.prev), (e.sim.path = []), (e.charm = undefined));
+        if (this.age >= e.charm.until) {
+          if (e.summoned) {
+            this.ents.splice(this.ents.indexOf(e), 1); // la soltada de una bola: se acabó su tiempo, desaparece
+            continue;
+          }
+          Object.assign(e.sim, e.charm.prev), (e.sim.path = []), (e.charm = undefined);
+        }
         else {
           // hechizada: a por todo lo que no sea su dueño, entidades incluidas
           const by = e.charm.by;
@@ -580,6 +588,7 @@ export class Match {
       e.sim.x = end[0];
       e.sim.z = end[1];
       e.charm = { until: this.age + secs, by: p.id, prev: { passive: false, enraged: false, roused: false } };
+      e.summoned = true;
       return { released: held, at: end };
     }
     return { at: end };
