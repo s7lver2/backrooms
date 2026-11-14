@@ -200,7 +200,7 @@ export interface Hud {
   totem: { pick: { id: string; name: string }[] | null; phone?: boolean; run: RunHud | null; notes: string[]; immune: number };
 }
 
-const _spec = new THREE.Vector3(), _want = new THREE.Vector3(), _none = new THREE.Vector2();
+const _spec = new THREE.Vector3(), _want = new THREE.Vector3(), _none = new THREE.Vector2(), _feet = new THREE.Vector3();
 
 /*
  * Las backrooms: el juego de juegos/backrooms.exe. Sin React; el caparazón (Backrooms.tsx) lo carga,
@@ -1800,13 +1800,21 @@ export class BackroomsGame {
     const me = this.player;
     if (!me || !this.lobbyP) return;
     const items = Object.values(me.items);
-    if (!wr.driving || this.paused) {
+    const emo = wr.emoteClip; // (con un emote, el cuerpo entero a la vista de la cámara que lo mira; sentado en el suelo ya no se esconde todo)
+    if ((!wr.driving && !emo) || this.paused) {
       if (!this.lobbyHid) (this.lobbyVis = items.map((i) => i.visible)), items.forEach((i) => (i.visible = false)), (me.rig.root.visible = false), (this.lobbyHid = true);
       this.flash.intensity = 0;
       return;
     }
     if (this.lobbyHid) (items.forEach((it, k) => (it.visible = this.lobbyVis[k] ?? false)), (this.lobbyHid = false));
     const cam = wr.camera;
+    if (emo) {
+      // el emote se ve de frente: la sala ya puso la cámara delante; el Player solo pone el cuerpo (con su clip), sin tocar la cámara
+      me.showEmote(emo, _feet.set(wr.pos.x, wr.py, wr.pos.z), wr.yaw, dt);
+      this.flash.intensity = 0;
+      return;
+    }
+    me.showEmote('', _feet, 0, dt);
     me.pos.set(wr.pos.x, cam.position.y - EYE, wr.pos.z);
     me.yaw = wr.yaw;
     me.pitch = wr.pitch;

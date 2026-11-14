@@ -786,6 +786,31 @@ export class Player {
     for (const s of ['Head', 'Neck', 'LeftArm', 'RightArm']) this.bones[s]?.scale.setScalar(1);
   }
 
+  /** El clip de emote que se está viendo en el cuerpo ('' ninguno). */
+  private emoteClip = '';
+  /**
+   * La sala de espera: con la cámara delante, el cuerpo entero (cabeza y brazos incluidos) haciendo el clip de un emote, en `feet` mirando a `yaw`.
+   * Con '' vuelve a lo de siempre (el clip se para y `update` recupera el cuerpo en primera persona). Se llama cada fotograma EN LUGAR de `update` mientras
+   * dura el emote (el `update` colocaría la cámara en los ojos y se perdería la vista de frente).
+   */
+  showEmote(clip: string, feet: THREE.Vector3, yaw: number, dt: number) {
+    const A = this.rig.animator;
+    if (clip !== this.emoteClip) {
+      this.emoteClip = clip;
+      if (clip) A?.playOverClip(clip, 1);
+      else A?.stopOver();
+    }
+    if (!clip) return;
+    for (const it of Object.values(this.items)) it.visible = false;
+    const body = this.rig.root;
+    body.position.copy(feet);
+    body.rotation.set(0, yaw + Math.PI, 0);
+    body.visible = true;
+    this.rig.update(dt);
+    body.updateMatrixWorld(true);
+    for (const s of ['Head', 'Neck', 'LeftArm', 'RightArm']) this.bones[s]?.scale.setScalar(1);
+  }
+
   /** Espectador: nada de lo que llevaba en las manos (ni el cuerpo caído) va con la cámara de quien se mira. Se llama cada fotograma, después de todo lo que los muestra. */
   hideHeld() {
     for (const it of Object.values(this.items)) it.visible = false;
