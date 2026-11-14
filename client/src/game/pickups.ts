@@ -269,7 +269,7 @@ export class PickupField {
           if (p.kind === 'loot') return; // el botín lo lleva el servidor (llega con `bag`)
           if (p.drop || p.given) pl.receive(p.kind as ItemId); // lo soltado vuelve tal cual (y va a la barra o a la mano)
           else if (p.kind === 'tape') this.claim || this.tapes++; // en una sala, las cintas son de todos: las cuenta el servidor
-          else if (p.kind === 'flashlight') pl.spares++;
+          else if (p.kind === 'flashlight') (pl.spares++, pl.left === 'none' && (pl.left = 'flashlight')); // (la primera que se tiene se equipa sola, como en `apply`: sin esto, tras soltar la única y coger otra del mapa, quedaba en la mochila con la mano vacía)
           else if (p.kind === 'water') (pl.water++, pl.autoSlot('water'));
           else if (p.kind === 'totem') (pl.totem++, pl.autoSlot('totem'));
           else if (p.kind === 'radar') (pl.radar = true, pl.autoSlot('radar'));

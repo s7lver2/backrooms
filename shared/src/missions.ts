@@ -265,7 +265,7 @@ export function hasRoom(inv: Inventory, st: Stats, plus: ItemId | 'loot') {
   return kinds.length - hot + (inv.loot?.length ?? 0) + (plus === 'loot' ? 1 : 0) + Math.max(0, hot - st.hot) <= st.cells;
 }
 /** ¿Cabe uno más de `id`? Con `st` (lo que dan las mejoras del jugador) cuenta también el sitio de la mochila. */
-export const canHold = (inv: Inventory, id: ItemId, st?: Stats) => qty(inv, id) + pack(id) <= Number(INV_MAX[ITEMS[id].slot]) && (!st || qty(inv, id) > 0 || hasRoom(inv, st, id));
+export const canHold = (inv: Inventory, id: ItemId, st?: Stats) => qty(inv, id) + pack(id) <= Number(INV_MAX[ITEMS[id].slot]) && (!st || qty(inv, id) > 0 || id === 'flashlight' || hasRoom(inv, st, id)); // (la primera linterna se equipa sola y no ocupa casilla: nunca se rechaza por sitio)
 /** Con uno más de `id` (comprado o recogido del suelo), de rareza `r`: una pila conserva la rareza que ya tenía y reparte el desgaste. */
 export function addItem(inv: Inventory, id: ItemId, r = 0, w = 0, c?: string): Inventory {
   const n = qty(inv, id), old = n > 0 ? inv.q?.[id] : undefined;
