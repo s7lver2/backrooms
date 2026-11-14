@@ -3108,7 +3108,7 @@ fps ${(1 / Math.max(dt, 1e-3)).toFixed(0)}`;
     const px = this.caps.hotel ? this.player?.pos.x ?? 0 : 0, span = SUITE_L * CELL, shift = this.caps.hotel && px < 3 * span ? (Math.max(0, Math.floor(px / span)) - 1) * span : 0;
     if (m.k === 'throw') {
       const path = shift ? m.path.map((v, i) => (i % 3 ? v : v + shift)) : m.path;
-      const o = new THREE.Mesh(new THREE.SphereGeometry(0.1, 12, 8), new THREE.MeshStandardMaterial({ color: m.what === 'pokeball' ? 0xd32f2f : 0x59684a }));
+      const o = new THREE.Mesh(new THREE.SphereGeometry(0.1, 12, 8), new THREE.MeshStandardMaterial({ color: m.what === 'pokeball' ? 0xd32f2f : m.what === 'uno' ? 0xe0b020 : 0x59684a }));
       (this.parking?.level.scene ?? (this.pool instanceof PoolLevel ? this.pool.scene : this.scene)).add(o);
       this.throwS = m.s;
       let t = 0;
@@ -3120,6 +3120,27 @@ fps ${(1 / Math.max(dt, 1e-3)).toFixed(0)}`;
         o.removeFromParent();
         o.geometry.dispose();
         (o.material as THREE.Material).dispose();
+        return false;
+      });
+      return;
+    }
+    if (m.k === 'cards') {
+      // cartas girando alrededor de la entidad inmovilizada, a varias alturas, hasta que acaba el efecto
+      const sc = this.parking?.level.scene ?? (this.pool instanceof PoolLevel ? this.pool.scene : this.scene), cols = [0xd32f2f, 0x1e63c9, 0x2e9e45, 0xe0b020], cards = Array.from({ length: 10 }, (_, i) => {
+        const c = new THREE.Mesh(new THREE.PlaneGeometry(0.24, 0.36), new THREE.MeshBasicMaterial({ color: cols[i % 4], side: THREE.DoubleSide }));
+        sc.add(c);
+        return { c, a: (i / 10) * Math.PI * 2, y: 0.25 + (i / 9) * Math.max(0.8, m.h - 0.1) };
+      });
+      let t = 0;
+      this.fxList.push((dt) => {
+        t += dt;
+        for (const q of cards) {
+          const a = q.a + t * 2.4, r = 0.75 + Math.sin(t * 3 + q.y * 5) * 0.06;
+          q.c.position.set(m.x + shift + Math.cos(a) * r, q.y + Math.sin(t * 2 + q.a) * 0.06, m.z + Math.sin(a) * r);
+          q.c.rotation.set(0, -a + Math.PI / 2, Math.sin(t * 4 + q.a) * 0.3);
+        }
+        if (t < m.s) return true;
+        for (const q of cards) (q.c.removeFromParent(), q.c.geometry.dispose(), (q.c.material as THREE.Material).dispose());
         return false;
       });
       return;

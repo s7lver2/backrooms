@@ -279,6 +279,7 @@ export class Match {
     return this.parking?.map.spawn ?? centerOf(this.maze.start);
   }
 
+  private staffBack: { at: number; x: number; z: number; facing: number; lobby?: boolean; patrol?: EntitySim['patrol'] }[] = [];
   private spawn(kind: Kind, at: { x: number; y: number }, speed = 1, hp = 3) {
     const m = this.emaze ?? this.maze;
     this.ents.push({ id: this.nextId++, sim: new EntitySim(kind, m, (x, z) => solidAt(m, x, z), at, speed * this.speed, hp, true) });
@@ -324,6 +325,13 @@ export class Match {
       this.parking.skinwalkers.speedBonus = now < this.curseUntil ? .5 : 0;
       this.parking.tick(dt, players, now, p => caught(p, -1));
       return;
+    }
+    for (const b of this.staffBack.filter((q) => this.age >= q.at)) {
+      this.staffBack.splice(this.staffBack.indexOf(b), 1);
+      this.spawn('faceling', { x: Math.floor(b.x / CELL), y: Math.floor(b.z / CELL) }, 1, 3);
+      const n = this.ents[this.ents.length - 1], w = n.sim;
+      (w.x = b.x), (w.z = b.z), (w.facing = b.facing), (w.passive = !(this.vengeance || this.eehOn)), (n.lobby = b.lobby);
+      if (b.patrol) w.patrol = b.patrol;
     }
     // misión EEH: el evaporador falla a su hora y entran las entidades (partygoers y una bacteria, por los arranques más lejanos)
     if (this.mission?.kind === 'eeh' && !this.eehOn && this.age - this.base >= this.mission.goal - EEH_HOLD) {
@@ -584,10 +592,12 @@ export class Match {
       for (const q of players) if (q !== p && !q.dead && !q.boarded && q.seen && Math.hypot(q.st.x - x, q.st.z - z) < 0.8 && y - q.st.y > 0 && y - q.st.y < 2) return { player: q, at: at(x, z) };
       if (held) continue;
       for (const e of this.ents)
-        if (e.sim.alive && e.sim.kind !== 'faceling' && Math.hypot(e.sim.x - x, e.sim.z - z) < 0.9 && y < 2.2) {
+        if (e.sim.alive && Math.hypot(e.sim.x - x, e.sim.z - z) < 0.9 && y < 2.2) {
           const kind = e.sim.kind, ex = e.sim.x, ez = e.sim.z;
           if (e.sim.insp) (e.sim.insp.h.by = null), (e.sim.insp = undefined);
-          this.ents.splice(this.ents.indexOf(e), 1); // capturada: fuera del mapa, y no reaparece otra
+          this.ents.splice(this.ents.indexOf(e), 1); // capturada: fuera del mapa
+          // el personal del hotel hace falta (encargos, misiones, tienda): vuelve a su sitio pasado un rato
+          if (kind === 'faceling') this.staffBack.push({ at: this.age + 40, x: ex, z: ez, facing: e.sim.facing, lobby: e.lobby, patrol: e.sim.patrol });
           return { ent: kind, at: at(ex, ez) };
         }
     }
@@ -602,6 +612,20 @@ export class Match {
       return { released: held, at: end };
     }
     return { at: end };
+  }
+
+  /** Carta: lo primero que toca en su vuelo se queda inmóvil `secs` s (rodeado de cartas). Devuelve dónde. */
+  cardHit(pts: number[], secs: number) {
+    for (let i = 0; i < pts.length; i += 3) {
+      const x = pts[i], y = pts[i + 1], z = pts[i + 2];
+      for (const e of this.ents)
+        if (e.sim.alive && Math.hypot(e.sim.x - x, e.sim.z - z) < 0.9 && y < 2.2) {
+          e.stun = this.age + secs;
+          e.knock = undefined;
+          e.sim.path = [];
+          return { x: e.sim.x, z: e.sim.z, h: e.sim.height };
+        }
+    }
   }
 
   /** Granada de humo caída en (x, z): nube de radio `r`, ruido de `noise` m y daño de impacto `dmg` a lo que esté debajo. */

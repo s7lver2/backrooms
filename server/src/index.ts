@@ -487,7 +487,7 @@ function endCall(r: RoomState, p: Player) {
     if (b) io.to(a.id).emit('toolFx', { k: 'call', peer: b.id, name: b.name, on: false });
   }
 }
-const TOOLS = ['pokeball', 'grenade', 'bat', 'nokia'];
+const TOOLS = ['pokeball', 'grenade', 'bat', 'nokia', 'uno'];
 
 const roomOf = (id: string) => rooms.get(where.get(id) ?? '');
 
@@ -1335,7 +1335,7 @@ io.on('connection', (sock) => {
     // pokeball y granada vuelan en parábola con rebotes (shared/throw.ts, la misma que dibuja el arco del cliente): `reach` les da más fuerza
     // (en la Habitable Zone no hay laberinto y en las Poolrooms el suelo no está en 0: el vuelo usa la altura del suelo del nivel; los choques, su mapa)
     const pk = m.parking, ground = !!pk || m.floorAt(p.st.x, p.st.z, p.st.y) !== null;
-    const fl = k === 'pokeball' || k === 'grenade' ? flight(pk ? (x, z) => !pk.openItemPath(x, z, p.st.y + 1) : (x, z) => solidAt(m.maze, x, z), [p.st.x, p.st.y + 1.5, p.st.z], yaw, Math.max(-1.45, Math.min(1.45, Number(a.pitch) || 0)), 11 * Math.sqrt(S.reach), 2.9, ground ? (x, z, y) => m.floorAt(x, z, y) : undefined) : undefined;
+    const fl = k === 'pokeball' || k === 'grenade' || k === 'uno' ? flight(pk ? (x, z) => !pk.openItemPath(x, z, p.st.y + 1) : (x, z) => solidAt(m.maze, x, z), [p.st.x, p.st.y + 1.5, p.st.z], yaw, Math.max(-1.45, Math.min(1.45, Number(a.pitch) || 0)), 11 * Math.sqrt(S.reach), 2.9, ground ? (x, z, y) => m.floorAt(x, z, y) : undefined) : undefined;
     if (k === 'pokeball' && fl) {
       // cada bola se lanza una vez: sale de la mano y cae donde acabe el vuelo; al recuperarla es otra bola, según lo que atrapó
       const was = p.cap.q?.pokeball ?? { r: 0, w: 0 }, mul = was.c ? BALL_KINDS[was.c]?.mul ?? 1 : 1;
@@ -1352,6 +1352,16 @@ io.on('connection', (sock) => {
       }
       bag(p);
       return reply(true, o.player ? `${o.player.name.toUpperCase()} TRAPPED · PICK THE BALL UP TO FREE THEM` : o.ent ? `${o.ent.toUpperCase()} CAUGHT · PICK THE BALL UP, THROW IT TO LET IT OUT` : 'released' in o ? `${String(o.released).toUpperCase()} RELEASED · IT FIGHTS FOR YOU FOR A WHILE` : 'MISSED · PICK THE BALL UP', true);
+    }
+    if (k === 'uno' && fl) {
+      // la carta Uno Reverse, lanzada: si toca a una entidad, queda rodeada de cartas e inmóvil 2,5 s
+      const hit = m.cardHit(fl.pts, 2.5);
+      fx({ k: 'throw', what: 'uno', path: fl.pts, s: (fl.pts.length / 3) * FLIGHT_DT });
+      if (hit) fx({ k: 'cards', x: hit.x, z: hit.z, h: hit.h, s: 2.5 });
+      p.cap = removeItem(p.cap, 'uno');
+      if (p.uid) count(p.uid, 'unos');
+      bag(p);
+      return reply(true, hit ? 'HIT · FROZEN FOR 2.5 S' : 'MISSED', true);
     }
     if (k === 'grenade' && fl) {
       const sub = (key: string) => subOf(p.cap, 'grenade', key);

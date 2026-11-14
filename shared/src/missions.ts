@@ -222,7 +222,7 @@ export const ITEMS: Record<ItemId, ItemDef> = {
   radar: { name: 'RADAR', price: 500, info: 'Shows where your teammates are.', slot: 'radar', hot: true, boost: 'SCAN RANGE' },
   tank: { name: 'DIVING TANK', price: 400, info: 'Doubles your air underwater, slows you 10%.', slot: 'tank', boost: 'AIR', level: 'poolrooms' },
   watergun: { name: 'WATER GUN', price: 250, info: 'Soaks and stalls whoever it hits.', slot: 'watergun', hot: true, boost: 'WATER TANK', level: 'poolrooms' },
-  uno: { name: 'UNO REVERSE', price: 450, info: 'Swap places with a random teammate. One use, one card at a time.', slot: 'uno', hot: true, level: 'poolrooms' },
+  uno: { name: 'UNO REVERSE', price: 450, info: 'Throw it at an entity: it freezes for 2.5 s surrounded by cards. One use, one card at a time.', slot: 'uno', hot: true, level: 'poolrooms' },
   monster: { name: 'MONSTER', price: 180, info: '3 s to drink. Then 5 s of +40% speed and endless stamina.', slot: 'monster', hot: true, boost: 'BOOST TIME' },
   pokeball: { name: 'POKEBALL', price: 650, info: 'Throw it at an enemy: it turns on the other entities for a few seconds. Throw it at a teammate: they are trapped until you use, drop it or die.', slot: 'pokeball', hot: true, boost: 'CHARM TIME', level: 'suites' },
   grenade: { name: 'SMOKE GRENADE', price: 220, info: 'A cloud of smoke that blinds the entities. It is very loud.', slot: 'grenade', hot: true, boost: 'SMOKE RANGE', level: 'suites' },

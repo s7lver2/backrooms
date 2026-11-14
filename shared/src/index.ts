@@ -274,7 +274,7 @@ export type AdminReply = { ok: boolean; error?: string; info?: AdminInfo };
 export type AdminFx = { k: 'tp'; x: number; y: number; z: number; yaw: number } | { k: 'give'; item: ItemId } | { k: 'heal' } | { k: 'ammo'; on: boolean } | { k: 'take'; item: ItemId } | { k: 'push'; x: number; z: number };
 /** Las Suites: usar pokeball, granada, bate o nokia. `yaw` y `pitch`, hacia donde mira; `to`, a quién llama (nokia; sin él, cuelga). */
 export interface ToolMsg {
-  k: 'pokeball' | 'grenade' | 'bat' | 'nokia';
+  k: 'pokeball' | 'grenade' | 'bat' | 'nokia' | 'uno';
   yaw: number;
   pitch: number;
   to?: string;
@@ -288,8 +288,9 @@ export interface ToolReply {
 }
 /** Lo que ven todos de un objeto de las Suites. */
 export type ToolFx =
-  | { k: 'throw'; what: 'pokeball' | 'grenade'; path: number[]; s: number }
+  | { k: 'throw'; what: 'pokeball' | 'grenade' | 'uno'; path: number[]; s: number }
   | { k: 'smoke'; x: number; z: number; r: number; s: number }
+  | { k: 'cards'; x: number; z: number; h: number; s: number }
   | { k: 'bat'; id: string }
   | { k: 'call'; peer: string; name: string; on: boolean }
   | { k: 'note'; text: string };

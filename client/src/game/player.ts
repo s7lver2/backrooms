@@ -206,7 +206,7 @@ export class Player {
   nokia = false;
   bat = false;
   grenade = 0;
-  onTool?: (k: 'pokeball' | 'grenade' | 'bat' | 'nokia') => void;
+  onTool?: (k: 'pokeball' | 'grenade' | 'bat' | 'nokia' | 'uno') => void;
   private toolCd = 0;
   /** Mantiene el clic con una pokeball o una granada en la mano: se ve el arco del lanzamiento. */
   charging = false;
@@ -475,10 +475,7 @@ export class Player {
       if (this.drinkT >= DRINK_T) (this.drinkT = -1e9), this.drink(); // (para otra lata, soltar y volver a mantener)
     } else if (!held) this.drinkT = 0;
     // la carta Uno Reverse en la mano: se juega al mantener (como el agua lo hacía), para que no se gaste sin querer
-    const ui = this.hot.indexOf('uno');
-    const playing = this.prop === 'uno' && this.uno && ((ui >= 0 && c.slotHeld === ui) || !!c.useHeld || !!c.fireHeld);
-    this.unoT = playing ? this.unoT + dt : 0;
-    if (this.unoT >= UNO_T) (this.unoT = -1e9), this.useUno();
+    this.unoT = 0; // (la carta ya no se juega manteniendo: se lanza, como la pokeball)
     // la Monster: mantener 3 s; después 5 s de velocidad y aguante sin límite
     const mi = this.hot.indexOf('monster');
     const sip = !this.drinkOff && this.prop === 'monster' && this.monster > 0 && this.buffT <= 0 && ((mi >= 0 && c.slotHeld === mi) || !!c.useHeld || !!c.fireHeld);
@@ -504,7 +501,7 @@ export class Player {
       if (this.prop === 'none' && this.hand === 'none' && this.gadget === 'none') this.prop = 'glasses';
     } else if (this.prop === 'glasses') this.prop = 'none';
     this.swingT = Math.max(0, this.swingT - dt);
-    if (this.prop === 'pokeball' || this.prop === 'grenade' || this.prop === 'beer') {
+    if (this.prop === 'pokeball' || this.prop === 'grenade' || this.prop === 'beer' || this.prop === 'uno') {
       // como una granada de videojuego: mantener el clic muestra el arco (game.ts lo dibuja) y soltarlo lanza; el clic derecho cancela
       if (!c.fireHeld) this.noCharge = false;
       if (c.aim && this.charging) (this.charging = false), (this.noCharge = true);
