@@ -3022,7 +3022,7 @@ fps ${(1 / Math.max(dt, 1e-3)).toFixed(0)}`;
       m.on ? this.callPeers.add(m.peer) : this.callPeers.delete(m.peer);
       return note(m.on ? `${m.name.toUpperCase()} · CALL CONNECTED: YOU CAN HEAR EACH OTHER ANYWHERE` : `CALL WITH ${m.name.toUpperCase()} ENDED`);
     }
-    if (m.k === 'bat') return void this.audio?.cue('equip');
+    if (m.k === 'bat') return void (this.audio?.cue('equip'), m.id !== this.mp?.id && this.remotes.get(m.id)?.swing());
     if (m.k === 'throw') {
       const o = new THREE.Mesh(new THREE.SphereGeometry(0.1, 12, 8), new THREE.MeshStandardMaterial({ color: m.what === 'pokeball' ? 0xd32f2f : 0x59684a }));
       this.scene.add(o);

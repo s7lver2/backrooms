@@ -233,6 +233,12 @@ export class Remote {
     return { jitter: Math.round(this.track.tl.jitter), delay: Math.round(this.track.tl.delay) };
   }
 
+  /** Un golpe de bate: el brazo y el torso barren hacia delante (a mano sobre los huesos: el paquete de animaciones no trae un clip de golpe). */
+  private swingT = 0;
+  swing() {
+    if (!this.dead && !this.dancing) this.swingT = 0.4;
+  }
+
   /** Atrapado (o caído): el cuerpo cae y se queda en el suelo. */
   die() {
     if (this.dead) return;
@@ -338,6 +344,12 @@ export class Remote {
       body.rotation.set(fl ? fl.rot.x : 0, this.yaw + Math.PI, fl ? fl.rot.z : 0);
     } else body.rotation.set(0, this.yaw + Math.PI, 0);
     this.rig.update(dt);
+    if (this.swingT > 0) {
+      this.swingT = Math.max(0, this.swingT - dt);
+      const k = Math.sin((1 - this.swingT / 0.4) * Math.PI), arm = this.rig.bone('RightArm'), spine = this.rig.bone('Spine');
+      if (arm) arm.rotation.x -= k * 2;
+      if (spine) spine.rotation.y += k * 0.7;
+    }
     // la cabeza sigue a la mirada (hacia arriba o abajo)
     if (this.bones.Head && !this.dead) this.bones.Head.rotation.x -= THREE.MathUtils.clamp(this.pitch, -1, 1) * 0.7;
     body.updateMatrixWorld(true);

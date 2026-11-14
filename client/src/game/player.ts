@@ -679,9 +679,11 @@ export class Player {
       it.visible = !rk;
       if (this.swingT > 0) {
         // lanzar o golpear: el objeto va hacia delante y abajo y vuelve
-        const t = Math.sin((1 - this.swingT / 0.35) * Math.PI);
-        it.rotateX(-t * (this.prop === 'bat' ? 1.5 : 0.8));
-        it.position.z -= t * 0.12;
+        const t = Math.sin((1 - this.swingT / 0.35) * Math.PI), bat = this.prop === 'bat';
+        it.rotateX(-t * (bat ? 2.3 : 0.8));
+        if (bat) it.rotateZ(t * 0.9); // (el bate barre de lado a lado, no solo cae hacia delante)
+        it.position.z -= t * (bat ? 0.3 : 0.12);
+        if (bat) it.position.x -= t * 0.12;
       }
       if (!rk && pg.right) grip('Right', it, pg.right);
       if (!rk && pg.left) grip('Left', it, pg.left);

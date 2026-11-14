@@ -575,7 +575,8 @@ export class Match {
     for (const e of [...this.ents]) {
       if (!e.sim.alive || !inCone(e.sim.x, e.sim.z)) continue;
       hit = true;
-      if (this.shove(e, fx, fz, force)) this.down(this.ents.indexOf(e), p);
+      // el golpe empuja y además hace daño: un punto de vida por golpe (o cae a un hueco)
+      if (this.shove(e, fx, fz, force) || e.sim.hit()) this.down(this.ents.indexOf(e), p);
     }
     this.noise(p.st.x, p.st.z, NOISE_DROP);
     return { pushed, hit, fx, fz };
