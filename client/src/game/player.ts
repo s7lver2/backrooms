@@ -359,6 +359,11 @@ export class Player {
     // otros objetos que se llevan en la mano (la lata de Almond Water, la cinta VHS, la caja de balas; el jabón viene con el kit de las Poolrooms): hoy solo los usa Anim Studio para colocar los agarres
     if (assets.gltf.water) this.items.water.add(fit(assets.gltf.water.scene.clone(true), 0.17));
     if (assets.gltf.vhs) this.items.tape.add(fit(assets.gltf.vhs.scene.clone(true), 0.19));
+    // el resto de objetos de mano, ya puestos (y ocultos): así se compilan sus shaders con el resto del nivel y sacarlos por primera vez no da un tirón
+    for (const [k, size] of [['monster', 0.2], ['uno', 0.2], ['pokeball', 0.11], ['grenade', 0.13], ['nokia', 0.15], ['bat', 0.7], ['glasses', 0.16], ['pills', 0.16], ['steelcard', 0.16], ['beer', 0.24]] as const) {
+      const m = itemModel(k);
+      if (m && !this.items[k].children.length) this.items[k].add(fit(skClone(m), size));
+    }
     this.items.ammo.add(new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.06, 0.06), new THREE.MeshStandardMaterial({ color: 0xb08d3a, roughness: 0.5, metalness: 0.5 })));
     this.placeItems(0);
     for (const it of Object.values(this.items)) camera.add(it);
