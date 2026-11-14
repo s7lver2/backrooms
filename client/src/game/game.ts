@@ -1356,7 +1356,7 @@ export class BackroomsGame {
   /** Una entidad que revienta: sus trozos salen despedidos de `from` y el globo se va al cielo. */
   private burst(e: Entity, from: THREE.Vector3) {
     const s = new Shatter(e.rig.root, from);
-    this.world!.root.add(s.root);
+    (e.rig.root.parent ?? this.world?.root ?? this.scene).add(s.root); // (en las Poolrooms no hay `world`: antes esto lanzaba y dejaba a las entidades sin actualizar, congeladas)
     this.shatters.push(s);
     if (e.balloon) this.balloons.push(e.balloon), (e.balloon = undefined);
     e.dispose();
@@ -2596,7 +2596,7 @@ fps ${(1 / Math.max(dt, 1e-3)).toFixed(0)}`;
       if (!this.mp) return;
       if (k === 'nokia' && !this.callPeers.size) return this.openTotem(true);
       this.mp.sock.emit('tool', { k, yaw: p.yaw, pitch: p.pitch }, (r) => {
-        if (r.why) this.note = { text: r.why, until: performance.now() + 3000 };
+        if (r.why && r.why !== 'WAIT') this.note = { text: r.why, until: performance.now() + 3000 };
         if (r.ok) this.audio?.cue('equip');
         if (r.used) p.lose(k);
       });

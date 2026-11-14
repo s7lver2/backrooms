@@ -108,6 +108,9 @@ interface Ent {
   /** Personal del vestíbulo (no sale de él, ni el del pasillo entra). */
   lobby?: boolean;
   /** Pokeball: las demás entidades son su enemigo hasta `until` (segundos de partida), salvo su dueño `by`; `prev` es lo que era antes. */
+  /** Un golpe de bate: sale despedida hacia (dx, dz) a 16 m/s hasta recorrer `left` m (no es un salto: se ve volar) y queda aturdida un momento. */
+  knock?: { dx: number; dz: number; left: number; by: { st: { x: number; z: number } } };
+  stun?: number;
   charm?: { until: number; by: string; prev: { passive: boolean; enraged: boolean; roused: boolean } };
 }
 
@@ -357,6 +360,20 @@ export class Match {
     for (const e of this.frozen ? [] : [...this.ents]) {
       if (!this.ents.includes(e)) continue; // (otra entidad, hechizada, acaba de matarla)
       e.sim.blind = fogAt(e.sim.x, e.sim.z);
+      if (e.knock) {
+        const k = e.knock, step = Math.min(k.left, 16 * dt), x = e.sim.x + k.dx * step, z = e.sim.z + k.dz * step;
+        if (solidAt(this.maze, x, z)) k.left = 0;
+        else (e.sim.x = x), (e.sim.z = z), (k.left -= step);
+        e.sim.path = [];
+        if (k.left <= 0.001) {
+          e.knock = undefined;
+          e.stun = this.age + 0.6;
+          const c = e.sim.cellOf(e.sim.x, e.sim.z);
+          if (this.maze.voids.some((v) => v.x === c.x && v.y === c.y)) this.down(this.ents.indexOf(e), k.by);
+        }
+        continue;
+      }
+      if (e.stun && this.age < e.stun) continue;
       let tg = targets;
       if (e.charm) {
         if (this.age >= e.charm.until) (Object.assign(e.sim, e.charm.prev), (e.sim.path = []), (e.charm = undefined));
@@ -576,23 +593,11 @@ export class Match {
       if (!e.sim.alive || !inCone(e.sim.x, e.sim.z)) continue;
       hit = true;
       // el golpe empuja y además hace daño: un punto de vida por golpe (o cae a un hueco)
-      if (this.shove(e, fx, fz, force) || e.sim.hit()) this.down(this.ents.indexOf(e), p);
+      if (e.sim.hit()) this.down(this.ents.indexOf(e), p);
+      else e.knock = { dx: fx, dz: fz, left: force, by: p };
     }
     this.noise(p.st.x, p.st.z, NOISE_DROP);
     return { pushed, hit, fx, fz };
-  }
-
-  /** Empuja una entidad `len` m hacia (dx, dz) hasta una pared; true si acaba sobre un hueco (cae). */
-  private shove(e: Ent, dx: number, dz: number, len: number) {
-    const m = this.maze, n = Math.ceil(len / 0.3);
-    for (let i = 0; i < n; i++) {
-      const x = e.sim.x + (dx * len) / n, z = e.sim.z + (dz * len) / n;
-      if (solidAt(m, x, z)) break;
-      (e.sim.x = x), (e.sim.z = z);
-    }
-    e.sim.path = [];
-    const c = e.sim.cellOf(e.sim.x, e.sim.z);
-    return m.voids.some((v) => v.x === c.x && v.y === c.y);
   }
 
   /** Entrar en el ascensor (abierto: la misión está cumplida). */
