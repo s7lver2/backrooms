@@ -1,4 +1,5 @@
 import { DEV_LOCAL } from '../devGate';
+import { claimPickup } from '../pickup-claim';
 import * as THREE from 'three';
 import { glow, lootModel, pulse } from './rarityFx';
 import { loadItemModels } from './itemModels';
@@ -663,7 +664,7 @@ export class BackroomsGame {
     const es = (['bacteria', 'partygoer'] as Kind[]).map((k, i) => new Entity(k, w, this.assets!, w.maze.spawns[i] ?? w.maze.start));
     es.forEach((e) => e.update(0, p.pos, this.camera.position, null, true, true));
     w.root.add(Shatter.warm(es.map((e) => e.rig.root)));
-    new Items(w, this.assets, p, this.camera); // y lo que se recoge (cintas, cámara y rifle en el suelo)
+    const warmItems = new Items(w, this.assets, p, this.camera); // y lo que se recoge (cintas, cámara y rifle en el suelo)
     // fase 2: los shaders (el avance es el de los programas ya compilados; el 15 % final es esperar a que el navegador termine)
     at(2, 0);
     await paint();
@@ -678,6 +679,7 @@ export class BackroomsGame {
     at(3, 0);
     await paint();
     this.stills = this.prerender(w, p, es);
+    warmItems.dispose();
     es.forEach((e) => e.dispose());
     p.dispose();
     w.dispose();
@@ -778,6 +780,7 @@ export class BackroomsGame {
 
     this.endPool();
     this.player?.dispose();
+    this.items?.dispose();
     this.world?.dispose();
     this.black = 0;
     this.winning = false;
@@ -1654,6 +1657,15 @@ export class BackroomsGame {
   private lobbyVis: boolean[] = [];
   /** Lo soltado en la sala de espera: id → su modelo en el suelo (lo manda el servidor con `ldrops`). */
   private lobbyDrops = new Map<string, THREE.Object3D>();
+  private lobbyDropResources = new Map<string, Set<{ dispose(): void }>>();
+  private lobbyClaims = new Set<string>();
+
+  private removeLobbyDrop(id: string) {
+    this.lobbyDrops.get(id)?.removeFromParent();
+    this.lobbyDrops.delete(id);
+    this.lobbyDropResources.get(id)?.forEach((resource) => resource.dispose());
+    this.lobbyDropResources.delete(id);
+  }
 
   /** El Player en la sala de espera: se le da mi posición, mirada y altura (la sala los lleva) y se le deja poner manos, objetos y linterna. Con la cámara de otro sitio (sentado, ante la pantalla) se esconden. */
   private lobbyHands(dt: number, c: Controls, wr: WaitingRoom) {
@@ -1711,10 +1723,19 @@ export class BackroomsGame {
     if (!mp || !c.grab) return;
     let best = '', bd = 2.5;
     for (const [id, o] of this.lobbyDrops) {
+      if (this.lobbyClaims.has(id)) continue;
       const d = Math.hypot(o.position.x - wr.pos.x, o.position.z - wr.pos.z);
       if (d < bd) (bd = d), (best = id);
     }
-    if (best) mp.sock.emit('pickup', best, (ok: boolean) => (ok ? this.audio?.pickup() : wr.say('CANNOT CARRY MORE')));
+    if (best) {
+      const tok = this.waitTok;
+      this.lobbyClaims.add(best);
+      void claimPickup(mp.sock, best, (ok) => {
+        if (tok !== this.waitTok || this.waiting !== wr) return;
+        this.lobbyClaims.delete(best);
+        ok ? this.audio?.pickup() : wr.say('CANNOT CARRY MORE');
+      }, 2500, () => tok === this.waitTok && this.waiting === wr && this.waitMp === mp);
+    }
   }
 
   /** Lo soltado en el suelo de la sala de espera: los nuevos se ponen con su modelo, los que ya no están se quitan. */
@@ -1722,20 +1743,29 @@ export class BackroomsGame {
     const wr = this.waiting, a = this.assets;
     if (!wr || !a) return;
     const here = new Set(list.map((d) => d.id));
-    for (const [id, o] of this.lobbyDrops) if (!here.has(id)) (o.removeFromParent(), this.lobbyDrops.delete(id));
+    for (const id of this.lobbyDrops.keys()) if (!here.has(id)) this.removeLobbyDrop(id);
     const g = a.gltf;
     const model: Record<string, [THREE.Object3D | undefined, number]> = { flashlight: [g.flashlight?.scene, 0.24], camera: [g.camcorder?.scene, 0.22], gun: [g.gun?.scene, 0.72], water: [g.water?.scene, 0.17], caution: [g.duct?.scene, 0.16], radar: [g.radar?.scene, 0.2], totem: [g.totem?.scene, 0.5] };
     for (const d of list) {
       if (this.lobbyDrops.has(d.id)) continue;
       const m = model[d.kind];
       const o = d.kind === 'loot' ? lootModel(d.q?.r) : m?.[0] ? fit(m[0].clone(true), m[1]) : new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.08, 0.08), new THREE.MeshStandardMaterial({ color: 0xb08d3a, roughness: 0.5 }));
-      o.add(glow(d.q?.r ?? 0));
+      const resources = new Set<{ dispose(): void }>();
+      if (d.kind === 'loot' || !m?.[0]) o.traverse((child) => {
+        const mesh = child as THREE.Mesh;
+        if (mesh.geometry) resources.add(mesh.geometry);
+        if (mesh.material) (Array.isArray(mesh.material) ? mesh.material : [mesh.material]).forEach((mat) => resources.add(mat));
+      });
+      const fx = glow(d.q?.r ?? 0);
+      o.add(fx);
+      resources.add(fx.material);
       o.position.set(d.x, 1.1, d.z);
       o.rotation.y = (d.x * 3.1 + d.z) % 6.28;
       const h = Math.sin(d.id.split('').reduce((a2, ch) => a2 * 31 + ch.charCodeAt(0), 7)) * 43758.5453, u = h - Math.floor(h), an = u * Math.PI * 2;
       o.userData.phys = { v: new THREE.Vector3(Math.cos(an) * 0.9, 1.6, Math.sin(an) * 0.9), spin: new THREE.Vector3((u - 0.5) * 9, (u - 0.3) * 6, (0.5 - u) * 9), rest: false };
       wr.scene.add(o);
       this.lobbyDrops.set(d.id, o);
+      this.lobbyDropResources.set(d.id, resources);
     }
   }
 
@@ -1779,6 +1809,8 @@ export class BackroomsGame {
   /** Quita la sala de espera: el compositor vuelve a pintar la escena del juego. */
   leaveWaiting() {
     this.waitTok++; // si aún se estaba cargando, se cancela
+    this.lobbyClaims.clear();
+    for (const id of this.lobbyDrops.keys()) this.removeLobbyDrop(id);
     this.offWait.forEach((f) => f());
     this.offWait = [];
     this.waitMp = undefined;
@@ -1791,8 +1823,6 @@ export class BackroomsGame {
       (this.lobbyP = false), (this.lobbyHid = false);
       this.player?.dispose();
       this.player = undefined;
-      for (const o of this.lobbyDrops.values()) o.removeFromParent();
-      this.lobbyDrops.clear();
       this.camera.add(this.flash, this.flash.target);
       this.flash.intensity = 0;
     }
@@ -1901,7 +1931,14 @@ export class BackroomsGame {
     s.on('adminFx', onFx);
     this.offNet.push(() => s.off('adminFx', onFx));
     this.offNet.push(() => (s.off('room', onRoom), s.off('players', onPlayers), s.off('world', onWorld), s.off('dead', onDead), s.off('blastFx', onBlast), s.off('reviving', onReviving), s.off('revived', onRevived), s.off('runFailed', onRunFailed), removeEventListener('keydown', key)));
-    if (items) (items.claim = (id, done) => (id.includes(':') ? s.emit('lockerTake', id.split(':')[0], Number(id.split(':')[1]), done) : s.emit('pickup', id, done))), (items.onPhoto = () => s.emit('photo')), (items.onSnap = () => s.emit('snap'));
+    if (items) {
+      items.claim = (id, done) => {
+        if (id.includes(':')) s.emit('lockerTake', id.split(':')[0], Number(id.split(':')[1]), done);
+        else void claimPickup(s, id, done, 2500, () => this.mp === mp && this.items === items);
+      };
+      items.onPhoto = () => s.emit('photo');
+      items.onSnap = () => s.emit('snap');
+    }
   }
 
   /** Los demás jugadores según lo que dice el servidor: se crean (con un clon reutilizado, en `parent`), se mueven y se quitan los que ya no están. */
@@ -2410,7 +2447,11 @@ fps ${(1 / Math.max(dt, 1e-3)).toFixed(0)}`;
     const pk = p.pickups;
     pk.bind(me);
     pk.audio = this.audio;
-    pk.claim = (id, done) => mp.sock.emit('pickup', id, (ok: boolean) => (done(ok), ok || (this.note = { text: 'CANNOT TAKE THAT (ALREADY HAVE IT OR TOO FAR)', until: performance.now() + 2000 })));
+    pk.claim = (id, done) => void claimPickup(mp.sock, id, (ok) => {
+      if (this.pool !== p) return;
+      done(ok);
+      if (!ok) this.note = { text: 'CANNOT TAKE THAT (ALREADY HAVE IT OR TOO FAR)', until: performance.now() + 2000 };
+    }, 2500, () => this.pool === p && this.mp === mp);
     pk.onGot = () => ((mp.inv = me.inventory), (p.tank = me.tankWorn)); // (lo recogido pasa a mi inventario local; el botín lo lleva el servidor: llega con `bag`)
     me.onSquirt = (x, z, yaw) => mp.sock.volatile.emit('squirt', { x, z, yaw });
     const onWet = (m: { kind: 'wet' | 'stun'; ms: number }) => (p.hit(m.kind, m.ms), me.hit(m.kind, m.ms), this.wetFx(m.kind));
@@ -2787,6 +2828,7 @@ x ${f(s.x)}  y ${f(s.y)}  z ${f(s.z)}  yaw ${f(s.yaw)}  pitch ${f(s.pitch)}`;
     this.audio?.dispose();
     this.audio = undefined;
     this.player?.dispose();
+    this.items?.dispose();
     this.world?.dispose();
     this.gadgets?.dispose();
     this.gadgets = undefined;
@@ -2810,6 +2852,7 @@ x ${f(s.x)}  y ${f(s.y)}  z ${f(s.z)}  yaw ${f(s.yaw)}  pitch ${f(s.pitch)}`;
   dispose() {
     this.renderer.setAnimationLoop(null);
     this.eehVeil?.remove();
+    this.endPool();
     this.endRun();
     this.stopMp();
     this.spare.forEach((r) => r.dispose());
@@ -2824,6 +2867,7 @@ x ${f(s.x)}  y ${f(s.y)}  z ${f(s.z)}  yaw ${f(s.yaw)}  pitch ${f(s.pitch)}`;
     this.gadgets?.dispose();
 
     this.player?.dispose();
+    this.items?.dispose();
     this.world?.dispose();
     this.renderer.dispose();
     this.renderer.forceContextLoss();

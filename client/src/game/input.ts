@@ -331,6 +331,8 @@ export class Input {
     this.keys.clear();
     this.toggled = false;
     this.holds.clear();
+    this.fireDown = false;
+    this.zoomV = 0;
     this.pulses.clear();
     this.needClick = this.soft_ = false;
     this.checkAt = 0;

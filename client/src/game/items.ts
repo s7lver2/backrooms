@@ -4,7 +4,7 @@ import { center, type World } from './world';
 import type { Assets } from './game';
 import type { Player } from './player';
 import { lockerMesh } from './lockerMesh';
-import { PickupField, MAG, TOTAL, type Pickup } from './pickups';
+import { PickupField, MAG, TOTAL, type PickupModel } from './pickups';
 export { MAG, TOTAL };
 import { boostOf, lootSpots, radarSpot, spotRarity, waterSpots, type Drop, type ItemId, type LockerItem } from '@backrooms/shared';
 import { itemModel } from './itemModels';
@@ -102,8 +102,8 @@ export class Items extends PickupField {
         const lk = lockerMesh();
         // siempre pegada a una pared: la primera de las cuatro de la celda con muro, de frente a la sala
         const cc = center(c), D = [[1, 0], [-1, 0], [0, 1], [0, -1]] as const, w = D.find(([dx, dz]) => this.world.solid(cc.x + dx * (CELL / 2 + 0.2), cc.z + dz * (CELL / 2 + 0.2))) ?? D[0];
-        put('l' + i, 'locker', c, lk, 1.8, Math.atan2(-w[0], -w[1]), { x: cc.x + w[0] * (CELL / 2 - 0.4), z: cc.z + w[1] * (CELL / 2 - 0.4) });
-      } else put('v' + i, 'loot', c, lootModel(spotRarity('v' + i, c)), 0.24, i); // el botín: solo para vender
+        put('l' + i, 'locker', c, lk, 1.8, Math.atan2(-w[0], -w[1]), { x: cc.x + w[0] * (CELL / 2 - 0.4), z: cc.z + w[1] * (CELL / 2 - 0.4) }, false, undefined, true);
+      } else put('v' + i, 'loot', c, lootModel(spotRarity('v' + i, c)), 0.24, i, undefined, false, undefined, true); // el botín: solo para vender
     });
     // los cuadros eléctricos de Las Suites: sin modelo propio (ya están en la pared), solo el sitio al que apuntar
     (m.gens ?? []).forEach((c, i) => {
@@ -189,15 +189,16 @@ export class Items extends PickupField {
 
   /** Los objetos soltados que hay ahora en el suelo (lista del servidor), con los modelos de este mundo. */
   override syncDrops(list: Drop[]) {
-    if (!this.kit && list.some((d) => d.kind === 'tank' || d.kind === 'watergun')) void loadPoolKit().then((k) => (this.kit = k)); // (sus modelos están en el kit de las Poolrooms; se reintenta en el siguiente mundo)
-    super.syncDrops(list, this.models(), lootModel);
+    if (this.disposed) return;
+    if (!this.kit && list.some((d) => d.kind === 'tank' || d.kind === 'watergun')) void loadPoolKit().then((k) => { if (!this.disposed) this.kit = k; }); // (sus modelos están en el kit de las Poolrooms; se reintenta en el siguiente mundo)
+    super.syncDrops(list, this.models());
   }
 
   /** Los modelos de cada objeto y su tamaño. */
-  private models(): Partial<Record<ItemId | 'loot', [THREE.Object3D, number]>> {
+  private models(): Partial<Record<ItemId | 'loot', PickupModel>> {
     const g = this.assets.gltf, kit = this.kit;
     return {
-      loot: [lootModel(), 0.24],
+      loot: (r) => [lootModel(r), 0.24],
       ...(kit?.tank && { tank: [kit.tank, 0.6] as [THREE.Object3D, number] }),
       ...(kit?.watergun && { watergun: [kit.watergun, 0.4] as [THREE.Object3D, number] }),
       flashlight: [g.flashlight.scene, 0.24],
@@ -209,12 +210,13 @@ export class Items extends PickupField {
       totem: [g.totem.scene, 0.5],
       ...(itemModel('uno') && { uno: [itemModel('uno')!, 0.2] as [THREE.Object3D, number] }),
       ...(itemModel('monster') && { monster: [itemModel('monster')!, 0.2] as [THREE.Object3D, number] }),
-      ammo: [new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.06, 0.06), new THREE.MeshStandardMaterial({ color: 0xb08d3a, roughness: 0.5, metalness: 0.5 })), 0.12],
+      ammo: () => [new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.06, 0.06), new THREE.MeshStandardMaterial({ color: 0xb08d3a, roughness: 0.5, metalness: 0.5 })), 0.12],
     };
   }
 
   /** La taquilla `id` se ha abierto (minijuego hecho): la puerta se abre y lo que queda dentro (`taken`: lo ya cogido) se ve en los estantes, listo para G. */
   openLocker(id: string, items: LockerItem[], taken: boolean[]) {
+    if (this.disposed) return;
     const lk = this.pickups.find((p) => p.id === id);
     if (!lk) return;
     this.swing(lk);
@@ -222,8 +224,9 @@ export class Items extends PickupField {
     items.forEach((it, i) => {
       const pid = `${id}:${i}`;
       if (taken[i] || this.pickups.some((p) => p.id === pid)) return;
-      const [src, size] = m[it.kind] ?? [lootModel(it.r), 0.24];
-      this.put(pid, it.kind, { x: 0, y: 0 }, it.kind === 'loot' ? lootModel(it.r) : src, size, 0, { x: pos.x + fx * 0.06, z: pos.z + fz * 0.06 }, false, it.r);
+      const model = m[it.kind], own = !model || typeof model === 'function';
+      const [src, size] = typeof model === 'function' ? model(it.r) : model ?? [lootModel(it.r), 0.24];
+      this.put(pid, it.kind, { x: 0, y: 0 }, src, size, 0, { x: pos.x + fx * 0.06, z: pos.z + fz * 0.06 }, false, it.r, own);
       const p = this.pickups[this.pickups.length - 1];
       p.given = true;
       p.y = 1.5 - i * 0.4; // un estante cada 40 cm, de arriba abajo
