@@ -5,7 +5,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bash C:/Users/lumpi/Desktop/backrooms/workflow/hooks/session-start.sh"
+            "command": "bash E:/backrooms/workflow/hooks/session-start.sh"
           }
         ]
       }
