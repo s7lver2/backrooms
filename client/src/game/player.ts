@@ -41,7 +41,7 @@ const _hl = new THREE.Vector3(), _hd = new THREE.Vector3(), _hq = new THREE.Quat
 const FLICKER_MAX = 0.2; // probabilidad máxima de que la linterna parpadee al encenderla (con la pila casi a cero)
 const FLASH_D0 = 4, FLASH_DECAY = 1.2, _fo = new THREE.Vector3(), _ft = new THREE.Vector3(), _v0 = new THREE.Vector3();
 const REACH_T = 0.85; // lo que dura recoger algo, en segundos
-const DRINK_T = 0.05; // lo que se mantiene la lata para beberla (s): antes 0,5; ahora casi instantáneo (>0 para no dividir por cero en la barra)
+const DRINK_T = 1.5; // lo que se mantiene la lata para beberla (s)
 /** Balance: enfocar con la camcorder (mirar por el visor) frena un 8 %. */
 export const CAM_AIM_SLOW = 0.92;
 const UNO_T = 1.2; // s manteniendo la carta
@@ -117,7 +117,7 @@ export class Player {
    * los pasos y las manos siguen siendo suyos. Sin él, el Player mueve el cuerpo por la rejilla del nivel (World).
    */
   terrain?: {
-    drive(dt: number, c: Controls, yaw: number, pitch: number): { x: number; y: number; z: number; speed: number; air: boolean; vy: number; swim: boolean; eye: number; jetOk: boolean };
+    drive(dt: number, c: Controls, yaw: number, pitch: number): { x: number; y: number; z: number; yaw: number; pitch: number; speed: number; air: boolean; vy: number; swim: boolean; eye: number; jetOk: boolean };
     /** Dónde está el suelo (o el agua) y las paredes, para las gotas de la pistola de agua. */
     jetProbe: JetProbe;
     splash(x: number, z: number, amp: number): void;
@@ -125,6 +125,7 @@ export class Player {
     refillNear(x: number, y: number, z: number): boolean;
   };
   private eyeBase = EYE;
+  private swimNow = false;
   /** Cuánto baja la vista el agachado ahora (m): quien le da la altura de la cámara lo suma para no bajarla dos veces. */
   get duckLift() {
     return this.duckD * this.duckK;
@@ -191,9 +192,9 @@ export class Player {
   uno = false;
   onMonster?: () => void;
   onUno?: (done: (ok: boolean) => void) => void;
-  /** La barra de aguante es un arcoíris: bebiendo una Monster y mientras dura. */
+  /** La barra de aguante es un arcoíris mientras dura el efecto de la Monster (no mientras se bebe: hasta acabar de beber no hace nada). */
   get rainbow() {
-    return this.monsterT > 0 || this.buffT > 0;
+    return this.buffT > 0;
   }
   /** Lo que acelera el efecto de la Monster (1 sin él). */
   get buffSpeed() {
@@ -367,8 +368,10 @@ export class Player {
     // la lata en la mano: mantener su tecla (o X, o el clic) medio segundo para beberla; soltar y volver a mantener para otra
     const wi = this.hot.indexOf('water');
     const held = !this.drinkOff && this.prop === 'water' && this.water > 0 && ((wi >= 0 && c.slotHeld === wi) || !!c.useHeld || !!c.fireHeld);
-    if (held && this.drinkT === 0) (this.drinkT = -1e9), this.drink(); // (al instante; para otra lata, soltar y volver a pulsar)
-    else if (!held) this.drinkT = 0;
+    if (held && this.drinkT >= 0) {
+      this.drinkT += dt;
+      if (this.drinkT >= DRINK_T) (this.drinkT = -1e9), this.drink(); // (para otra lata, soltar y volver a mantener)
+    } else if (!held) this.drinkT = 0;
     // la carta Uno Reverse en la mano: se juega al mantener (como el agua lo hacía), para que no se gaste sin querer
     const ui = this.hot.indexOf('uno');
     const playing = this.prop === 'uno' && this.uno && ((ui >= 0 && c.slotHeld === ui) || !!c.useHeld || !!c.fireHeld);
@@ -392,7 +395,7 @@ export class Player {
 
     // andar: hacia donde se mira, chocando eje a eje con las paredes
     // agacharse: no con la linterna de pie en un nicho ni en el aire; al soltar, vuelve a levantarse
-    this.duck = !!c.crouch && !c.run && hs === 'out' && this.ground; // (correr, Shift, manda: Ctrl+Shift = sprint)
+    this.duck = !!c.crouch && !c.run && hs === 'out' && this.ground && !this.swimNow; // (nadando, Ctrl es bajar, no agacharse) // (correr, Shift, manda: Ctrl+Shift = sprint)
     this.duckK += ((this.duck ? 1 : 0) - this.duckK) * Math.min(1, dt * 10);
     const moving = c.move.length() > 0.05, run = c.run && moving && !this.winded && !this.duck;
     // ~9 s corriendo; se recupera en ~6 s andando y ~4 s parado; agotado, no se corre hasta el 30 %
@@ -412,6 +415,8 @@ export class Player {
       // Poolrooms: el mundo mueve el cuerpo (con las constantes de locomotion.ts) y el Player toma el resultado
       tb = this.terrain.drive(dt, c, this.yaw, this.pitch);
       this.pos.set(tb.x, tb.y, tb.z);
+      (this.yaw = tb.yaw), (this.pitch = tb.pitch); // (el tubo gira el cuerpo y el pozo da la vuelta a la mirada: lo decide el mundo)
+      this.swimNow = tb.swim;
       speed = tb.swim ? 0 : tb.speed; // (la velocidad real, para que el Animator case los pasos)
       this.eyeBase = tb.eye;
       this.jetOk = tb.jetOk;

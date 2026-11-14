@@ -1422,7 +1422,13 @@ export class PoolLevel implements Terrain {
       (this.fx *= k), (this.fz *= k);
     }
     // por ejes, para deslizarse por las paredes
-    const from = i0, stuck = !this.canMove(this.px, this.pz, this.py, this.swim, from); // metido en algo (p. ej. al caer del tobogán): se puede salir
+    const from = i0;
+    const inside = !this.canMove(this.px, this.pz, this.py, this.swim, from); // metido en algo (p. ej. subiendo una escalera pegado a su lado: al subir los pies, la esquina entra en la losa de al lado)
+    let stuck = inside && !this.air;
+    if (inside && !dw) { // se saca el cuerpo por el sitio libre más cercano (antes, atrapado, se podía andar hacia dentro de la pared)
+      const D = [[1, 0], [-1, 0], [0, 1], [0, -1], [0.7, 0.7], [-0.7, 0.7], [0.7, -0.7], [-0.7, -0.7]];
+      out: for (const d of [0.04, 0.08, 0.16, 0.3, 0.5]) for (const [a, b] of D) if (this.canMove(this.px + a * d, this.pz + b * d, this.py, this.swim, from)) { (this.px += a * d), (this.pz += b * d), (stuck = false); break out; }
+    }
     if (dw) (this.px = Math.max(dw.x0 + 0.35, Math.min(dw.x1 - 0.35, this.px + mx))), (this.pz = Math.max(dw.z0 + 0.35, Math.min(dw.z1 - 0.35, this.pz + mz))); // dentro del pozo, sus cuatro paredes
     else {
       if (stuck || this.canMove(this.px + mx, this.pz, this.py, this.swim, from)) this.px += mx;
@@ -1447,7 +1453,8 @@ export class PoolLevel implements Terrain {
           this.jam = 12000;
         }
       } else {
-        const g = f1 ? f1.y : this.py;
+        let g = f1 ? f1.y : this.py;
+        if (this.air && g > this.py + 0.5) g = this.py - 1; // en el aire no se aterriza en un suelo que está muy por encima de los pies (pegado a una pared junto a unas escaleras, se subía de golpe a la otra planta)
         this.vy -= G * dt;
         if (c.jump && this.py <= g + 0.05 && !slide && !(i0 >= 0 && m.ramp[i0] !== PR.none)) this.vy = JUMP * this.jumpK; // (no se salta en escaleras ni rampas: en el aire el suelo de la otra planta contaba y se atravesaban las paredes)
         this.py += this.vy * dt;
@@ -1491,7 +1498,7 @@ export class PoolLevel implements Terrain {
     this.pitch = pitch;
     this.move(dt, { ...c, look: ZERO });
     this.eye += ((this.ride ? 0.55 : this.swim ? EYE_SWIM : EYE) - this.eye) * Math.min(1, dt * 8);
-    return { x: this.px, y: this.py, z: this.pz, speed: this.hs, air: this.air && !this.swim, vy: this.vyNow, swim: this.swim, eye: this.eye, jetOk: !(this.py + this.eye < this.surf && this.swim) && !this.ride };
+    return { x: this.px, y: this.py, z: this.pz, yaw: this.yaw, pitch: this.pitch, speed: this.hs, air: this.air && !this.swim, vy: this.vyNow, swim: this.swim, eye: this.eye, jetOk: !(this.py + this.eye < this.surf && this.swim) && !this.ride };
   }
   /** Sin Player (desarrollo): el mundo lo mueve todo, cámara incluida. */
   update(dt: number, c: Controls) {

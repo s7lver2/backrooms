@@ -1733,7 +1733,7 @@ export class BackroomsGame {
     // el Tótem de la vida: un caído corre «Run for your life» (todos lo ven en el HUD) y, al acabar, vuelve junto a quien lo usó
     const onReviving = (m: { id: string; name: string; by: string }) => {
       this.runners.set(m.id, m.name);
-      if (m.id === mp.id && !this.pool) this.beginRun(); // (el Run for your life es del nivel 0)
+      if (m.id === mp.id) this.beginRun(); // (el nivel rojo secreto: en cualquier nivel)
     };
     const onRunFailed = (m: { id: string; name: string }) => {
       this.runners.delete(m.id);
@@ -1749,8 +1749,8 @@ export class BackroomsGame {
       this.runners.delete(m.id);
       this.note = { text: `${m.id === mp.id ? 'YOU ARE' : m.name.toUpperCase() + ' IS'} BACK`, until: performance.now() + 4000 };
       if (m.id !== mp.id) return this.remotes.get(m.id)?.revive();
-      if (this.pool instanceof PoolLevel) return this.poolRevived(this.pool, m);
       this.endRun();
+      if (this.pool instanceof PoolLevel) return this.poolRevived(this.pool, m);
       this.dying = -1;
       this.killer = undefined;
       this.spectating = false;
@@ -2090,8 +2090,8 @@ export class BackroomsGame {
     this.run = undefined;
     r.dispose();
     const rp = this.composer.passes[0] as RenderPass;
-    rp.scene = this.scene;
-    rp.camera = this.camera;
+    rp.scene = this.pool?.scene ?? this.scene; // (de vuelta al nivel en el que se estaba, también las Poolrooms)
+    rp.camera = this.pool?.camera ?? this.camera;
     this.vhs.enabled = false;
     this.vhs.uniforms.uCorrupt.value = this.vhs.uniforms.uBlack.value = 0;
     this.vhs.uniforms.uPool.value = this.film.uniforms.uVhs.value = 0;
@@ -2121,6 +2121,7 @@ export class BackroomsGame {
     const pl = this.pool!, me = this.player;
     if (this.mp) {
       if (c.pause) return this.pause();
+      if (this.totemOpen && c.bag) (c.bag = false), this.closeTotem(); // Esc o E cierran el selector del Tótem (como en el nivel 0)
       // el inventario: la tecla lo abre y lo cierra (como en el nivel 0; ni muerto ni subiendo)
       if (c.bag) this.bagOpen ? this.closeBag() : pl instanceof PoolLevel && (pl.dead || this.winning) ? undefined : this.openBag();
       if (pl instanceof PoolLevel) c = this.poolMatch(pl, dt, c);
@@ -2175,7 +2176,7 @@ fps ${(1 / Math.max(dt, 1e-3)).toFixed(0)}`;
     me.dead = pl.dead; // muerto: el Player tumba el cuerpo donde cayó y esconde las manos (la cámara la pone entonces PoolLevel / el espectador)
     // la cámara de fotos sí se apunta (clic derecho, zoom) y dispara, salvo nadando o muerto
     const swim = pl.state.swim, cam_ok = !pl.dead && !swim && !this.winning;
-    me.update(dt, { ...c, crouch: !!c.crouch && !swim && !pl.dead, aim: c.aim && cam_ok, zoom: cam_ok ? c.zoom : 0, ...(this.winning ? { slot: -1, wheel: 0, use: false, swap: false } : {}) }); // (la barra rápida y la rueda, como en el nivel 0, las lleva el Player)
+    me.update(dt, { ...c, crouch: !!c.crouch && !pl.dead, aim: c.aim && cam_ok, zoom: cam_ok ? c.zoom : 0, ...(this.winning ? { slot: -1, wheel: 0, use: false, swap: false } : {}) }); // (la barra rápida y la rueda, como en el nivel 0, las lleva el Player)
     if (!cam_ok && me.aiming) (me.aiming = false), (me.zoom = 1);
     if (swim && !pl.dead) me.rig.root.visible = false;
     if (c.fire && cam_ok && me.hand === 'camera' && me.aiming && this.t - this.picAt > 0.8) {
@@ -2355,6 +2356,10 @@ fps ${(1 / Math.max(dt, 1e-3)).toFixed(0)}`;
     this.player?.revive(new THREE.Vector3(m.x, 0, m.z), m.yaw);
     p.teleport(m.x, m.z, m.yaw, m.y);
     this.note = { text: 'YOU ARE BACK', until: performance.now() + 4000 };
+    this.black = 0;
+    this.input.suspend = false;
+    this.input.soft();
+    this.input.lock();
   }
 
   /** Quita el nivel de las Poolrooms (si lo hay) y devuelve el compositor a la escena del juego. */

@@ -814,11 +814,8 @@ io.on('connection', (sock) => {
     if (ok) {
       p!.cap.totem--;
       if (p!.uid) award(p!.uid, 'second_chance');
-      if (levelCaps(r!.levelId).pool) revive(r!, t!, p!.st); // (en las Poolrooms no hay «Run for your life»: vuelve al momento junto a quien lo usó)
-      else {
-        t!.reviving = { by: p!.id, at: Date.now() };
-        io.to(r!.code).emit('reviving', { id: t!.id, name: t!.name, by: p!.id });
-      }
+      t!.reviving = { by: p!.id, at: Date.now() };
+      io.to(r!.code).emit('reviving', { id: t!.id, name: t!.name, by: p!.id });
     }
     if (typeof cb === 'function') cb(ok);
   });
@@ -1088,12 +1085,6 @@ setInterval(() => {
       // con un Tótem en la mochila, el que cae corre «Run for your life» por sí mismo (tras su muerte, 4,5 s): si llega, vuelve donde cayó
       if (p.cap.totem > 0 && !p.reviving) {
         p.cap.totem--;
-        if (levelCaps(r.levelId).pool) { // (sin carrera: vuelve donde cayó a los 4,5 s)
-          if (p.uid) award(p.uid, 'second_chance');
-          bag(p);
-          setTimeout(() => r.phase === 'playing' && p.dead && !p.boarded && revive(r, p, p.st), 4500);
-          return push(r);
-        }
         p.reviving = { by: p.id, at: Date.now() + 4500 };
         if (p.uid) award(p.uid, 'second_chance');
         bag(p);

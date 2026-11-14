@@ -320,7 +320,7 @@ export const MISSION_PAY = 1 / 3;
 /** La misión de ese tipo con parámetros al azar (de `r`); `tvs` es cuántas televisiones hay en el mapa (3 como mínimo para ofrecer esa misión). La recompensa sube con lo difícil. */
 export function makeMission(kind: MissionKind, r: () => number, id: string, tvs: number): Mission {
   let goal: number, reward: number;
-  if (kind === 'photos') (goal = between(r, 2, 4)), (reward = 80 + 90 * goal);
+  if (kind === 'photos') (goal = 2), (reward = 80 + 90 * goal);
   else if (kind === 'tapes') (goal = between(r, 3, 6)), (reward = 50 + 60 * goal);
   else if (kind === 'soaps') (goal = between(r, 3, 5)), (reward = 60 + 60 * goal);
   else if (kind === 'survive') (goal = between(r, 4, 8) * 60), (reward = 40 + 55 * (goal / 60));

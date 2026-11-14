@@ -214,6 +214,7 @@ export class Remote {
   /** La cabeza se esconde mientras se mira por sus ojos. */
   setFirstPerson(on: boolean) {
     this.bones.Head?.scale.setScalar(on ? 0.001 : 1);
+    this.rig.root.visible = !on || this.dead; // por sus ojos no se ve su cuerpo por dentro (cuello, hombros); lo que lleva en las manos cuelga de otro sitio y sí se ve
   }
 
   update(dt: number) {
