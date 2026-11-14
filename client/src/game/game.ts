@@ -147,7 +147,7 @@ export interface MissionHud {
 /** Lo que el OSD enseña, leído desde React diez veces por segundo. */
 export interface Hud {
   /** Las gafas están activas (el filtro de Warden). */
-  warden?: boolean;
+  warden?: number;
   /** Cuadros eléctricos que faltan por encender (el ascensor no abre sin corriente): activados y total. */
   power?: { on: number; n: number };
   /** Las puertas del ascensor están de verdad abiertas (se abren al acercarse, con la misión hecha y corriente). */
@@ -306,6 +306,12 @@ export class BackroomsGame {
   private readonly xrayEdges = new Map<THREE.BufferGeometry, THREE.EdgesGeometry>();
   private readonly throws = new Set<{ mesh: THREE.Object3D; path: THREE.Vector3[]; start: number; duration: number }>();
   private xrayNext = 0;
+  /** Visión nocturna de las gafas: 0–1, suave; sube la exposición (sin luces nuevas, para no recompilar shaders) y `wardenSerial` reinicia la animación de hexágonos en cada activación. */
+  private nvK = 0;
+  private nvBase?: number;
+  private nvLast = 0;
+  private wardenSerial = 0;
+  private wasGlasses = false;
   /** Las gafas (visión de Warden): una silueta que atraviesa las paredes sobre cada entidad (roja) y cada compañero (cian), al día cada fotograma. */
   private readonly warden = new Map<THREE.Object3D, THREE.Mesh>();
   private readonly wardenGeo = new THREE.CapsuleGeometry(0.3, 1.0, 4, 10).translate(0, 0.9, 0);
@@ -353,6 +359,15 @@ export class BackroomsGame {
         shot.mesh.rotation.x = progress * 16;
       }
     }
+    const nvOn = !!player && !player.dead && !this.winning && player.glassesOn, ndt = Math.min(0.1, (now - this.nvLast) / 1000);
+    this.nvLast = now;
+    if (nvOn && !this.wasGlasses) this.wardenSerial++;
+    this.wasGlasses = nvOn;
+    this.nvK += ((nvOn ? 1 : 0) - this.nvK) * Math.min(1, ndt * 5);
+    if (this.nvK > 0.005) {
+      this.nvBase ??= this.renderer.toneMappingExposure;
+      this.renderer.toneMappingExposure = this.nvBase * (1 + 0.85 * this.nvK);
+    } else if (this.nvBase !== undefined) (this.renderer.toneMappingExposure = this.nvBase), (this.nvBase = undefined);
     this.wardenFrame(!!player && !player.dead && !this.winning && player.glassesOn, this.parking?.level.scene ?? (this.pool instanceof PoolLevel ? this.pool.scene : this.scene));
     if (!player || player.dead || this.winning || !player.glassesOn) {
       if (this.xray.children.length) this.clearXray();
@@ -1207,7 +1222,7 @@ export class BackroomsGame {
     const pr = this.parking;
     if (pr) inv.tapes = pr.level.tapesCollected;
     const parking = pr ? { floor: pr.floorLabel, pendingFloors: pr.pendingFloors, prompt: pr.prompt, repair: pr.level.repair.active ? pr.level.repair.progress : null, open: pr.level.elevatorOpen } : undefined;
-    return { warden: p?.glassesOn || undefined, liftOpen: this.items?.open, power: this.items && !this.items.powered ? this.items.gens : undefined, parking, parkingItemHeld: p && PARKING_ITEM_IDS.includes(p.prop as ParkingItemId) ? p.prop as ParkingItemId : undefined, steelRoll: this.steelRoll && this.steelRoll.until > performance.now() ? this.steelRoll : undefined, effects: this.effects(), talk: this.talkN, lift: this.liftOpen, mission: ms ? { kind: ms.kind, text: ms.text, line: missionLine(ms), progress: ms.progress, goal: ms.goal, done: ms.done, exit: ms.exit } : null, ascent: up ? { boarded: !!this.mp && up.boarded.includes(this.mp.id), left: Math.max(0, up.left - (performance.now() - up.at) / 1000) } : null, act: hidden || this.run ? null : this.tvs?.hint ?? this.doorAct ?? (pl ? p?.refillAct : null) ?? null, totem: this.totemHud(), needClick: this.input.needClick, bag: this.bagOpen && !this.shopOpen, shop: this.bagOpen && this.shopOpen, note: this.gadgets?.note ?? null, hint: hidden || this.run || this.tvs?.hint ? null : this.gadgets?.hint ?? this.items?.hint ?? pl?.pickups.hint ?? null, hide: this.dying >= 0 || this.winning || this.spectating ? null : hidden ? (p!.hideState === 'hidden' ? 'leave' : null) : this.hideNear() ? 'hide' : null, breath: p?.concealed ? { air: this.breath.air, warn: this.inspected, held: this.holding } : null, drink: p?.dead ? 0 : p?.drinking || p?.drinkingMonster || p?.drinkingUno || 0, drinkName: p?.prop === 'monster' ? 'MONSTER' : p?.prop === 'uno' ? 'UNO REVERSE' : 'ALMOND WATER', refill: p?.fill ?? 0, inv, aiming: !!p?.aiming, scoped: !!p?.scoped && !this.spectating, zoom: p?.zoom ?? 1, focus: !!this.items?.focus, tapes: this.items?.tapes ?? 0, photos: this.items?.photos ?? 0, ammo: p?.has.gun ? p.ammo : null, spare: p?.spare ?? 0, battery, time: this.t, hp: p?.hp ?? HP_MAX, hps: this.hps, spectating: this.spectating && !this.run ? (this.remotes.get(this.watching)?.name ?? '') : null, watchList: this.spectating && !this.run ? [...this.remotes.values()].map((r) => ({ name: r.name, on: r.id === this.watching && this.specView !== 'free', dead: r.dead })) : undefined, specView: this.spectating && !this.run ? this.specView : undefined };
+    return { warden: p?.glassesOn ? this.wardenSerial : undefined, liftOpen: this.items?.open, power: this.items && !this.items.powered ? this.items.gens : undefined, parking, parkingItemHeld: p && PARKING_ITEM_IDS.includes(p.prop as ParkingItemId) ? p.prop as ParkingItemId : undefined, steelRoll: this.steelRoll && this.steelRoll.until > performance.now() ? this.steelRoll : undefined, effects: this.effects(), talk: this.talkN, lift: this.liftOpen, mission: ms ? { kind: ms.kind, text: ms.text, line: missionLine(ms), progress: ms.progress, goal: ms.goal, done: ms.done, exit: ms.exit } : null, ascent: up ? { boarded: !!this.mp && up.boarded.includes(this.mp.id), left: Math.max(0, up.left - (performance.now() - up.at) / 1000) } : null, act: hidden || this.run ? null : this.tvs?.hint ?? this.doorAct ?? (pl ? p?.refillAct : null) ?? null, totem: this.totemHud(), needClick: this.input.needClick, bag: this.bagOpen && !this.shopOpen, shop: this.bagOpen && this.shopOpen, note: this.gadgets?.note ?? null, hint: hidden || this.run || this.tvs?.hint ? null : this.gadgets?.hint ?? this.items?.hint ?? pl?.pickups.hint ?? null, hide: this.dying >= 0 || this.winning || this.spectating ? null : hidden ? (p!.hideState === 'hidden' ? 'leave' : null) : this.hideNear() ? 'hide' : null, breath: p?.concealed ? { air: this.breath.air, warn: this.inspected, held: this.holding } : null, drink: p?.dead ? 0 : p?.drinking || p?.drinkingMonster || p?.drinkingUno || 0, drinkName: p?.prop === 'monster' ? 'MONSTER' : p?.prop === 'uno' ? 'UNO REVERSE' : 'ALMOND WATER', refill: p?.fill ?? 0, inv, aiming: !!p?.aiming, scoped: !!p?.scoped && !this.spectating, zoom: p?.zoom ?? 1, focus: !!this.items?.focus, tapes: this.items?.tapes ?? 0, photos: this.items?.photos ?? 0, ammo: p?.has.gun ? p.ammo : null, spare: p?.spare ?? 0, battery, time: this.t, hp: p?.hp ?? HP_MAX, hps: this.hps, spectating: this.spectating && !this.run ? (this.remotes.get(this.watching)?.name ?? '') : null, watchList: this.spectating && !this.run ? [...this.remotes.values()].map((r) => ({ name: r.name, on: r.id === this.watching && this.specView !== 'free', dead: r.dead })) : undefined, specView: this.spectating && !this.run ? this.specView : undefined };
   }
 
   /** Los efectos que tiene ahora el personaje, para el HUD (Effects.tsx). */

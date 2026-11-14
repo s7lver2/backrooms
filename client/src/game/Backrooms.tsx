@@ -997,7 +997,7 @@ export default function Backrooms({ onQuit, onWin }: { onQuit: () => void; onWin
       )}
       {screen === 'over' && <End win={won} result={result} me={net.me} onInsert={() => setScreen('lobby')} />}
       {(screen === 'play' || screen === 'pause') && hud?.aiming && <Osd hud={hud} />}
-      {screen === 'play' && hud?.warden && <div className="br-warden" aria-hidden="true" />}
+      {screen === 'play' && !!hud?.warden && <div key={hud.warden} className="br-warden" aria-hidden="true" />}
       {screen === 'play' && hud?.scoped && !hud.bag && <div className="br-scope" aria-hidden="true" />}
       {screen === 'play' && hud?.spectating != null && (
         <div className="br-spectate" role="status">
