@@ -425,6 +425,8 @@ export interface ServerToClient {
   inv: (i: Inventory) => void;
   /** Una recogida rechazada: por qué (GONE, FULL, TOO FAR). */
   pickFail: (why: string) => void;
+  /** Una línea del registro de la sala (eventos del servidor). */
+  rlog: (msg: string) => void;
   /** El servidor te ha concedido un logro (clave de ACHIEVEMENTS). */
   achievement: (key: string) => void;
   /** Un caído empieza «Run for your life» por el Tótem de `by`. */

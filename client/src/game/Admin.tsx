@@ -4,6 +4,7 @@ import type { BackroomsGame } from './game';
 import type { Sock } from '../net';
 import { netStats } from '../net';
 import { copyText, errClear, errList, errReport, errSubscribe, errTotal, errVersion } from '../errlog';
+import { dlogClear, dlogLines, dlogSubscribe, dlogVersion } from '../dlog';
 import './admin.css';
 
 /*
@@ -28,6 +29,7 @@ interface Props {
 }
 
 const POS = 'br-adm-pos';
+const NL = '\n';
 const TABS = ['PLAYER', 'WORLD', 'ENTITIES', 'ITEMS', 'ROOM', 'DEBUG'] as const;
 type Tab = (typeof TABS)[number];
 
@@ -64,6 +66,7 @@ export default function AdminConsole({ game, sock, room, me }: Props) {
   const [find, setFind] = useState('');
   const [count, setCount] = useState(1);
   const [rar, setRar] = useState(-1); // la rareza de lo que se da (-1: al azar)
+  useSyncExternalStore(dlogSubscribe, dlogVersion); // el registro de eventos (dlog.ts)
   useSyncExternalStore(errSubscribe, errVersion); // los errores de render que van saliendo (errlog.ts): el contador de la cabecera y del botón
   const inRoom = !!sock && !!room;
   const openRef = useRef(open);
@@ -421,6 +424,14 @@ export default function AdminConsole({ game, sock, room, me }: Props) {
             ))}
             <B run={() => g && setFx(g.adminPerf())}>REFRESH</B>
           </div>
+          <h3>GAME LOG</h3>
+          <div className="br-adm__row">
+            <B run={() => void copyText(dlogLines().join(NL)).then(() => setMsg('LOG COPIED'))}>COPY LOG</B>
+            <B run={() => void copyText((g?.adminDump() ?? '') + NL + NL + dlogLines().slice(-60).join(NL)).then(() => setMsg('STATE + LOG COPIED'))}>COPY STATE + LOG</B>
+            <B run={dlogClear}>CLEAR</B>
+          </div>
+          <pre className="br-adm__info">{g?.adminDump()}</pre>
+          <pre className="br-adm__info" style={{ maxHeight: 180, overflow: 'auto' }}>{dlogLines().slice(-40).join(NL) || '(no events yet)'}</pre>
           {shot && <pre className="br-adm__info">{`COPIED
 ${shot}`}</pre>}
           {inRoom && info && (

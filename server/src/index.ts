@@ -311,7 +311,10 @@ function takeDrop(r: RoomState, p: Player, id: string) {
 let dropNo = 0;
 
 /** La misión actual se cumple: su pago se suma, la salida se abre. */
+/** Una línea del registro de la sala: la ven todos los jugadores (popup de registro del cliente, tecla F8). */
+const rlog = (r: RoomState, msg: string) => io.to(r.code).emit('rlog', msg);
 function complete(r: RoomState) {
+  rlog(r, `mission complete: ${r.chosen?.text ?? '?'}`);
   r.cur = r.done = true;
   if (r.levelId === 'suites') r.jobs++;
   if (r.chosen?.kind === 'eeh') r.match?.calmStaff();
@@ -351,6 +354,7 @@ function creditEscape(r: RoomState) {
  * está cerrada y todos han cargado (o pasan LOAD_GRACE ms).
  */
 function begin(r: RoomState) {
+  rlog(r, `round start: seed ${r.nextSeed} level ${r.levelId} round ${r.round} players ${r.players.size}`);
   r.seed = r.nextSeed;
   r.chosen = undefined;
   r.voteEnd = undefined;
@@ -856,6 +860,7 @@ io.on('connection', (sock) => {
     if (ok) r!.pickups.set(k, { by: p!.id, at: now });
     // un rechazo se explica (y el inventario se reenvía: si el cliente creía que cabía, se corrige) en vez de quedarse mudo
     if (!ok && p && r?.match && r.phase === 'playing' && k[0] !== 'd') {
+      rlog(r, `${p.name} pickup ${k} rejected: ${!r.match.cellOf(k) ? 'gone' : !room ? 'full' : 'too far'}`);
       sock.emit('pickFail', !r.match.cellOf(k) ? 'GONE' : !room ? 'FULL' : 'TOO FAR');
       sock.emit('inv', p.cap);
     }
@@ -1413,6 +1418,7 @@ setInterval(() => {
     if (r.phase !== 'playing' || !r.match) continue;
     r.match.tick(DT, [...r.players.values()], (p) => {
       r.deaths++;
+      rlog(r, `${p.name} caught by an entity (hiding ${!!p.st.hiding} holding ${!!p.st.holding} air ${p.breath?.air.toFixed(2) ?? '-'} at ${p.st.x.toFixed(1)},${p.st.z.toFixed(1)})`);
       io.to(r.code).emit('dead', p.id);
       // con un Tótem en la mochila, el que cae corre «Run for your life» por sí mismo (tras su muerte, 4,5 s): si llega, vuelve donde cayó
       if (p.cap.totem > 0 && !p.reviving) {

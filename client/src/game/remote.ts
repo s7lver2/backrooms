@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { dlog } from '../dlog';
 import { DEFAULT_LOOK, EMOTE_DEFS, type Look, type PlayerState } from '@backrooms/shared';
 import type { Assets } from './game';
 import { Rig } from './rig';
@@ -278,6 +279,7 @@ export class Remote {
         if ((s.variant ?? '') !== A.variant) A.setVariant(s.variant ?? '');
         if (!this.dead && !this.dancing && this.emote !== this.emoting) {
           this.emoting = this.emote;
+          dlog('emote', `${this.name} -> ${this.emote} (anim ${!!A}, root visible ${this.rig.root.visible})`);
           if (this.emote) A.playOverClip(EMOTES[this.emote], 1);
           else A.stopOver();
         }

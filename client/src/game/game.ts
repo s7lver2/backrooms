@@ -1,5 +1,6 @@
 import { DEV_LOCAL } from '../devGate';
 import { claimPickup } from '../pickup-claim';
+import { dlog } from '../dlog';
 import * as THREE from 'three';
 import { glow, lootModel, pulse } from './rarityFx';
 import { itemModel, loadItemModels } from './itemModels';
@@ -1464,6 +1465,7 @@ export class BackroomsGame {
       this.parking.level.boardElevator();
     }
     if (r.mission?.done && !wasDone) this.missionDone(!was);
+    if (this.items && this.items.ready !== !!r.mission?.exit) dlog('mission', `exit ${!!r.mission?.exit} done ${!!r.mission?.done}`);
     if (this.items) this.items.ready = !!r.mission?.exit;
   }
 
@@ -2004,6 +2006,7 @@ export class BackroomsGame {
       if (this.parking && this.player) return void (this.player.hp = 0);
       if (this.pool instanceof PoolLevel) return this.poolDied(this.pool);
       if (this.dying >= 0 || this.winning || !this.player) return;
+      dlog('death', `hide ${this.player.hideState} holding ${this.holding} air ${this.breath.air.toFixed(2)} ents ${this.entities.filter((e) => e.alive && e.pos.distanceTo(this.player!.pos) < 6).map((e) => `${e.pos.distanceTo(this.player!.pos).toFixed(1)}m`).join(',')}`);
       // quien te ha pillado: la entidad más cerca (el servidor lo sabe antes de que llegue el siguiente snapshot)
       const p = this.player.pos;
       const e = this.entities.filter((e) => e.alive && e.pos.distanceTo(p) < 5).sort((a, b) => a.pos.distanceTo(p) - b.pos.distanceTo(p))[0];
@@ -2066,9 +2069,11 @@ export class BackroomsGame {
     };
     s.on('room', onRoom);
     s.on('inv', onInv);
-    const onPickFail = (why: string) => (this.note = { text: 'CANNOT TAKE THAT · ' + why, until: performance.now() + 2000 });
+    const onPickFail = (why: string) => (dlog('pickup', `REJECTED ${why} at ${this.player ? this.player.pos.x.toFixed(2) + ',' + this.player.pos.z.toFixed(2) : '?'} inv ${JSON.stringify(this.player?.inventory)}`), this.note = { text: 'CANNOT TAKE THAT · ' + why, until: performance.now() + 2000 });
     s.on('pickFail', onPickFail);
-    this.offNet.push(() => s.off('pickFail', onPickFail));
+    const onRlog = (m: string) => dlog('room', String(m).slice(0, 300));
+    s.on('rlog', onRlog);
+    this.offNet.push(() => (s.off('pickFail', onPickFail), s.off('rlog', onRlog)));
     const onBottle = (points: { x: number; y: number; z: number }[], duration: number) => {
       const model = itemModel('beer');
       if (!points.length) return;
@@ -2104,7 +2109,7 @@ export class BackroomsGame {
     if (items) {
       items.claim = (id, done) => {
         if (id.includes(':')) s.emit('lockerTake', id.split(':')[0], Number(id.split(':')[1]), done);
-        else void claimPickup(s, id, done, 2500, () => this.mp === mp && this.items === items);
+        else void claimPickup(s, id, (ok) => (dlog('pickup', `${id} ${ok ? 'OK' : 'NO'}`), done(ok)), 2500, () => this.mp === mp && this.items === items);
       };
       items.onPhoto = () => s.emit('photo');
       items.onSnap = () => s.emit('snap');
@@ -3202,6 +3207,21 @@ x ${f(s.x)}  y ${f(s.y)}  z ${f(s.z)}  yaw ${f(s.yaw)}  pitch ${f(s.pitch)}`;
       document.body.append(t), t.select(), document.execCommand('copy'), t.remove();
     }
     return txt;
+  }
+
+  /** Un volcado del estado del juego para depurar (pestaña DEBUG de F9): ascensor, inventario, recogibles cercanos, escondite y compañeros. */
+  adminDump() {
+    const p = this.player, it = this.items, f = (n: number) => n.toFixed(2), out: string[] = [];
+    if (p) out.push(`pos ${f(p.pos.x)},${f(p.pos.y)},${f(p.pos.z)} yaw ${f(p.yaw)} hide ${p.hideState} holding ${this.holding} air ${f(this.breath.air)}`);
+    if (p) out.push(`inv ${JSON.stringify(p.inventory)}${this.mp ? `
+server-synced inv ${JSON.stringify(this.mp.inv)}` : ''}`);
+    if (it && p) {
+      const e = this.world?.maze.elevator, d = this.world && e ? Math.hypot(p.pos.x - this.world.elevator.position.x, p.pos.z - this.world.elevator.position.z) : NaN;
+      out.push(`elevator ready ${it.ready} powered ${it.powered} gens ${it.gens.on}/${it.gens.n} open ${it.open} worldOpen ${this.world?.elevatorOpen} dist ${f(d)} mission ${JSON.stringify(this.mission)}`);
+      out.push('near pickups: ' + (it.debugNear(p.pos, 4) || 'none'));
+    }
+    for (const [id, r] of this.remotes) out.push(`remote ${r.name || id} pos ${f(r.pos.x)},${f(r.pos.z)} emote ${r.emote} visible ${r.root.visible && !!r.root.parent} dead ${r.dead} hiding ${r.hiding}`);
+    return out.join('\n');
   }
 
   /** Dónde y con qué se renderiza, para acompañar a los errores de render (errlog.ts): nivel, semilla, posición, GPU, pasadas y carga de la escena. */

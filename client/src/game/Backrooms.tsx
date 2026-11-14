@@ -30,6 +30,7 @@ import End from './End';
 import Loading from './Loading';
 import BootLoading from './BootLoading';
 import AdminConsole from './Admin';
+import LogPopup from './LogPopup';
 import WaitPanel from './WaitPanel';
 import { ChatInput, ChatLog, useChat } from './Chat';
 import VoiceHud from './VoiceHud';
@@ -1013,6 +1014,7 @@ export default function Backrooms({ onQuit, onWin }: { onQuit: () => void; onWin
           <p className="br-spectate__keys">← → SWITCH · V VIEW · C FREE CAM{hud.specView === 'free' ? ' · WASD FLY · SHIFT FAST' : ''}</p>
         </div>
       )}
+      {(screen === 'play' || screen === 'wait') && <LogPopup game={game} />}
       {acct.me?.admin && (screen === 'play' || screen === 'wait') && !(hud?.parking && hud.inv.escaped) && <AdminConsole game={game} sock={net.sock} room={net.room} me={net.me} />}
       {(screen === 'play' || screen === 'wait') && mp && net.sock && (
         <div className="br-chatbox">

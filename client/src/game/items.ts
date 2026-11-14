@@ -10,6 +10,7 @@ import { boostOf, lootSpots, radarSpot, spotRarity, waterSpots, type Drop, type 
 import { inventoryModels, itemModel } from './itemModels';
 import { lootModel } from './rarityFx';
 import { perks } from './perks';
+import { dlog } from '../dlog';
 import type { Controls } from './input';
 import type { GameAudio } from './audio';
 import { loadPoolKit, type PoolKit } from './poolmap';
@@ -236,6 +237,16 @@ export class Items extends PickupField {
     });
   }
 
+  /** Los recogibles a menos de `r` m (para el volcado de depuración): id, tipo, distancia y estado. */
+  debugNear(at: THREE.Vector3, r: number) {
+    return this.pickups
+      .map((p) => ({ p, d: Math.hypot(p.obj.position.x - at.x, p.obj.position.z - at.z) }))
+      .filter((o) => o.d < r)
+      .sort((a, b) => a.d - b.d)
+      .map(({ p, d }) => `${p.id}:${p.kind} ${d.toFixed(1)}m${p.taken ? ' TAKEN' : ''}${p.pending ? ' PENDING' : ''}${p.obj.visible ? '' : ' HIDDEN'}`)
+      .join(', ');
+  }
+
   get photos() {
     return this.photographed.size;
   }
@@ -246,6 +257,7 @@ export class Items extends PickupField {
     this.world.genLeds.forEach((m, i) => m.color.setHex(this.pickups.find((p) => p.id === 'e' + i)?.taken ? 0x33ff66 : 0xff3322));
     if (ready && this.powered && !this.open && d < 3) {
       this.open = w.elevatorOpen = true;
+      dlog('elevator', `opening d ${d.toFixed(2)}`);
       this.audio?.elevator();
       w.cab.open();
     }
