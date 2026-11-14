@@ -1958,8 +1958,11 @@ export class BackroomsGame {
     this.audio?.power(wr.power * (1 - wr.black) + wr.black * 3.5);
     this.audio?.ambient(dt, 0.15, wr.black); // el bajo que bate sube con el negro de la entrada
     const u = this.vhs.uniforms;
-    this.vhs.enabled = wr.black > 0;
-    u.uAspect.value = 1;
+    // mirando por la camcorder, la cinta (VHS) y el zoom, como en la partida
+    const rec = this.lobbyP && !!this.player?.aiming && !this.paused && wr.mode === 'free';
+    this.vhs.enabled = wr.black > 0 || rec;
+    u.uFlash.value = 0;
+    u.uAspect.value = rec ? wr.camera.aspect : 1;
     u.uTime.value = this.film.uniforms.uTime.value = this.t;
     u.uBlack.value = wr.black;
     this.composer.render(dt);
