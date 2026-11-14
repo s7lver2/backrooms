@@ -435,7 +435,7 @@ export class Player {
     if (c.slot >= 0 && c.slot < slots) (this.hotSel = c.slot), this.useHot(c.slot);
     if (c.wheel && slots) this.pickHot((Math.min(this.hotSel, slots - 1) + Math.sign(c.wheel) + slots) % slots);
     if (c.use && slots) this.useHot(this.hotSel);
-    if (c.fire && PARKING_ITEM_IDS.includes(this.prop as ParkingItemId)) this.activateParkingItem(this.prop as ParkingItemId);
+    if (c.fire && this.prop !== 'beer' && PARKING_ITEM_IDS.includes(this.prop as ParkingItemId)) this.activateParkingItem(this.prop as ParkingItemId);
     // la lata en la mano: mantener su tecla (o X, o el clic) medio segundo para beberla; soltar y volver a mantener para otra
     const wi = this.hot.indexOf('water');
     const held = !this.drinkOff && this.prop === 'water' && this.water > 0 && ((wi >= 0 && c.slotHeld === wi) || !!c.useHeld || !!c.fireHeld);
@@ -466,14 +466,17 @@ export class Player {
     // las Suites: el objeto en la mano se usa con el clic (el servidor decide qué pasa)
     this.toolCd = Math.max(0, this.toolCd - dt);
     this.swingT = Math.max(0, this.swingT - dt);
-    if (this.prop === 'pokeball' || this.prop === 'grenade') {
+    if (this.prop === 'pokeball' || this.prop === 'grenade' || this.prop === 'beer') {
       // como una granada de videojuego: mantener el clic muestra el arco (game.ts lo dibuja) y soltarlo lanza; el clic derecho cancela
       if (!c.fireHeld) this.noCharge = false;
       if (c.aim && this.charging) (this.charging = false), (this.noCharge = true);
       if (c.fireHeld && !this.noCharge && this.toolCd <= 0) this.charging = true;
       else if (this.charging) {
         this.charging = false;
-        if (this.onTool) (this.toolCd = 0.5), (this.swingT = 0.35), this.onTool(this.prop);
+        this.toolCd = 0.5;
+        this.swingT = 0.35;
+        if (this.prop === 'beer') this.activateParkingItem('beer');
+        else this.onTool?.(this.prop);
       }
     } else {
       this.charging = false;

@@ -2983,22 +2983,45 @@ fps ${(1 / Math.max(dt, 1e-3)).toFixed(0)}`;
   /** El arco del lanzamiento (pokeball y granada) mientras se mantiene el clic: la trayectoria con sus rebotes (shared/throw.ts, la misma del servidor). */
   private arcFrame() {
     const p = this.player, w = this.world;
+    const scene = this.parking?.level.scene ?? (this.pool instanceof PoolLevel ? this.pool.scene : this.scene);
     if (!this.arc) {
       const line = new THREE.Line(new THREE.BufferGeometry().setAttribute('position', new THREE.BufferAttribute(new Float32Array(102 * 3), 3)), new THREE.LineBasicMaterial({ color: 0xffe08a, transparent: true, opacity: 0.85, depthTest: false }));
       const dots = new THREE.Points(new THREE.BufferGeometry().setAttribute('position', new THREE.BufferAttribute(new Float32Array(12 * 3), 3)), new THREE.PointsMaterial({ color: 0xff5a3c, size: 0.22, depthTest: false }));
-      for (const o of [line, dots]) (o.frustumCulled = false), (o.renderOrder = 10), (o.visible = false), this.scene.add(o);
+      for (const o of [line, dots]) (o.frustumCulled = false), (o.renderOrder = 10), (o.visible = false);
       this.arc = { line, dots };
     }
-    const { line, dots } = this.arc, on = !!p?.charging && !!w && !p.dead;
+    const { line, dots } = this.arc, on = !!p?.charging && !p.dead;
+    for (const o of [line, dots]) if (o.parent !== scene) scene.add(o); // (la trayectoria se dibuja en la escena del nivel de ahora: laberinto, Poolrooms o Habitable Zone)
     line.visible = dots.visible = on;
-    if (!on || !p || !w) return;
-    const fl = flight((x, z) => w.solid(x, z), [p.pos.x, p.pos.y + 1.5, p.pos.z], p.yaw, p.pitch, 11 * Math.sqrt(perks.stats.reach));
-    const lp = line.geometry.getAttribute('position') as THREE.BufferAttribute, n = Math.min(102, fl.pts.length / 3);
-    lp.array.set(fl.pts.slice(0, n * 3));
+    if (!on || !p) return;
+    // el trayecto: en el laberinto con sus paredes; en los demás niveles, sin choques pero sobre el suelo de donde se está (la altura de la planta)
+    const base = w ? 0 : p.pos.y;
+    let pts: number[], hits: [number, number, number][];
+    if (p.prop === 'beer') {
+      // la botella del servidor: 12 m/s, g = 16 (ver `useParkingItem`)
+      const cp = Math.cos(p.pitch), vx = -Math.sin(p.yaw) * cp * 12, vz = -Math.cos(p.yaw) * cp * 12, vy = Math.sin(p.pitch) * 12 + 2, y0 = p.pos.y + (p.duck ? 0.95 : 1.5);
+      pts = [];
+      hits = [];
+      for (let t = 0; t <= 2; t += 0.04) {
+        const y = y0 + vy * t - 8 * t * t;
+        if (y < p.pos.y && t > 0) {
+          hits.push([p.pos.x + vx * t, p.pos.y, p.pos.z + vz * t]);
+          break;
+        }
+        pts.push(p.pos.x + vx * t, y, p.pos.z + vz * t);
+      }
+      if (!hits.length) hits.push([pts[pts.length - 3], pts[pts.length - 2], pts[pts.length - 1]]);
+    } else {
+      const fl = flight(w ? (x, z) => w.solid(x, z) : () => false, [p.pos.x, w ? p.pos.y + 1.5 : 1.5, p.pos.z], p.yaw, p.pitch, 11 * Math.sqrt(perks.stats.reach));
+      pts = fl.pts.map((v, i) => (i % 3 === 1 ? v + base : v));
+      hits = [...fl.bounces, fl.end].map((b) => [b[0], b[1] + base, b[2]]);
+    }
+    const lp = line.geometry.getAttribute('position') as THREE.BufferAttribute, n = Math.min(102, pts.length / 3);
+    lp.array.set(pts.slice(0, n * 3));
     lp.needsUpdate = true;
     line.geometry.setDrawRange(0, n);
-    const dp = dots.geometry.getAttribute('position') as THREE.BufferAttribute, nb = Math.min(12, fl.bounces.length + 1);
-    [...fl.bounces, fl.end].slice(0, nb).forEach((b, i) => dp.setXYZ(i, b[0], b[1], b[2]));
+    const dp = dots.geometry.getAttribute('position') as THREE.BufferAttribute, nb = Math.min(12, hits.length);
+    hits.slice(0, nb).forEach((b, i) => dp.setXYZ(i, b[0], b[1], b[2]));
     dp.needsUpdate = true;
     dots.geometry.setDrawRange(0, nb);
   }
