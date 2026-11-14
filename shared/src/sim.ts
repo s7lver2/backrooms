@@ -268,6 +268,7 @@ export class EntitySim {
   /** Atasco: dónde estaba hace un rato y cuánto lleva sin avanzar yendo a un sitio. */
   stuckAt = { x: 0, z: 0 };
   stuckT = 0;
+  stuckN = 0;
   readonly def: EntDef;
   /** Lo último que oyó (o dónde te perdió acechando) y los segundos que le quedan de ir a mirar. */
   heard?: { x: number; z: number; t: number };
@@ -323,7 +324,18 @@ export class EntitySim {
     const m = this.maze, from = this.cellOf(this.x, this.z), own = from.y * m.w + from.x;
     const blocked = this.blocked.has(own) ? new Set([...this.blocked].filter((i) => i !== own)) : this.blocked;
     const d = bfs(m, to, blocked);
-    if (d[from.y * m.w + from.x] < 0) return [];
+    if (d[from.y * m.w + from.x] < 0) {
+      // sin ruta desde donde está (se quedó sobre una celda que no se pisa —un escalón, el borde de una columna— o encerrada): sale hacia la celda pisable más cercana
+      // desde la que sí hay camino, en vez de quedarse parada para siempre
+      for (let r = 1; r <= 6; r++)
+        for (let y = from.y - r; y <= from.y + r; y++)
+          for (let x = from.x - r; x <= from.x + r; x++) {
+            const k = y * m.w + x;
+            if (x < 0 || y < 0 || x >= m.w || y >= m.h || !m.open[k] || blocked.has(k) || d[k] < 0) continue;
+            return [centerOf({ x, y })];
+          }
+      return [];
+    }
     // se baja por las distancias desde el destino: cada paso, al vecino más cerca de él
     const out: { x: number; z: number }[] = [];
     let c = from;
@@ -423,6 +435,12 @@ export class EntitySim {
     else if (d > 1e-6) {
       const k = Math.min(d, (v + this.speedBonus) * dt) / d, nx = this.x + tx * k, nz = this.z + tz * k;
       if (!this.solid(nx, nz) && (!direct || !this.blockedAt(nx, nz))) (this.x = nx), (this.z = nz);
+      else {
+        // roza una esquina o un borde: se desliza por el eje que sí está libre, en vez de quedarse pegada y parada
+        const sx = this.x + tx * k, sz = this.z + tz * k;
+        if (Math.abs(tx) > 0.05 && !this.solid(sx, this.z) && (!direct || !this.blockedAt(sx, this.z))) this.x = sx;
+        else if (Math.abs(tz) > 0.05 && !this.solid(this.x, sz) && (!direct || !this.blockedAt(this.x, sz))) this.z = sz;
+      }
       this.moving = true;
     }
     this.turn(tx, tz, dt);
@@ -542,8 +560,11 @@ export class EntitySim {
     if (this.roused && !this.enraged && this.state === 'wander' && !this.heard) (this.roused = false), (this.passive = true), (this.path = []); // (no encontró nada: vuelve a lo suyo)
     // atasco: yendo a un sitio y sin avanzar 1,5 s, se descarta el camino y se traza otro
     if (this.moving) {
-      if ((this.stuckT += dt) > 1.5) {
-        if (Math.hypot(this.x - this.stuckAt.x, this.z - this.stuckAt.z) < 0.25) (this.path = []), (this.repath = 0), (this.rest = 0);
+      if ((this.stuckT += dt) > 0.8) {
+        if (Math.hypot(this.x - this.stuckAt.x, this.z - this.stuckAt.z) < 0.25) {
+          (this.path = []), (this.repath = 0), (this.rest = 0);
+          if (++this.stuckN >= 3) (this.stuckN = 0), this.unstick(); // tres atascos seguidos: a la celda pisable más cercana
+        } else this.stuckN = 0;
         (this.stuckAt = { x: this.x, z: this.z }), (this.stuckT = 0);
       }
     } else (this.stuckT = 0), (this.stuckAt = { x: this.x, z: this.z });
