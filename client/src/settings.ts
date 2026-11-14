@@ -28,7 +28,7 @@ export interface Settings {
   poolAA: boolean; // antialiasing (SMAA) de las Poolrooms (al entrar)
   texFilter: number; // índice en ANISO: filtrado anisótropo de las texturas del mundo; se aplica al recargar
   voiceMode: number; // chat de voz: 0 apagado, 1 pulsar para hablar (V), 2 micrófono abierto
-  voiceVol: number; // 0–1.5: el volumen de las voces de los compañeros
+  voiceVol: number; // 0–3: el volumen de las voces de los compañeros
   warmup: number; // 0 perezoso, 1 rápido, 2 completo: cuánto se precompila al cargar (ver game/compile.ts; se aplica al recargar)
 }
 

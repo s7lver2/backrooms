@@ -33,12 +33,21 @@ interface Peer {
 
 /** La voz según la distancia (m): entera hasta NEAR, nada a FAR; más lejos, también más apagada. */
 const NEAR = 3, FAR = 24;
+/** El volumen máximo de las voces (×3 = 300 %): el limitador del final evita que sature. */
+export const VOL_MAX = 3;
 
 /** El sonido de la voz según dónde se esté: filtro de paso bajo, cantidad de eco (wet) y lo que dura. */
 const ENV: Record<string, { lp: number; wet: number; decay: number }> = {
   wait: { lp: 16000, wet: 0.04, decay: 0.4 },
-  maze: { lp: 5500, wet: 0.3, decay: 1.1 }, // pasillos de moqueta y ladrillo: apagada y con cola
-  pool: { lp: 9000, wet: 0.5, decay: 2.4 }, // azulejo: brillante y con mucho eco
+  maze: { lp: 7500, wet: 0.3, decay: 1.1 }, // pasillos de moqueta y ladrillo: apagada y con cola
+  pool: { lp: 12000, wet: 0.5, decay: 2.4 }, // azulejo: brillante y con mucho eco
+};
+/** Opus para voz: 64 kb/s mono (el de serie ronda 32), corrección de pérdidas en banda (FEC) y banda completa a 48 kHz. */
+const opus = (sdp = '') => {
+  const pt = /a=rtpmap:(\d+) opus\/48000/i.exec(sdp)?.[1];
+  if (!pt) return sdp;
+  const strip = /;?(maxaveragebitrate|stereo|sprop-stereo|useinbandfec|cbr|maxplaybackrate)=[^;\r\n]*/g;
+  return sdp.replace(new RegExp(`a=fmtp:${pt} ([^\r\n]*)`), (_, f: string) => `a=fmtp:${pt} ${f.replace(strip, '')};maxaveragebitrate=64000;useinbandfec=1;stereo=0;sprop-stereo=0;cbr=0;maxplaybackrate=48000`);
 };
 type Sig = { sdp?: RTCSessionDescriptionInit; ice?: RTCIceCandidateInit };
 
@@ -123,11 +132,18 @@ class Voice {
   private chain() {
     const c = (this.ctx ??= new AudioContext());
     if (!this.bus) {
-      const inp = c.createGain(), lp = c.createBiquadFilter(), conv = c.createConvolver(), wet = c.createGain(), dry = c.createGain();
+      const inp = c.createGain(), lp = c.createBiquadFilter(), conv = c.createConvolver(), wet = c.createGain(), dry = c.createGain(), lim = c.createDynamicsCompressor();
       lp.type = 'lowpass';
+      // limitador al final: con el volumen por encima de 100 % la voz sube sin saturar ni romper
+      lim.threshold.value = -8;
+      lim.knee.value = 6;
+      lim.ratio.value = 14;
+      lim.attack.value = 0.003;
+      lim.release.value = 0.2;
+      lim.connect(c.destination);
       inp.connect(lp);
-      lp.connect(dry).connect(c.destination);
-      lp.connect(conv).connect(wet).connect(c.destination);
+      lp.connect(dry).connect(lim);
+      lp.connect(conv).connect(wet).connect(lim);
       this.bus = { inp, lp, conv, wet };
       this.tune();
     }
@@ -184,7 +200,8 @@ class Voice {
     if (this.me < id) {
       void (async () => {
         try {
-          await pc.setLocalDescription(await pc.createOffer());
+          const o = await pc.createOffer();
+          await pc.setLocalDescription({ type: 'offer', sdp: opus(o.sdp) });
           this.send(id, { sdp: pc.localDescription!.toJSON() });
         } catch {}
       })();
@@ -215,7 +232,8 @@ class Voice {
         if (d.sdp.type === 'offer') {
           const tr = p.pc.getTransceivers()[0];
           if (tr) (tr.direction = 'sendrecv'), void tr.sender.replaceTrack(this.mic?.getAudioTracks()[0] ?? null);
-          await p.pc.setLocalDescription(await p.pc.createAnswer());
+          const a = await p.pc.createAnswer();
+          await p.pc.setLocalDescription({ type: 'answer', sdp: opus(a.sdp) });
           this.send(from, { sdp: p.pc.localDescription!.toJSON() });
         }
         for (const c of p.pending.splice(0)) await p.pc.addIceCandidate(c).catch(() => {});
@@ -246,7 +264,7 @@ class Voice {
     if (this.mic || this.state === 'denied') return;
     this.micAsk ??= (async () => {
       try {
-        const s = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true }, video: false });
+        const s = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true, channelCount: 1, sampleRate: { ideal: 48000 } }, video: false });
         this.mic = s;
         const t = s.getAudioTracks()[0];
         t.enabled = false;
@@ -278,14 +296,14 @@ class Voice {
     if (track && track.enabled !== on) track.enabled = on;
     if (this.ctx?.state === 'suspended') void this.ctx.resume().catch(() => {}); // (creado sin gesto, el contexto nace parado: sin esto las voces no sonaban hasta recrearse)
     const vol = settings.voiceMode ? settings.voiceVol : 0;
-    if (this.bus) this.bus.inp.gain.value = Math.max(0, Math.min(1.5, vol));
+    if (this.bus) this.bus.inp.gain.value = Math.max(0, Math.min(VOL_MAX, vol));
     // la distancia: volumen, filtro y balance de cada voz (la pone el juego cada fotograma; sin datos —sala de espera—, se oyen todos igual)
     const live = this.ears && performance.now() - this.ears.t < 600 ? this.ears.m : undefined, now = this.ctx?.currentTime ?? 0;
     for (const [id, p] of this.peers) {
       if (!p.gain || !p.lp || !p.pan) continue;
       const e = this.calls.has(id) ? undefined : live?.get(id), k = e ? Math.max(0, Math.min(1, 1 - (e.d - NEAR) / (FAR - NEAR))) ** 1.6 : 1;
       p.gain.gain.setTargetAtTime(k, now, 0.08);
-      p.lp.frequency.setTargetAtTime(500 + 15500 * k ** 0.7, now, 0.08);
+      p.lp.frequency.setTargetAtTime(900 + 15100 * k ** 0.7, now, 0.08);
       p.pan.pan.setTargetAtTime(e ? Math.max(-0.85, Math.min(0.85, e.pan)) * Math.min(1, e.d / 2) : 0, now, 0.08);
     }
     const next = new Set<string>();
