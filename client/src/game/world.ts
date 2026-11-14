@@ -41,7 +41,7 @@ export const center = (c: Cell, y = 0) => new THREE.Vector3(c.x * CELL + CELL / 
  * Un glb como mallas instanciadas en `mats`: una por material, con todas sus mallas fundidas (la
  * puerta de backrooms_vr2 son 240 trozos; sin fundir, 240 dibujos por puerta).
  */
-function instanced(src: THREE.Object3D, mats: THREE.Matrix4[], fix?: (m: THREE.Material) => void) {
+function instanced(src: THREE.Object3D, mats: THREE.Matrix4[], fix?: (m: THREE.Material) => void, rooms = false) {
   const byMat = new Map<THREE.Material, THREE.BufferGeometry[]>();
   src.updateMatrixWorld(true);
   src.traverse((o) => {
@@ -62,16 +62,19 @@ function instanced(src: THREE.Object3D, mats: THREE.Matrix4[], fix?: (m: THREE.M
   // por trozos de 9 m: cada uno con su esfera, para que el frustum descarte lo que no se ve (una sola cubría todo el mapa y se dibujaba siempre)
   const chunks = new Map<string, THREE.Matrix4[]>();
   for (const m of mats) {
-    const k = `${Math.floor(m.elements[12] / 9)},${Math.floor(m.elements[14] / 9)}`;
+    const x = m.elements[12], z = m.elements[14];
+    // las suites (Las Suites): un trozo por habitación (el pasillo, z de 12 a 15 m, va por trozos de 9 m); `World.update` la oculta con la puerta cerrada y lejos de ella
+    const k = rooms && x < 72 && (z < 12 || z >= 15) ? `r${Math.floor(x / 6)},${z < 12 ? 1 : 0}` : `${Math.floor(x / 9)},${Math.floor(z / 9)}`;
     chunks.set(k, [...(chunks.get(k) ?? []), m]);
   }
   return [...byMat].flatMap(([mat, gs]) => {
     fix?.(mat);
     const geo = mergeGeometries(gs) ?? gs[0];
-    return [...chunks.values()].map((cm) => {
+    return [...chunks].map(([ck, cm]) => {
       const im = new THREE.InstancedMesh(geo, mat, cm.length);
       cm.forEach((m, i) => im.setMatrixAt(i, m));
       im.computeBoundingSphere();
+      if (ck[0] === 'r') im.userData.room = ck.slice(1).split(',').map(Number); // [hueco, 1 si es del lado norte]
       im.userData.cull = true; // (World.update los oculta por distancia: los modelos pesan decenas de miles de triángulos)
       return im;
     });
@@ -526,8 +529,9 @@ export class World implements Terrain {
         }
         if (!open[y * w + x]) {
           // (el hotel: tabiques finos, una losa de 30 cm pegada a cada cara que da a un sitio abierto; el resto del bloque, hueco, que no se ve ni se pisa)
-          if (hotel) for (const [dx, dy] of DIRS) if (passable(x + dx, y + dy)) walls.push(new THREE.Matrix4().compose(new THREE.Vector3(c.x + dx * (CELL / 2 - 0.15), HEIGHT / 2, c.z + dy * (CELL / 2 - 0.15)), new THREE.Quaternion(), new THREE.Vector3(dx ? 0.3 / CELL : 1, 1, dy ? 0.3 / CELL : 1)));
-          else if (DIRS.some(([dx, dy]) => passable(x + dx, y + dy))) walls.push(m.clone().makeTranslation(c.x, HEIGHT / 2, c.z));
+          if (hotel) {
+            for (const [dx, dy] of DIRS) if (passable(x + dx, y + dy)) walls.push(new THREE.Matrix4().compose(new THREE.Vector3(c.x + dx * (CELL / 2 - 0.15), HEIGHT / 2, c.z + dy * (CELL / 2 - 0.15)), new THREE.Quaternion(), new THREE.Vector3(dx ? 0.3 / CELL : 1, 1, dy ? 0.3 / CELL : 1)));
+          } else if (DIRS.some(([dx, dy]) => passable(x + dx, y + dy))) walls.push(m.clone().makeTranslation(c.x, HEIGHT / 2, c.z));
           continue;
         }
         if (!(hotel && x >= SUITE_L * 3 + 4 && x <= SUITE_L * 3 + 9 && y >= 6 && y <= 11) && !shaft.has(y * w + x)) ceils.push(m.clone().makeTranslation(c.x, HEIGHT, c.z)); // (el salón de recepción: un hueco de 9 × 9 m en el centro, con la cúpula)
@@ -886,6 +890,12 @@ export class World implements Terrain {
           g.add(plate);
         }
         this.root.add(g);
+        this.grandGroups.push(g);
+        this.sealWall = () => {
+          const m = new THREE.Mesh(new THREE.BoxGeometry(CELL, HEIGHT, 2 * CELL), wallMat);
+          m.position.set((p.cell.x + 0.5) * CELL, HEIGHT / 2, (grandoors[0].cell.y + 1) * CELL);
+          this.root.add(m);
+        };
         this.doors.push({ x: c.x + CELL / 2, z: c.z, nx: 1, nz: 0, cell: p.cell.y * w + p.cell.x, cur: 0, tgt: 0, grand: true, swing: (k) => (piv.rotation.y = dir * 1.6 * k) });
       });
     }
@@ -1159,7 +1169,7 @@ export class World implements Terrain {
         norm.add(frame);
       }
       norm.add(inner);
-      for (const im of instanced(norm, ms, (mat) => ((mat.side = THREE.DoubleSide), t.tint && (mat as THREE.MeshStandardMaterial).color.set(t.tint), lightmapped(mat)))) ((im.receiveShadow = true), (im.castShadow = kind === 'bed' || kind === 'sofa'), this.root.add(im));
+      for (const im of instanced(norm, ms, (mat) => ((mat.side = THREE.DoubleSide), t.tint && (mat as THREE.MeshStandardMaterial).color.set(t.tint), lightmapped(mat)), this.hotel)) ((im.receiveShadow = kind !== 'wardrobe'), (im.castShadow = kind === 'bed' || kind === 'sofa'), this.root.add(im)); // (el armario, de dos caras y casi cerrado, se rayaba con sus propias sombras)
     }
 
     // las puertas de las suites (Las Suites), blancas con su moldura. Cerradas: a ras de la cara de la pared. Abiertas: la hoja girada hacia dentro y el hueco enmarcado
@@ -1260,6 +1270,7 @@ export class World implements Terrain {
           g.position.set(c.x + dx * (CELL / 2 - 0.05), 0, c.z + dy * (CELL / 2 - 0.05));
           g.rotation.y = Math.atan2(-dx, -dy);
         }
+        if (p.cell.x < SUITE_L * 3) this.doorGroups.push(g); // (las del hotel se ocultan lejos de la vista)
         this.root.add(g);
         if (open) {
           g.updateMatrixWorld(true);
@@ -1555,6 +1566,16 @@ export class World implements Terrain {
   liquidAt(_x: number, _z: number, _y?: number): { surface: number; depth: number } | null {
     return null;
   }
+  private grandGroups: THREE.Object3D[] = [];
+  private sealWall?: () => void;
+  /** La puerta doble del vestíbulo desaparece: queda pared lisa y ya no se vuelve (el bucle del pasillo queda cerrado). */
+  sealGrand() {
+    if (!this.sealWall) return;
+    this.grandGroups.forEach((g) => (g.visible = false));
+    for (const d of this.doors) if (d.grand) this.maze.open[d.cell] = 0;
+    this.doors = this.doors.filter((d) => !d.grand);
+    this.sealWall(), (this.sealWall = undefined);
+  }
   /** Cierra la puerta doble del vestíbulo (a la espalda de quien acaba de entrar). */
   closeGrand() {
     for (const o of this.doors) if (o.grand) o.tgt = 0;
@@ -1585,13 +1606,24 @@ export class World implements Terrain {
   /** Dónde está la cámara (la pone el juego): lo instanciado a más de PROP_FAR m no se dibuja. */
   viewer?: THREE.Vector3;
   private cullable?: THREE.InstancedMesh[];
+  private doorGroups: THREE.Object3D[] = [];
+  private roomDoor?: Map<number, (typeof this.doors)[number]>;
   update(t: number, dt: number) {
-    if (this.viewer) {
+    const v = this.viewer;
+    if (v) {
       this.cullable ??= this.root.children.filter((o) => o.userData.cull) as THREE.InstancedMesh[];
+      if (this.hotel) this.roomDoor ??= new Map(this.doors.filter((d) => d.cell >= 0 && !d.grand && !d.y).map((d) => [d.cell, d]));
       for (const im of this.cullable) {
-        const b = im.boundingSphere!;
-        im.visible = Math.hypot(b.center.x - this.viewer.x, b.center.z - this.viewer.z) - b.radius < PROP_FAR;
+        const b = im.boundingSphere!, r = im.userData.room as number[] | undefined;
+        let show = Math.hypot(b.center.x - v.x, b.center.z - v.z) - b.radius < PROP_FAR;
+        if (show && r && this.roomDoor) {
+          // una habitación solo se dibuja si estás dentro o su puerta está abierta (y no a más de 14 m)
+          const inside = v.x > r[0] * 6 + 1.3 && v.x < r[0] * 6 + 6.2 && (r[1] ? v.z < 12.2 : v.z > 14.8);
+          show = inside || ((this.roomDoor.get((r[1] ? 7 : 10) * this.maze.w + r[0] * 4 + 2)?.cur ?? 0) > 0.02 && Math.hypot(b.center.x - v.x, b.center.z - v.z) - b.radius < 14);
+        }
+        im.visible = show;
       }
+      for (const g of this.doorGroups) g.visible = Math.hypot(g.position.x - v.x, g.position.z - v.z) < 20;
     }
     this.cab.update(dt);
     if (this.hotel && !this.walkers.length && !this.walkersOff && this.assets.gltf['suites/faceling']) this.addWalkers();

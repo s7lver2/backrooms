@@ -186,7 +186,7 @@ function Osd({ hud }: { hud: Hud }) {
 /** La misión de la ronda, siempre en pantalla (sin mirar por la cámara): el objetivo, su progreso en bloques («PHOTOS 1/3», «TVS 2/4») y, si se gasta, la linterna y el aguante. */
 /** El inventario del servidor como lo espera el menú de la mochila (en la sala de espera no hay jugador: manos y cinturón quedan vacíos). */
 function waitInv(s: SrvInv, hot: (string | null)[] = ['caution', null, null, null], left: 'none' | 'flashlight' = s.spares ? 'flashlight' : 'none'): Inv {
-  return { hand: 'none', left, belt: 'none', stamina: 1, sanity: 1, escaped: false, camera: s.camera, gun: s.gun, ammo: Math.min(s.ammo, RIFLE_MAG), spare: Math.max(0, s.ammo - RIFLE_MAG), tapes: 0, photos: 0, thumbs: [], full: [], flashOn: false, battery: 1, charge: 1, spares: s.spares, uno: s.uno, monster: s.monster, water: s.water, totem: s.totem, radar: s.radar, caution: s.caution, tank: s.tank, tankOn: true, watergun: s.watergun, tape: 1, hot, hotSel: 0, gadget: 'none' };
+  return { hand: 'none', left, belt: 'none', stamina: 1, sanity: 1, escaped: false, camera: s.camera, gun: s.gun, ammo: Math.min(s.ammo, RIFLE_MAG), spare: Math.max(0, s.ammo - RIFLE_MAG), tapes: 0, photos: 0, thumbs: [], full: [], flashOn: false, battery: 1, charge: 1, spares: s.spares, uno: s.uno, monster: s.monster, pokeball: s.pokeball, nokia: s.nokia, bat: s.bat, grenade: s.grenade, water: s.water, totem: s.totem, radar: s.radar, caution: s.caution, tank: s.tank, tankOn: true, watergun: s.watergun, tape: 1, hot, hotSel: 0, gadget: 'none' };
 }
 
 /** La misión de la ronda, siempre en pantalla (sin mirar por la cámara): el objetivo, su progreso en bloques («PHOTOS 1/3», «TVS 2/4») y, si se gasta, la linterna y el aguante. */

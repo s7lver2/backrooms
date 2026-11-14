@@ -30,6 +30,10 @@ function modelOf(assets: Assets, k: IconKey | 'loot', r: number): THREE.Object3D
     case 'loot': return lootModel(r);
     case 'uno': return itemModel('uno');
     case 'monster': return itemModel('monster');
+    case 'pokeball':
+    case 'grenade':
+    case 'nokia':
+    case 'bat': return itemModel(k);
     default: return poolPart(k);
   }
 }

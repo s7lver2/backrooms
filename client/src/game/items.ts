@@ -209,6 +209,10 @@ export class Items extends PickupField {
       totem: [g.totem.scene, 0.5],
       ...(itemModel('uno') && { uno: [itemModel('uno')!, 0.2] as [THREE.Object3D, number] }),
       ...(itemModel('monster') && { monster: [itemModel('monster')!, 0.2] as [THREE.Object3D, number] }),
+      ...(itemModel('pokeball') && { pokeball: [itemModel('pokeball')!, 0.2] as [THREE.Object3D, number] }),
+      ...(itemModel('grenade') && { grenade: [itemModel('grenade')!, 0.2] as [THREE.Object3D, number] }),
+      ...(itemModel('nokia') && { nokia: [itemModel('nokia')!, 0.2] as [THREE.Object3D, number] }),
+      ...(itemModel('bat') && { bat: [itemModel('bat')!, 0.7] as [THREE.Object3D, number] }),
       ammo: [new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.06, 0.06), new THREE.MeshStandardMaterial({ color: 0xb08d3a, roughness: 0.5, metalness: 0.5 })), 0.12],
     };
   }

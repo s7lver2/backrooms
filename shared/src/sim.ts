@@ -47,7 +47,7 @@ export interface EntDef {
 export const ENTITIES: Record<Kind, EntDef> = {
   // el personal del hotel: de pie y en paz hasta que alguien mata a uno; entonces todos van a por quien no esté escondido (y no se rinden)
   faceling: {
-    height: 1.75, walk: 1.3, run: 3.1, sight: 2, hearing: 3, lose: 90, roam: 'dark', rest: [1, 2],
+    height: 1.75, walk: 1.1, run: 2.5, sight: 2, hearing: 3, lose: 90, roam: 'dark', rest: [1, 2],
     brain: ['inspect', 'chase', 'search', 'wander'],
     clips: { idle: 'idle', walk: 'walk', run: 'run', attack: 'attack', dances: ['strut'] },
   },
@@ -126,6 +126,8 @@ export interface SimTarget {
   duck?: boolean;
   /** Hacia dónde mira (yaw del jugador: -z es 0); para las que acechan. */
   yaw?: number;
+  /** Dentro de una nube de humo: fracción (0–1) de alcance que se pierde para verlo. */
+  fog?: number;
 }
 
 // persiguen más rápido de lo que andas y más despacio de lo que corres: escapar cuesta aguante
@@ -267,6 +269,8 @@ export class EntitySim {
   /** En paz: no hace nada (el personal del hotel) hasta `rage()`; ya furioso, siempre sabe dónde está el jugador más cercano que no esté escondido. */
   passive = false;
   enraged = false;
+  /** Dentro de una nube de humo: fracción (0–1) de lo lejos que ve. */
+  blind = 0;
   /** Pasea en línea recta por el eje x (con la ficha en paz), por el carril `z` y a `v` m/s. */
   patrol?: { z: number; dir: number; v: number };
   /** Despertada por un ruido (un cuadro de luz): va a mirar; si te ve, te mata; si no, vuelve a su sitio en paz. */
@@ -476,7 +480,8 @@ export class EntitySim {
     if (chasing) range = Math.min(18, range * 2);
     // agachado cuesta más verte y seguirte: la mitad de alcance (incluso persiguiendo, así que puedes escabullirte)
     if (t.duck) range *= 0.5;
-    const beamed = this.beamed(t);
+    range *= (1 - this.blind) * (1 - (t.fog ?? 0));
+    const beamed = !this.blind && !t.fog && this.beamed(t); // (con humo de por medio, ni la linterna delata)
     const ang = Math.abs(mod(Math.atan2(tx, tz) - this.facing + Math.PI, TAU) - Math.PI);
     if (!beamed && !((chasing || ang < CONE || d < 2.5) && d < range)) return 0;
     if (!seesXZ(this.solid, this.x, this.z, t.ex, t.ez)) return 0;

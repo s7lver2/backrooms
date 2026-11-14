@@ -33,6 +33,11 @@ export interface Own {
   watergun?: boolean;
   uno?: boolean;
   monster?: number;
+  /** Las Suites. */
+  pokeball?: boolean;
+  nokia?: boolean;
+  bat?: boolean;
+  grenade?: number;
 }
 
 export interface HotDef {
@@ -61,7 +66,13 @@ const gear = (g: 'camera' | 'gun', name: string, info: string): HotDef => ({
   held: (p) => p.hand === g,
 });
 
+const tool = (k: 'pokeball' | 'nokia' | 'bat', name: string, info: string): HotDef => ({ name, icon: k, have: (o) => !!o[k], use: (p) => p.equipTool(k), held: (p) => p.prop === k, info });
+
 export const HOT: Record<string, HotDef> = {
+  pokeball: tool('pokeball', 'POKEBALL', 'Take it in hand and HOLD the click to see the arc and its bounces; release to throw (right click cancels). One throw per ball. At an enemy: the other entities turn on it for a few seconds. At a teammate: they are trapped until someone picks the ball up. A recovered ball carries what it caught and is stronger.'),
+  nokia: tool('nokia', 'NOKIA', 'Take it in hand and click to pick a teammate to call; they hear you as if you were next to them. Click again to hang up. The battery drains while you talk.'),
+  bat: tool('bat', 'BASEBALL BAT', 'Take it in hand and click to swing: entities and teammates in front of you fly back (into the void, even). It wears out and can break.'),
+  grenade: { name: 'SMOKE GRENADE', icon: 'grenade', have: (o) => (o.grenade ?? 0) > 0, count: (o) => o.grenade ?? 0, use: (p) => p.equipTool('grenade'), held: (p) => p.prop === 'grenade', info: 'Take it in hand and HOLD the click to see the arc and its bounces; release to throw (right click cancels). A cloud of smoke blinds the entities, and it makes a lot of noise.' },
   camera: gear('camera', 'CAMCORDER', 'Take it in hand, or put it away.'),
   gun: gear('gun', 'RIFLE', 'Take it in hand, or put it away.'),
   caution: {

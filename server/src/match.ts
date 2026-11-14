@@ -1,5 +1,5 @@
 import {
-  Breath, levelCaps, seesXZ, CELL, DIFFICULTY, EEH_HOLD, HIT_DAMAGE, EntitySim, TV_REACH, centerOf, generateMaze, poolMaze, generatePools, PK, suitesMaze, hideStates, itemSpots, solidAt, tickHides, totemSpot, tvPoint, tvSites, NOISE_RUN, NOISE_SHOT, SUITE_L, wrapX,
+  Breath, levelCaps, seesXZ, CELL, DIFFICULTY, EEH_HOLD, HIT_DAMAGE, EntitySim, TV_REACH, centerOf, generateMaze, poolMaze, generatePools, PK, suitesMaze, hideStates, itemSpots, subOf, solidAt, tickHides, totemSpot, tvPoint, tvSites, NOISE_RUN, NOISE_SHOT, NOISE_DROP, SUITE_L, wrapX,
   type Difficulty, type Inventory, type Ups, type Look, type Mission, type HideState, type EntState, type ItemSpot, type Kind, type Maze, type Noise, type PlayerState, type SimTarget, type WorldSnapshot,
 } from '@backrooms/shared';
 
@@ -62,6 +62,14 @@ export interface Player {
   vel?: number;
   /** Pistola de agua: estado de mojado/parada (ver applyWet). */
   wet?: WetState;
+  /** Pokeball: quién lo tiene encerrado (este jugador, caído, vuelve cuando su dueño la usa, la suelta o muere). */
+  ball?: string;
+  ballAt?: [number, number];
+  /** Nokia: con quién habla, y si él es quien llamó (gasta su batería). */
+  call?: string;
+  caller?: boolean;
+  /** Cuándo usó cada objeto de las Suites (ms) por última vez. */
+  toolAt?: Record<string, number>;
 }
 
 /** Mojado/parada de quien recibe el chorro (jugador; sirve igual para una entidad). Tiempos en ms de reloj. */
@@ -93,6 +101,10 @@ export function applyWet(w: WetState, now: number): { kind: 'wet' | 'stun'; ms: 
 interface Ent {
   id: number;
   sim: EntitySim;
+  /** Personal del vestíbulo (no sale de él, ni el del pasillo entra). */
+  lobby?: boolean;
+  /** Pokeball: las demás entidades son su enemigo hasta `until` (segundos de partida), salvo su dueño `by`; `prev` es lo que era antes. */
+  charm?: { until: number; by: string; prev: { passive: boolean; enraged: boolean; roused: boolean } };
 }
 
 export class Match {
@@ -174,6 +186,7 @@ export class Match {
         this.spawn('faceling', { x: Math.floor(x / CELL), y: Math.floor(z / CELL) }, 1, 3);
         const e = this.ents[this.ents.length - 1].sim;
         (e.x = x), (e.z = z), (e.facing = Math.atan2(dx, dz)), (e.passive = true);
+        this.ents[this.ents.length - 1].lobby = x >= 3 * span;
       }
     }
     if (!this.noEnts) for (let i = 0; i < D.ents; i++) this.spawn(i % 2 ? 'partygoer' : 'bacteria', m.spawns[i] ?? m.spawns[i % Math.max(1, m.spawns.length)] ?? m.spawns[0]);
@@ -195,6 +208,15 @@ export class Match {
     for (const q of this.ents) if (q.sim.kind === 'faceling') (q.sim.enraged = q.sim.roused = false), (q.sim.passive = true), (q.sim.path = []), (q.sim.state = 'wander');
   }
   private vengeance = false;
+  /** Las nubes de humo de las granadas. */
+  private smokes: { x: number; z: number; r: number; fog: number; until: number }[] = [];
+  /** Cuánto dura una nube (s). */
+  static readonly SMOKE_S = 18;
+  private sealed = false;
+  private sealT = 0;
+  private readonly sealAt = 40 + Math.random() * 80;
+  /** La puerta del vestíbulo ha desaparecido. */
+  onSeal?: () => void;
 
   /** Segundos de partida. */
   get elapsed() {
@@ -270,7 +292,20 @@ export class Match {
       this.eehOn = true;
       for (const q of this.ents) q.sim.kind === 'faceling' && q.sim.rage(); // el evaporador falla: el personal, que estaba en paz, va a por todos
     }
+    // la puerta doble del vestíbulo desaparece a una hora al azar, cuando todos los vivos están ya en el pasillo: el bucle queda cerrado (ya no hay vuelta atrás)
+    if (this.hotel && !this.sealed) {
+      const alive = players.filter((p) => !p.dead && !p.boarded);
+      this.sealT = alive.length && alive.every((p) => p.st.x < 3 * SUITE_L * CELL - 3) ? this.sealT + dt : 0;
+      if (this.sealT >= this.sealAt) {
+        this.sealed = true;
+        for (const y of [8, 9]) this.maze.open[y * this.maze.w + SUITE_L * 3] = 0;
+        this.ents = this.ents.filter((e) => !e.lobby);
+        this.onSeal?.();
+      }
+    }
     const targets: SimTarget[] = [];
+    this.smokes = this.smokes.filter((q) => q.until > this.age);
+    const fogAt = (x: number, z: number) => this.smokes.reduce((f, q) => (this.far({ x, z }, q) < q.r ? Math.max(f, q.fog) : f), 0);
     this.hiding(dt, players);
     const hidden = this.age > this.grace ? this.hides.filter((h) => h.occ) : [];
     if (this.age > this.grace) {
@@ -282,20 +317,42 @@ export class Match {
           id: p.id, x: s.x, y: s.y, z: s.z, yaw: s.yaw, ex: s.x, ey: s.y + EYE - (s.duck ? 0.6 : 0), ez: s.z, duck: !!s.duck,
           torch: s.light ? [-Math.sin(s.yaw) * cp, Math.sin(s.pitch), -Math.cos(s.yaw) * cp] : null,
           exposed: cx >= 0 && cy >= 0 && cx < m.w && cy < m.h && !!m.lit[cy * m.w + cx],
+          fog: fogAt(s.x, s.z) || undefined,
         });
       }
     }
     const noises = this.age > this.grace ? this.noises : [];
     this.noises = [];
-    for (const e of this.frozen ? [] : this.ents) {
-      const id = e.sim.update(dt, targets, false, hidden, noises);
+    for (const e of this.frozen ? [] : [...this.ents]) {
+      if (!this.ents.includes(e)) continue; // (otra entidad, hechizada, acaba de matarla)
+      e.sim.blind = fogAt(e.sim.x, e.sim.z);
+      let tg = targets;
+      if (e.charm) {
+        if (this.age >= e.charm.until) (Object.assign(e.sim, e.charm.prev), (e.sim.path = []), (e.charm = undefined));
+        else {
+          // hechizada: a por todo lo que no sea su dueño, entidades incluidas
+          const by = e.charm.by;
+          e.sim.passive = false;
+          e.sim.enraged = true;
+          tg = [...targets.filter((t) => t.id !== by), ...this.ents.filter((o) => o !== e && o.sim.alive).map((o) => ({ id: '#' + o.id, x: o.sim.x, y: 0, z: o.sim.z, ex: o.sim.x, ey: o.sim.height * 0.85, ez: o.sim.z, torch: null, exposed: true }))];
+        }
+      }
+      const id = e.sim.update(dt, tg, false, hidden, noises);
       if (this.hotel) {
-        const x = wrapX(e.sim.x);
-        if (x !== e.sim.x) (e.sim.x = x), (e.sim.path = []); // (como los jugadores: siempre en la copia del medio)
+        const x = e.lobby ? Math.max(e.sim.x, 3 * SUITE_L * CELL + 0.6) : wrapX(e.sim.x); // (el del vestíbulo no pasa al pasillo; el del pasillo, como los jugadores, siempre en la copia del medio)
+        if (x !== e.sim.x) (e.sim.x = x), (e.sim.path = []);
       }
       if (id === undefined) continue;
+      if (id[0] === '#') {
+        // una hechizada alcanza a otra entidad: 2 de daño
+        const i = this.ents.findIndex((o) => o.id === Number(id.slice(1)));
+        e.sim.state = 'attack';
+        if (i >= 0 && (this.ents[i].sim.hit(), this.ents[i].sim.hit() || !this.ents[i].sim.alive)) this.down(i, { st: e.sim });
+        continue;
+      }
       const p = players.find((q) => q.id === id);
       if (!p) continue;
+      if (e.sim.kind === 'faceling') console.log(`[staff] un Faceling mata a ${p.id}: enraged=${e.sim.enraged} roused=${e.sim.roused} vengeance=${this.vengeance} eehOn=${this.eehOn} estado=${e.sim.state} mision=${this.mission?.kind}`);
       // un golpe quita vida; muere con la vida a cero o si lo pillan en un nicho (sin salida)
       p.hp = (p.hide ?? -1) >= 0 || e.sim.kind === 'faceling' ? 0 : Math.max(0, p.hp - HIT_DAMAGE); // (el personal no deja heridos)
       e.sim.state = 'attack'; // ataca y vuelve a lo suyo (ver recover)
@@ -310,6 +367,7 @@ export class Match {
       ents: this.ents.map((e) => ({ id: e.id, kind: e.sim.kind, x: e.sim.x, z: e.sim.z, yaw: e.sim.facing, state: e.sim.state, hp: e.sim.hp, speed: e.sim.speed }) satisfies EntState),
       taken: [...this.taken],
       tapes: this.tapes,
+      ...(this.vengeance ? { vengeance: true } : {}),
       insp: this.hides.filter((h) => h.by && h.occ).map((h) => h.occ!.id),
       ...(this.tvs.length ? { tvOff: [...this.tvOff] } : {}),
     };
@@ -440,6 +498,64 @@ export class Match {
     if (!best) return;
     const ev = applyWet((best.wet ??= { last: 0, acc: 0, wetUntil: 0, stunUntil: 0, coolUntil: 0 }), now);
     return ev && { to: best, ev };
+  }
+
+  // ── los cuatro objetos de las Suites ──
+
+  /** Pokeball: lo primero que toca en su vuelo (`pts`). Una entidad queda hechizada `secs` s (devuelve su tipo); un jugador, en `player`. `at` es dónde cae. */
+  ballHit(p: Player, players: Player[], pts: number[], secs: number) {
+    for (let i = 0; i < pts.length; i += 3) {
+      const x = pts[i], y = pts[i + 1], z = pts[i + 2];
+      for (const q of players) if (q !== p && !q.dead && !q.boarded && q.seen && Math.hypot(q.st.x - x, q.st.z - z) < 0.8 && y - q.st.y > 0 && y - q.st.y < 2) return { player: q, at: [x, z] as [number, number] };
+      for (const e of this.ents)
+        if (e.sim.alive && Math.hypot(e.sim.x - x, e.sim.z - z) < 0.9 && y < 2.2) {
+          e.charm = { until: this.age + secs, by: p.id, prev: e.charm?.prev ?? { passive: e.sim.passive, enraged: e.sim.enraged, roused: e.sim.roused } };
+          return { ent: e.sim.kind, at: [e.sim.x, e.sim.z] as [number, number] };
+        }
+    }
+    return { at: [pts[pts.length - 3], pts[pts.length - 1]] as [number, number] };
+  }
+
+  /** Granada de humo caída en (x, z): nube de radio `r`, ruido de `noise` m y daño de impacto `dmg` a lo que esté debajo. */
+  grenade(p: Player, x: number, z: number, o: { r: number; dmg: number; fog: number; noise: number }) {
+    this.smokes.push({ x, z, r: o.r, fog: o.fog, until: this.age + Match.SMOKE_S });
+    this.noise(x, z, o.noise);
+    for (const e of [...this.ents])
+      if (this.far({ x, z }, e.sim) < 1.6 && (e.sim.hp -= o.dmg) <= 0) {
+        e.sim.hp = 1;
+        if (e.sim.hit()) this.down(this.ents.indexOf(e), p);
+      }
+  }
+
+  /** Bate: lo que hay delante a ≤ 2,6 m sale despedido `force` m. Las entidades se mueven aquí (y caen al vacío si lo pisan); a los jugadores los empuja su cliente. */
+  bat(p: Player, players: Player[], yaw: number, force: number) {
+    const fx = -Math.sin(yaw), fz = -Math.cos(yaw), pushed: Player[] = [];
+    let hit = false;
+    const inCone = (x: number, z: number) => {
+      const dx = x - p.st.x, dz = z - p.st.z, d = Math.hypot(dx, dz);
+      return d <= 2.6 && (d < 0.4 || (dx * fx + dz * fz) / d >= 0.55);
+    };
+    for (const q of players) if (q !== p && !q.dead && !q.boarded && inCone(q.st.x, q.st.z)) (pushed.push(q), (hit = true));
+    for (const e of [...this.ents]) {
+      if (!e.sim.alive || !inCone(e.sim.x, e.sim.z)) continue;
+      hit = true;
+      if (this.shove(e, fx, fz, force)) this.down(this.ents.indexOf(e), p);
+    }
+    this.noise(p.st.x, p.st.z, NOISE_DROP);
+    return { pushed, hit, fx, fz };
+  }
+
+  /** Empuja una entidad `len` m hacia (dx, dz) hasta una pared; true si acaba sobre un hueco (cae). */
+  private shove(e: Ent, dx: number, dz: number, len: number) {
+    const m = this.maze, n = Math.ceil(len / 0.3);
+    for (let i = 0; i < n; i++) {
+      const x = e.sim.x + (dx * len) / n, z = e.sim.z + (dz * len) / n;
+      if (solidAt(m, x, z)) break;
+      (e.sim.x = x), (e.sim.z = z);
+    }
+    e.sim.path = [];
+    const c = e.sim.cellOf(e.sim.x, e.sim.z);
+    return m.voids.some((v) => v.x === c.x && v.y === c.y);
   }
 
   /** Entrar en el ascensor (abierto: la misión está cumplida). */

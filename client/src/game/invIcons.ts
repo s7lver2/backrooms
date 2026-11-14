@@ -65,7 +65,7 @@ function release() {
   rig = undefined;
 }
 
-export type IconKey = 'uno' | 'monster' | 'flashlight' | 'camera' | 'gun' | 'tape' | 'spare' | 'ammo' | 'water' | 'caution' | 'radar' | 'totem' | 'watergun' | 'tank';
+export type IconKey = 'uno' | 'monster' | 'pokeball' | 'grenade' | 'nokia' | 'bat' | 'flashlight' | 'camera' | 'gun' | 'tape' | 'spare' | 'ammo' | 'water' | 'caution' | 'radar' | 'totem' | 'watergun' | 'tank';
 
 /** Los iconos del equipo y de los bolsillos; se hacen la primera vez y se guardan. */
 export function gearIcons(assets: Assets): Record<IconKey, string> {
@@ -91,11 +91,11 @@ export function gearIcons(assets: Assets): Record<IconKey, string> {
     cache.set('totem', shoot(g.totem.scene, -0.5, 0.2));
   }
   // los modelos nuevos llegan con los demás al cargar
-  for (const [k, spin, tilt] of [['uno', -0.5, 0.3], ['monster', -0.5, 0.15]] as const) {
+  for (const [k, spin, tilt] of [['uno', -0.5, 0.3], ['monster', -0.5, 0.15], ['pokeball', -0.5, 0.3], ['grenade', -0.5, 0.3], ['nokia', -0.5, 0.3], ['bat', -0.5, 0.3]] as const) {
     const o = itemModel(k);
     if (o && !cache.has(k)) (cache.set(k, shoot(o, spin, tilt)), release());
   }
-  return Object.fromEntries(['uno', 'monster', 'flashlight', 'camera', 'gun', 'tape', 'spare', 'ammo', 'water', 'caution', 'radar', 'totem', 'watergun', 'tank'].map((k) => [k, cache.get(k) ?? ''])) as Record<IconKey, string>;
+  return Object.fromEntries(['uno', 'monster', 'pokeball', 'grenade', 'nokia', 'bat', 'flashlight', 'camera', 'gun', 'tape', 'spare', 'ammo', 'water', 'caution', 'radar', 'totem', 'watergun', 'tank'].map((k) => [k, cache.get(k) ?? ''])) as Record<IconKey, string>;
 }
 
 /** El icono de un accesorio (sombrero, mochila): llega cuando se descarga su modelo. */

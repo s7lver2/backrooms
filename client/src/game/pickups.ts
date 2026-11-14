@@ -30,7 +30,7 @@ export interface PickupHost {
 export interface Pickup {
   id: string;
   obj: THREE.Object3D;
-  kind: 'tape' | 'camera' | 'gun' | 'flashlight' | 'water' | 'totem' | 'radar' | 'ammo' | 'caution' | 'tank' | 'watergun' | 'loot' | 'uno' | 'monster' | 'locker' | 'gen';
+  kind: 'tape' | 'camera' | 'gun' | 'flashlight' | 'water' | 'totem' | 'radar' | 'ammo' | 'caution' | 'tank' | 'watergun' | 'loot' | 'uno' | 'monster' | 'pokeball' | 'grenade' | 'nokia' | 'bat' | 'locker' | 'gen';
   taken: boolean;
   /** La altura a la que flota y el brillo de su rareza. */
   y: number;
@@ -45,7 +45,7 @@ export interface Pickup {
   phys?: { v: THREE.Vector3; spin: THREE.Vector3; rest: boolean; floor: number };
 }
 
-const LABEL: Record<Pickup['kind'], string> = { tape: 'tape', camera: 'camcorder', gun: 'rifle', flashlight: 'flashlight', water: 'almond water', totem: 'totem of life', radar: 'radar', ammo: 'ammo', caution: 'caution tape', tank: 'diving tank', watergun: 'water gun', loot: 'artifact', uno: 'uno reverse', monster: 'monster', locker: 'locker', gen: 'power switch' };
+const LABEL: Record<Pickup['kind'], string> = { tape: 'tape', camera: 'camcorder', gun: 'rifle', flashlight: 'flashlight', water: 'almond water', totem: 'totem of life', radar: 'radar', ammo: 'ammo', caution: 'caution tape', tank: 'diving tank', watergun: 'water gun', loot: 'artifact', uno: 'uno reverse', monster: 'monster', pokeball: 'pokeball', grenade: 'smoke grenade', nokia: 'nokia', bat: 'baseball bat', locker: 'locker', gen: 'power switch' };
 
 export class PickupField {
   readonly root = new THREE.Group();

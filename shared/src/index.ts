@@ -8,6 +8,7 @@ export * from './progress';
 export * from './missions';
 export * from './caps';
 export * from './upgrades';
+export * from './throw';
 import type { EntState, Kind } from './sim';
 import type { Look } from './progress';
 import type { LevelCaps } from './caps';
@@ -222,6 +223,8 @@ export interface WorldSnapshot {
   tapes: number;
   /** Jugadores a los que una entidad inspecciona ahora en su nicho (hay que contener la respiración). */
   insp?: string[];
+  /** Alguien del equipo mató a uno del personal (Las Suites): todos van a por vosotros. */
+  vengeance?: boolean;
   /** Objetos soltados que hay ahora en el suelo (ids `d…`); los pickups del cliente se sincronizan con esta lista. */
   drops?: Drop[];
   /** Índices (de tvSites) de las televisiones ya apagadas; solo con la misión «TURN OFF THE TVS». */
@@ -260,7 +263,28 @@ export interface AdminInfo {
 }
 export type AdminReply = { ok: boolean; error?: string; info?: AdminInfo };
 /** Efectos de admin que el servidor manda a un cliente (el resto de la consola usa los canales de siempre: room, dead, revived, inv...). */
-export type AdminFx = { k: 'tp'; x: number; y: number; z: number; yaw: number } | { k: 'give'; item: ItemId } | { k: 'heal' } | { k: 'ammo'; on: boolean };
+export type AdminFx = { k: 'tp'; x: number; y: number; z: number; yaw: number } | { k: 'give'; item: ItemId } | { k: 'heal' } | { k: 'ammo'; on: boolean } | { k: 'take'; item: ItemId } | { k: 'push'; x: number; z: number };
+/** Las Suites: usar pokeball, granada, bate o nokia. `yaw` y `pitch`, hacia donde mira; `to`, a quién llama (nokia; sin él, cuelga). */
+export interface ToolMsg {
+  k: 'pokeball' | 'grenade' | 'bat' | 'nokia';
+  yaw: number;
+  pitch: number;
+  to?: string;
+}
+export interface ToolReply {
+  ok: boolean;
+  /** Por qué no (en inglés, para el aviso). */
+  why?: string;
+  /** Se ha gastado el objeto (una unidad): el cliente lo quita de lo que lleva. */
+  used?: boolean;
+}
+/** Lo que ven todos de un objeto de las Suites. */
+export type ToolFx =
+  | { k: 'throw'; what: 'pokeball' | 'grenade'; path: number[]; s: number }
+  | { k: 'smoke'; x: number; z: number; r: number; s: number }
+  | { k: 'bat'; id: string }
+  | { k: 'call'; peer: string; name: string; on: boolean }
+  | { k: 'note'; text: string };
 
 export interface ClientToServer {
   /** Consola de admin: el servidor rechaza (ok = false) a cualquiera que no sea la cuenta de admin. */
@@ -346,6 +370,8 @@ export interface ClientToServer {
   unstrip: (id: string) => void;
   /** Pistola de agua: un chorro desde (x, z) mirando a `yaw` (unos 20 mensajes/s como mucho mientras dispara). El servidor busca a quién moja. */
   squirt: (a: SquirtMsg) => void;
+  /** Las Suites: usar pokeball, granada de humo, bate o nokia (el servidor decide el efecto y lo reparte). */
+  tool: (a: ToolMsg, cb?: (r: ToolReply) => void) => void;
 }
 export interface SquirtMsg {
   x: number;
@@ -377,6 +403,8 @@ export interface ServerToClient {
   dead: (id: string) => void;
   /** El rifle de `id` ha explotado en (x, y, z): todos ven la explosión y a él salir volando. */
   blastFx: (m: { id: string; x: number; y: number; z: number }) => void;
+  /** La puerta doble del vestíbulo ha desaparecido (Las Suites). */
+  seal: () => void;
   /** Fin de la ronda (todos vuelven al lobby): el resultado completo (cobro o penalización, saldo, qué fue de cada uno). */
   over: (r: RoundResult) => void;
   /**
@@ -398,6 +426,8 @@ export interface ServerToClient {
   unstrip: (id: string) => void;
   /** Te ha mojado o parado alguien con la pistola de agua. */
   wet: (m: WetMsg) => void;
+  /** Un objeto de las Suites en acción (lanzamiento, humo, golpe, llamada). */
+  toolFx: (m: ToolFx) => void;
   /** En partida: la calidad de lo que llevas y tu botín según el servidor (al recoger, soltar y cada pocos segundos por el desgaste). */
   bag: (b: { q: NonNullable<Inventory['q']>; loot: Qual[] }) => void;
   /** Alguien ha vendido algo en la báscula. */
