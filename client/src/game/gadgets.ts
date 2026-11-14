@@ -1,11 +1,12 @@
 import * as THREE from 'three';
-import { MAX_PLAYERS, STRIP_GAP, STRIP_MAX, STRIP_PTS, type Strip } from '@backrooms/shared';
+import { perks } from './perks';
+import { boostOf, MAX_PLAYERS, STRIP_GAP, STRIP_MAX, STRIP_PTS, type Strip } from '@backrooms/shared';
 import type { Controls } from './input';
 import type { Player } from './player';
 import type { World } from './world';
 import type { Sock } from '../net';
 import type { Assets } from './game';
-import { Holo } from './holo';
+import { Holo, RADAR_IDLE, RADAR_SCAN } from './holo';
 import { sees } from './items';
 
 /*
@@ -22,6 +23,7 @@ const GRAB = 2.4, WIDTH = 0.12, LIFT = 0.012, PERIOD = 0.24; // metros: alcance 
 const CAP = STRIP_MAX * MAX_PLAYERS * STRIP_PTS; // puntos como mucho en pantalla
 export const ROLL = 60; // metros de cinta que trae el rollo
 const TAPE_MAX = 40; // metros: lo más larga que sale una recta de cinta
+const SCAN_TIME = 3, SCAN_COOL = 5; // s: lo que dura un escaneo del radar y lo que hay que esperar para el siguiente (cuenta desde que se usa)
 
 const _v = new THREE.Vector3(), _x = new THREE.Vector3();
 
@@ -66,10 +68,12 @@ export class Gadgets {
   private offs: (() => void)[] = [];
   private t = 0;
   private cool = 0;
+  private scanLeft = 0;
+  private scanCool = 0;
   private sock?: Sock;
   private serial = 0;
 
-  constructor(private world: World, private player: Player, private camera: THREE.Camera, _assets: Assets, _host: HTMLElement, private peers: () => Iterable<{ pos: THREE.Vector3; dead: boolean }>) {
+  constructor(private world: World, private player: Player, private camera: THREE.Camera, _assets: Assets, _host: HTMLElement, private peers: () => Iterable<{ pos: THREE.Vector3; dead: boolean }>, private exit?: () => THREE.Vector3 | undefined) {
     const tex = tapeTexture();
     const mat = new THREE.MeshStandardMaterial({ map: tex, roughness: 0.3, metalness: 0.1, side: THREE.DoubleSide, emissive: 0xffffff, emissiveMap: tex, emissiveIntensity: 0.3, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 });
     const g = new THREE.BufferGeometry();
@@ -184,9 +188,12 @@ export class Gadgets {
     const p = this.player, g = p.gadget, free = !p.dead && p.hideState === 'out';
     this.t += dt;
     this.cool -= dt;
+    this.scanLeft = Math.max(0, this.scanLeft - dt);
+    this.scanCool = Math.max(0, this.scanCool - dt);
     // el holograma sigue al radar de la mano (Player lo coloca con grips.json); solo con él en la mano y a la vista
     const it = p.items.radar;
-    this.holo.update(dt, g === 'radar' && free && it.visible, it.position, p.yaw, p.pos, this.peers());
+    const status = this.scanLeft > 0 ? `SCAN ${Math.ceil(this.scanLeft)}` : this.scanCool > 0 ? `WAIT ${Math.ceil(this.scanCool)}` : 'READY';
+    this.holo.update(dt, g === 'radar' && free && it.visible, it.position, p.yaw, p.pos, this.peers(), (this.scanLeft > 0 ? RADAR_SCAN : RADAR_IDLE) * boostOf(perks, 'radar'), status, this.exit?.()); // (la rareza del radar: más alcance)
     // la recta en marcha: se cancela al guardar la cinta, esconderse, morir o con el clic derecho; si no, el segundo punto sigue a la mira
     if (this.start) {
       if (g !== 'caution' || !free || c.aim) this.finish(false);
@@ -210,6 +217,10 @@ export class Gadgets {
           c = { ...c, grab: false };
         }
       }
+    }
+    if (g === 'radar' && c.fire) {
+      if (this.scanCool <= 0) (this.scanLeft = SCAN_TIME), (this.scanCool = SCAN_COOL);
+      c = { ...c, fire: false };
     }
     if (g === 'totem' && c.fire) {
       this.onTotem?.();

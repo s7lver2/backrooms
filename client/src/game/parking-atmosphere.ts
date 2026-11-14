@@ -44,12 +44,6 @@ export class ParkingAtmosphere {
     const ring=new THREE.RingGeometry(.035,.046,16).rotateX(-Math.PI/2),ringMaterial=new THREE.MeshBasicMaterial({color:0x59695e,transparent:true,opacity:.22,depthWrite:false,fog:true});this.resources.push(ring,ringMaterial);this.impacts=new THREE.InstancedMesh(ring,ringMaterial,low?3:8);this.impacts.frustumCulled=false;this.group.add(this.impacts);
   }
   inspect(floor:number) { return this.anchors.find(a=>a.floor===floor) ?? this.anchors[0]; }
-  wetAt(p: ParkingPoint) {
-    if (!this.group.visible || this.floor !== p.floor) return false;
-    for (let i = 0; i < this.dropPositions.length; i += 6)
-      if (this.dropPositions[i+4] > this.dropPositions[i+1] && Math.hypot(p.x-this.dropPositions[i],p.z-this.dropPositions[i+2]) < .24) return true;
-    return false;
-  }
   update(time:number,p:ParkingPoint,outputs?:ArrayLike<number>) {
     const indoors=this.map.floors[p.floor].rooms.some(r=>p.x>r.x&&p.x<r.x+r.w&&p.z>r.z&&p.z<r.z+r.d);
     this.group.visible=!indoors;
@@ -60,7 +54,16 @@ export class ParkingAtmosphere {
     }
     this.volumes.forEach((mesh,i)=>{const a=this.selected[i],visible=!!a&&Math.hypot(a.x-p.x,a.z-p.z)<15;mesh.visible=visible;this.shafts[i].visible=visible;if(!a)return;mesh.position.set(a.x,a.y+1.53,a.z);mesh.material.uniforms.uTime.value=time;mesh.material.uniforms.uPower.value=outputs?.[a.lampId]??1;mesh.material.uniforms.uMin.value.set(a.x-2.2,a.y+.08,a.z-2.2);mesh.material.uniforms.uMax.value.set(a.x+2.2,a.y+2.98,a.z+2.2);this.shafts[i].position.set(a.x,a.y+1.78,a.z);this.shafts[i].material.uniforms.uBase.value=a.y+.23;this.shafts[i].material.uniforms.uTime.value=time;this.shafts[i].material.uniforms.uPower.value=outputs?.[a.lampId]??1;});
     this.drips.visible=this.impacts.visible=this.selected.length>0;
-    for(let i=0;i<this.dropPositions.length/6;i++){const a=this.selected[i%this.selected.length];const phase=(time*.45+i*.371)%1,active=!!a&&Math.hypot(a.x-p.x,a.z-p.z)<14;if(!a){for(let j=0;j<6;j++)this.dropPositions[i*6+j]=0;continue;}const x=a.x+Math.sin(i*2.1)*.7,z=a.z+Math.cos(i*1.7)*.7,y=a.y+3.1*(1-phase*phase);
+    for(let i=0;i<this.dropPositions.length/6;i++){
+      const a=this.selected[Math.floor(i/3)];
+      if(!a){
+        this.dropPositions.fill(0,i*6,i*6+6);
+        this.matrix.makeScale(0,0,0);this.impacts.setMatrixAt(i,this.matrix);
+        continue;
+      }
+      const seed=a.lampId*3+i%3;
+      const phase=(time*.45+seed*.371)%1,active=Math.hypot(a.x-p.x,a.z-p.z)<14;
+      const x=a.x+Math.sin(seed*2.1)*.7,z=a.z+Math.cos(seed*1.7)*.7,y=a.y+3.1*(1-phase*phase);
       this.dropPositions.set([x,y,z,x,y+(active ? .09 : 0),z],i*6);const size=active&&phase>.88?(phase-.88)*10:0;this.matrix.makeScale(size,1,size).setPosition(x,a.y+.006,z);this.impacts.setMatrixAt(i,this.matrix);}
     this.drips.geometry.attributes.position.needsUpdate=true;this.impacts.instanceMatrix.needsUpdate=true;
   }

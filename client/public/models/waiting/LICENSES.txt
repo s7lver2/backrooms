@@ -29,3 +29,6 @@ This work is based on "Industrial Button" (https://sketchfab.com/3d-models/indus
 Reducidos con tools/pack_glb.py (texturas a 512 px, sin mapas de normales).
 
 This work is based on "Vending machine" (https://sketchfab.com/3d-models/vending-machine-9974acbcd8794694987f1e69924f80d9) by hectopod (https://sketchfab.com/hectopod) licensed under CC-BY-4.0 (http://creativecommons.org/licenses/by/4.0/)
+
+
+This work is based on "Product scales" (https://sketchfab.com/3d-models/product-scales-46db668923514ebc91febfef0f4dc9d0) by Virtual Museums of Malopolska (https://sketchfab.com/WirtualneMuzeaMalopolski) licensed under CC-BY-4.0 (http://creativecommons.org/licenses/by/4.0/). Reducido con gltf-transform (texturas a 1024 px en WebP, malla simplificada).

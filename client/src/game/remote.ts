@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { DEFAULT_LOOK, type Look, type PlayerState } from '@backrooms/shared';
+import { DEFAULT_LOOK, EMOTE_DEFS, type Look, type PlayerState } from '@backrooms/shared';
 import type { Assets } from './game';
 import { Rig } from './rig';
 import { build } from './anim/core';
@@ -17,7 +17,7 @@ import { worn, wornModel, placeWorn } from './worn';
 
 /** La muerte y los emotes de la sala de espera (1–4) son clips del paquete de animaciones (anim/): saludar, señalar, puño en alto y sentarse (agachado). */
 const DEATH = 'Standing React Death Backward';
-const EMOTES = ['', 'Cheering', 'Pointing', 'Fist Pump', 'Crouching'];
+const EMOTES = ['', ...EMOTE_DEFS.map((e) => e.clip)];
 const _v = new THREE.Vector3(), _q = new THREE.Quaternion(), _e = new THREE.Euler();
 const angle = (a: number, b: number) => a + THREE.MathUtils.euclideanModulo(b - a + Math.PI, Math.PI * 2) - Math.PI;
 
@@ -84,6 +84,13 @@ export class Remote {
   private labelCtx: CanvasRenderingContext2D;
   private bones: Record<'LeftHand' | 'RightHand' | 'Head', THREE.Bone | undefined>;
   readonly pos = new THREE.Vector3();
+  /** Las Suites: dónde estoy yo y lo que mide una copia del pasillo; el compañero se dibuja en la copia más cercana a mí (los dos envían el pasillo envuelto, pero quien acaba de entrar del vestíbulo recorre la última copia). */
+  hall?: { x: number; span: number };
+  /** Salió volando por una explosión (ragdoll simple): velocidad, giro y ángulos del cuerpo; solo vale con él caído. */
+  fling?: { v: THREE.Vector3; spin: THREE.Vector3; rot: THREE.Vector3; floor: number };
+  launch(dx: number, dz: number) {
+    this.fling = { v: new THREE.Vector3(dx * 6, 7, dz * 6), spin: new THREE.Vector3(9 + Math.random() * 6, 0, 8 + Math.random() * 6), rot: new THREE.Vector3(), floor: this.pos.y };
+  }
   yaw = 0;
   pitch = 0;
   light = true;
@@ -113,6 +120,8 @@ export class Remote {
   dancing = '';
   private emoting = 0;
   floorShadow = false;
+  /** Es mi propio cuerpo (se ve al mirar hacia abajo): sin cabeza, nombre, sombra ni objetos (esos son los de la vista en primera persona). */
+  self = false;
   private shadow = new THREE.Mesh(new THREE.PlaneGeometry(0.95, 0.95).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ map: BLOB, transparent: true, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -2 }));
   onStep?: (r: Remote, run: boolean) => void;
   stepRunSpeed = 2.4;
@@ -213,6 +222,7 @@ export class Remote {
   /** La cabeza se esconde mientras se mira por sus ojos. */
   setFirstPerson(on: boolean) {
     this.bones.Head?.scale.setScalar(on ? 0.001 : 1);
+    this.rig.root.visible = !on || this.dead; // por sus ojos no se ve su cuerpo por dentro (cuello, hombros); lo que lleva en las manos cuelga de otro sitio y sí se ve
   }
 
   update(dt: number) {
@@ -246,6 +256,10 @@ export class Remote {
       }
       if (this.fresh) (this.fresh = false), this.pos.copy(this.goal), (this.yaw = this.goalYaw), (this.pitch = this.goalPitch);
     }
+    if (this.hall) {
+      const d = Math.round((this.hall.x - this.goal.x) / this.hall.span) * this.hall.span;
+      if (d) (this.goal.x += d), (this.pos.x += d);
+    }
     // ya viene suave: solo un pulido corto (y, si de verdad se ha ido lejos, se corta)
     const k = 1 - Math.exp(-dt * 30), prev = _v.copy(this.pos);
     Timeline.follow(this.pos, this.goal, dt, k); // con tope de velocidad: tras un atasco se recupera corriendo, no a saltos
@@ -256,7 +270,7 @@ export class Remote {
     this.yaw += THREE.MathUtils.clamp((angle(this.yaw, this.goalYaw) - this.yaw) * kh, -cap, cap);
     this.pitch += THREE.MathUtils.clamp((this.goalPitch - this.pitch) * kh, -cap, cap);
     // el clip, a la velocidad a la que se mueve de verdad
-    const sp = dt > 0 ? this.pos.distanceTo(prev) / dt : 0;
+    const sp = dt > 0 ? Math.hypot(this.pos.x - prev.x, this.pos.z - prev.z) / dt : 0; // (solo en horizontal: el vaivén del agua y los peldaños no son correr)
     this.speed += (sp - this.speed) * Math.min(1, dt * 8);
     const A = this.rig.animator;
     if (A) {
@@ -267,6 +281,15 @@ export class Remote {
       A.p.vy = this.goal.y - this.pos.y;
       A.p.hold += ((this.held !== 'none' || this.light) && !this.dancing ? 1 - A.p.hold : -A.p.hold) * Math.min(1, dt * 12);
     }
+    const fl = this.fling;
+    if (fl && this.dead) {
+      fl.v.y -= 9.8 * dt;
+      this.pos.addScaledVector(fl.v, dt);
+      if (this.pos.y <= fl.floor) (this.pos.y = fl.floor), (fl.v.y = Math.abs(fl.v.y) * 0.3), fl.v.x *= 0.5, fl.v.z *= 0.5, fl.spin.multiplyScalar(0.45);
+      fl.rot.x += fl.spin.x * dt;
+      fl.rot.z += fl.spin.z * dt;
+      this.goal.copy(this.pos);
+    }
     const body = this.rig.root;
     body.position.copy(this.pos);
     this.crouch += ((this.hiding && !this.dead ? 1 : 0) - this.crouch) * Math.min(1, dt * 8);
@@ -275,7 +298,7 @@ export class Remote {
     body.position.z += Math.cos(this.yaw) * 0.3 * this.crouch;
     if (this.dead) {
       this.deadT += dt;
-      body.rotation.set(0, this.yaw + Math.PI, 0);
+      body.rotation.set(fl ? fl.rot.x : 0, this.yaw + Math.PI, fl ? fl.rot.z : 0);
     } else body.rotation.set(0, this.yaw + Math.PI, 0);
     this.rig.update(dt);
     // la cabeza sigue a la mirada (hacia arriba o abajo)
@@ -332,6 +355,7 @@ export class Remote {
     }
     this.label.visible = live;
     this.label.position.set(this.pos.x, this.pos.y + 2.15 - 0.85 * this.crouch, this.pos.z);
+    if (this.self) (this.label.visible = this.shadow.visible = this.beam.visible = this.glow.visible = false), Object.values(this.items).forEach((i) => (i.visible = false));
   }
 
   dispose() {

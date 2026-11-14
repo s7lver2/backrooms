@@ -1,15 +1,17 @@
 import { useMemo, useState } from 'react';
-import { AMMO_PACK, INV_MAX, SHOP, canHold, type Inventory, type ItemId } from '@backrooms/shared';
+import { AMMO_PACK, INV_MAX, ITEMS, SHOP, canHold, itemOpen, type Inventory, type ItemId } from '@backrooms/shared';
 import type { Sock } from '../net';
+import { sound } from './audio';
 import type { Assets } from './game';
 import { gearIcons } from './invIcons';
+import { perks } from './perks';
 
 /*
  * La tienda del ordenador: una fila por objeto (icono, nombre y descripción, lo que llevas, precio y BUY), pagada con el dinero común
  * de la sala. El saldo sale de `room.bank`, que el servidor actualiza al comprar: se ve en vivo, también cuando compra otro.
  */
 
-export default function Shop({ bank, inv, sock, assets }: { bank: number; inv: Inventory | null; sock?: Sock; assets?: Assets }) {
+export default function Shop({ bank, inv, sock, assets, open, onBought }: { bank: number; inv: Inventory | null; sock?: Sock; assets?: Assets; open?: ReadonlySet<string>; onBought?: (id: ItemId) => void }) {
   const icons = useMemo(() => (assets ? gearIcons(assets) : null), [assets]);
   const [msg, setMsg] = useState<{ t: string; bad: boolean }>({ t: '', bad: false });
   const [busy, setBusy] = useState(false);
@@ -18,13 +20,15 @@ export default function Shop({ bank, inv, sock, assets }: { bank: number; inv: I
     setBusy(true);
     sock.emit('buy', id, (r) => {
       setBusy(false);
+      sound(r.ok ? 'buy' : 'denied');
+      if (r.ok) onBought?.(id);
       setMsg(r.ok ? { t: `BOUGHT ${name}`, bad: false } : { t: (r.error ?? 'COULD NOT BUY').toUpperCase(), bad: true });
     });
     // sin respuesta del servidor no se queda bloqueado
     setTimeout(() => setBusy(false), 2000);
   };
-  const cap = (id: ItemId) => (id === 'flashlight' ? INV_MAX.spares : id === 'ammo' ? INV_MAX.ammo : id === 'water' ? INV_MAX.water : id === 'totem' ? INV_MAX.totem : 1);
-  const have = (id: ItemId) => (!inv ? 0 : id === 'flashlight' ? inv.spares : id === 'ammo' ? inv.ammo : id === 'water' ? inv.water : id === 'totem' ? inv.totem : inv[id] ? 1 : 0);
+  const cap = (id: ItemId) => (typeof INV_MAX[ITEMS[id].slot] === 'number' ? Number(INV_MAX[ITEMS[id].slot]) : 1);
+  const have = (id: ItemId) => (inv ? Number(inv[ITEMS[id].slot]) : 0);
   return (
     <div className="br-shop">
       <p className="br-shop__bank">
@@ -33,9 +37,9 @@ export default function Shop({ bank, inv, sock, assets }: { bank: number; inv: I
         <span className="br-lobby__dim br-shop__note">SHARED BY THE TEAM</span>
       </p>
       <ul className="br-shop__grid" aria-label="Items for sale">
-        {SHOP.map((s) => {
-          const full = !!inv && !canHold(inv, s.id), poor = bank < s.price;
-          const why = full ? 'MAX' : poor ? 'NO FUNDS' : '';
+        {SHOP.filter((s) => !open || itemOpen(s.id, open)).map((s) => { // (lo de un nivel sin desbloquear no se ofrece)
+          const max = !!inv && !canHold(inv, s.id), full = !!inv && !canHold(inv, s.id, perks.stats), poor = bank < s.price; // (el tope de cada cosa, o sin sitio en la mochila)
+          const why = max ? 'MAX' : full ? 'NO SPACE' : poor ? 'NO FUNDS' : '';
           const n = have(s.id), m = cap(s.id);
           return (
             <li key={s.id} data-off={!!why || undefined} data-poor={(poor && !full) || undefined}>
@@ -63,7 +67,7 @@ export default function Shop({ bank, inv, sock, assets }: { bank: number; inv: I
         })}
       </ul>
       <p className="br-lobby__sub" role={msg.bad ? 'alert' : 'status'} data-bad={msg.bad || undefined}>
-        {msg.t || `BOUGHT ITEMS GO IN YOUR BACKPACK. AMMO COMES IN PACKS OF ${AMMO_PACK}.`}
+        {msg.t || `BOUGHT ITEMS GO IN YOUR BACKPACK WITH A RANDOM RARITY. AMMO COMES IN PACKS OF ${AMMO_PACK}.`}
       </p>
     </div>
   );

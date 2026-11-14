@@ -31,6 +31,8 @@ export interface Own {
   caution: boolean;
   /** Poolrooms: la pistola de agua. */
   watergun?: boolean;
+  uno?: boolean;
+  monster?: number;
 }
 
 export interface HotDef {
@@ -93,9 +95,26 @@ export const HOT: Record<string, HotDef> = {
     icon: 'watergun',
     have: (o) => !!o.watergun,
     frac: (o) => o.squirt,
-    use: (p) => (p.hand === 'watergun' ? p.hold('none') : p.hold('watergun')), // (en las Poolrooms la saca PoolLevel, ver Game.poolHot)
+    use: (p) => (p.hand === 'watergun' ? p.hold('none') : p.hold('watergun')),
     held: (p) => p.hand === 'watergun',
     info: 'Hold the left click to spray. Hold G at a drinking fountain in the Poolrooms to refill it; it cannot be refilled in the Backrooms.',
+  },
+  uno: {
+    name: 'UNO REVERSE',
+    icon: 'uno',
+    have: (o) => !!o.uno,
+    use: (p) => p.equipUno(),
+    held: (p) => p.prop === 'uno',
+    info: 'Take it in hand and hold the key (or the left click) to play it: you swap places with a random teammate. One use: the card is gone after.',
+  },
+  monster: {
+    name: 'MONSTER',
+    icon: 'monster',
+    have: (o) => (o.monster ?? 0) > 0,
+    count: (o) => o.monster ?? 0,
+    use: (p) => p.equipMonster(),
+    held: (p) => p.prop === 'monster',
+    info: 'Take it in hand and hold the key (or the left click) for 3 seconds to drink. Then 5 seconds of +40% speed and endless stamina.',
   },
   water: {
     name: 'ALMOND WATER',
@@ -104,6 +123,6 @@ export const HOT: Record<string, HotDef> = {
     count: (o) => o.water,
     use: (p) => p.equipWater(),
     held: (p) => p.prop === 'water',
-    info: 'Take it in hand, then hold the key (or the left click) for half a second to drink. Restores stamina and sanity.',
+    info: 'Take it in hand and press the key (or the left click) to drink it at once. Restores 40% health, stamina and sanity.',
   },
 };

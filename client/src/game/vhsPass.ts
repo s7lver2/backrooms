@@ -12,13 +12,14 @@ export const FilmShader = {
     uMove: { value: 1 },
     uMad: { value: 0 }, // la cordura perdida: la imagen se cierra, se separa y ondula
     uVhs: { value: 0 }, // 1 en las Poolrooms: líneas de barrido, croma corrido y más grano (la cinta)
+    uWarm: { value: 0 }, // 1 en Las Suites: corrección de color cálida, halación en los brillos y más viñeta
   },
   vertexShader: /* glsl */ `
     varying vec2 vUv;
     void main() { vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }`,
   fragmentShader: /* glsl */ `
     uniform sampler2D tDiffuse;
-    uniform float uTime, uMove, uMad, uVhs;
+    uniform float uTime, uMove, uMad, uVhs, uWarm;
     uniform vec2 uRes;
     varying vec2 vUv;
     float hash(vec2 p) { return fract(sin(dot(p, vec2(12.9898, 78.233))) * 43758.5453); }
@@ -34,7 +35,12 @@ export const FilmShader = {
       col = mix(col, vec3(l), mad * 0.6);
       float g = hash(floor(vUv * uRes) + floor(uTime * 24.0) * uMove * 13.7) - 0.5;
       col += g * (0.07 + 0.08 * mad + 0.05 * uVhs) * (1.0 - 0.5 * l);
-      col *= 1.0 - r * (1.15 + 1.6 * mad);
+      col *= 1.0 - r * (1.15 + 1.6 * mad + 0.6 * uWarm);
+      // el hotel: tonos cálidos en las sombras y los medios, un velo naranja en lo que más luce (halación) y algo de contraste
+      float lw = dot(col, vec3(0.3, 0.59, 0.11));
+      col = mix(col, col * vec3(1.07, 0.97, 0.83), uWarm);
+      col += uWarm * vec3(0.05, 0.02, 0.0) * smoothstep(0.5, 1.0, lw);
+      col = mix(col, smoothstep(0.0, 1.0, col) * 1.04, uWarm * 0.45);
       gl_FragColor = vec4(col, 1.0);
     }`,
 };

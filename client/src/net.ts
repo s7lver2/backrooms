@@ -1,5 +1,7 @@
 import { useEffect, useState } from 'react';
 import { io, type Socket } from 'socket.io-client';
+import { setBag, setRoomPerks } from './game/perks';
+import { voice } from './voice';
 import { type ClientToServer, type ServerToClient, type Inventory, type RoomView, type Status } from '@backrooms/shared';
 
 /** El socket del cliente, tipado con el protocolo de shared/. */
@@ -27,6 +29,7 @@ export function useNet(on: boolean) {
     // websocket no pasa, vuelve al polling. La cookie de sesión viaja con el socket: el servidor sabe quién eres.
     const s: Sock = io(SERVER_URL, { withCredentials: true, transports: ['websocket', 'polling'] });
     setSock(s);
+    voice.attach(s);
     setLink('connecting');
     const wake = setTimeout(() => setLink((l) => (l === 'connecting' ? 'waking' : l)), 3000);
     const ping = () => {
@@ -35,9 +38,10 @@ export function useNet(on: boolean) {
     };
     const pinger = setInterval(() => s.connected && ping(), 2000);
     s.on('connect', () => (setLink('online'), ping()));
-    s.on('disconnect', () => (setLink('offline'), setRoom(null)));
-    s.on('room', setRoom);
-    s.on('inv', setInv);
+    s.on('disconnect', () => (setLink('offline'), setRoomPerks(null, ''), voice.sync('', []), setRoom(null)));
+    s.on('room', (r) => (setRoomPerks(r, s.id ?? ''), voice.sync(s.id ?? '', r.players.map((p) => p.id)), voice.env(r.phase === 'playing' ? (r.levelId === 'poolrooms' ? 'pool' : 'maze') : 'wait'), setRoom(r)));
+    s.on('inv', (i) => (setBag(i), setInv(i)));
+    s.on('bag', setBag);
     // al cerrar la pestaña, avisar y cerrar el socket a mano: no hay que esperar al latido del servidor (un túnel no siempre pasa el cierre)
     const bye = () => (s.emit('leave'), s.disconnect());
     addEventListener('pagehide', bye);
@@ -45,13 +49,14 @@ export function useNet(on: boolean) {
       removeEventListener('pagehide', bye);
       clearTimeout(wake);
       clearInterval(pinger);
+      voice.detach();
       s.disconnect();
       setSock(undefined);
       setRoom(null);
       setInv(null);
     };
   }, [on]);
-  return { sock, link, room, setRoom, inv, me: sock?.id ?? '' };
+  return { sock, link, room, setRoom: (r: RoomView | null) => (setRoomPerks(r, sock?.id ?? ''), setRoom(r)), inv, me: sock?.id ?? '' };
 }
 export type Net = ReturnType<typeof useNet>;
 

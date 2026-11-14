@@ -2,16 +2,30 @@ import { useState } from 'react';
 import * as THREE from 'three';
 import { grips, DEFAULT_GRIPS, type GripId, type Hand, type V3 } from '../../game/grips';
 import { worn, DEFAULT_WORN } from '../../game/worn';
+import { PIECES, DEFAULT_PIECES, type Piece } from '../../game/cosmetics';
 import { useStudio, applyCarry } from './store';
 
 /*
- * Los agarres (antes /?grips): dónde va cada objeto respecto a la vista, dónde se agarra con cada mano, cuánto se cierra cada dedo y hacia dónde
+ * Los agarres (la antigua herramienta /?grips, ya borrada): dónde va cada objeto respecto a la vista, dónde se agarra con cada mano, cuánto se cierra cada dedo y hacia dónde
  * dobla el codo. Se ve en el Player de verdad, y las manos las lleva el IK del Animator (anim/ikstack.ts), con la animación del cuerpo debajo.
- * Los accesorios (sombreros, mochilas) siguen en /?grips.
+ * Los accesorios (sombreros y mochilas, pieces.json) y la bombona (worn.json) se colocan sobre el cuerpo aquí mismo.
  */
 
+// los campos de una pieza: nombre, etiqueta, rango y paso
+const PIECE_FIELDS: [Exclude<keyof Piece, 'slot'>, string, number, number, number][] = [
+  ['size', 'size (m)', 0.05, 1.2, 0.005],
+  ['scale', 'scale ×', 0.2, 3, 0.01],
+  ['up', 'up (m)', -0.5, 0.8, 0.002],
+  ['fwd', 'forward (m)', -0.6, 0.6, 0.002],
+  ['side', 'side (m)', -0.5, 0.5, 0.002],
+  ['rx', 'rot x (deg)', -180, 180, 1],
+  ['ry', 'rot y (deg)', -180, 180, 1],
+  ['rz', 'rot z (deg)', -180, 180, 1],
+];
+const pieceDirty = (id: string) => JSON.stringify(PIECES[id]) !== JSON.stringify(DEFAULT_PIECES[id]);
+
 /** Lo que se agarra con la mano: los objetos del juego y los pequeños que aún no tienen función en la mano. */
-const GEARS: GripId[] = ['flashlight', 'camera', 'gun', 'watergun', 'caution', 'radar', 'totem', 'water', 'soap', 'tape', 'ammo'];
+const GEARS = Object.keys(grips) as GripId[]; // (lo que hay en grips.json: un objeto nuevo con su entrada sale aquí solo)
 const NAMES: Partial<Record<GripId, string>> = { camera: 'camcorder', gun: 'rifle', caution: 'duct tape', water: 'almond water', soap: 'soap', tape: 'vhs tape', ammo: 'ammo box' };
 const D = Math.PI / 180;
 const r3 = (n: number) => Math.round(n * 1000) / 1000;
@@ -45,6 +59,60 @@ function TankEditor() {
   );
 }
 
+/** La columna de la izquierda en IK: qué se quiere editar (el panel de la derecha muestra sus ajustes). */
+export function IkPicker() {
+  const { S, edit } = useStudio();
+  if (!S) return null;
+  const none = () => ((S.gear = ''), (S.tank = false), (S.piece = ''), (S.gripAim = false));
+  const pickPiece = (id: string) => {
+    none();
+    S.piece = id;
+    S.gripAim = false;
+    applyCarry(S);
+    S.setCam(PIECES[id].slot === 'back' ? 'back' : 'front');
+    edit();
+  };
+  const pickTank = () => {
+    none();
+    S.tank = true;
+    S.gripAim = false;
+    applyCarry(S);
+    S.setCam('back');
+    edit();
+  };
+  const pick = (id: GripId) => {
+    none();
+    S.gear = id;
+    S.gripAim = false;
+    applyCarry(S);
+    setTimeout(() => S.setCam('item'), 150); // (la cámara va al objeto: tras un fotograma, cuando ya está en su sitio)
+    edit();
+  };
+  const tests = () => (none(), applyCarry(S), edit());
+  const dot = (b: boolean) => (b ? ' ●' : '');
+  return (
+    <aside className="st-lib">
+      <h4>edit</h4>
+      <div className="st-chips big">
+        <button data-on={!S.gear && !S.tank && !S.piece || undefined} onClick={tests}>ik tests</button>
+      </div>
+      <h4>hand grips</h4>
+      <div className="st-chips big">
+        {GEARS.map((id) => (
+          <button key={id} data-on={S.gear === id || undefined} onClick={() => pick(id)}>{NAMES[id] ?? id}{dot(JSON.stringify(grips[id]) !== JSON.stringify(DEFAULT_GRIPS[id]))}</button>
+        ))}
+      </div>
+      <h4>worn on the body</h4>
+      <div className="st-chips big">
+        <button data-on={S.tank || undefined} onClick={pickTank} title="worn on the back, not in the hand">diving tank{dot(JSON.stringify(worn.tank) !== JSON.stringify(DEFAULT_WORN.tank))}</button>
+        {Object.entries(PIECES).map(([id, p]) => (
+          <button key={id} data-on={S.piece === id || undefined} onClick={() => pickPiece(id)}>{id.replace(/_/g, ' ')} · {p.slot}{dot(pieceDirty(id))}</button>
+        ))}
+      </div>
+    </aside>
+  );
+}
+
 export function GripsPanel() {
   const { S, edit } = useStudio();
   const [side, setSide] = useState<'left' | 'right'>('right');
@@ -61,22 +129,6 @@ export function GripsPanel() {
   const aimOn = S.gripAim && AIMABLE.includes(gear);
   const dirty = JSON.stringify(g) !== JSON.stringify(DEFAULT_GRIPS[gear]);
 
-  const pickTank = () => {
-    S.gear = '';
-    S.tank = true;
-    S.gripAim = false;
-    applyCarry(S);
-    S.setCam('back');
-    edit();
-  };
-  const pick = (id: GripId) => {
-    S.tank = false;
-    S.gear = id;
-    S.gripAim = false;
-    applyCarry(S);
-    setTimeout(() => S.setCam('item'), 150); // (la cámara va al objeto: tras un fotograma, cuando ya está en su sitio)
-    edit();
-  };
   const set3 = (a: V3, i: number, n: number) => edit(() => (a[i] = n));
   // mueve el objeto en la vista; con `keep` las manos no se mueven: su agarre, que va en el espacio del objeto, se reexpresa en el nuevo
   const setView = (a: V3, i: number, n: number, moves = true) =>
@@ -112,13 +164,22 @@ export function GripsPanel() {
   return (
     <div>
       <p className="st-hint">The character carries the selected object. Hands follow it through the IK on top of the body animation: walk with <kbd>W</kbd> to check they keep up. Saving (Ctrl+S) writes grips.json.</p>
-      <div className="st-chips big">
-        {GEARS.map((id) => (
-          <button key={id} data-on={S.gear === id || undefined} onClick={() => pick(id)}>{NAMES[id] ?? id}{JSON.stringify(grips[id]) !== JSON.stringify(DEFAULT_GRIPS[id]) ? ' ●' : ''}</button>
-        ))}
-        <button data-on={tankSel || undefined} onClick={pickTank} title="worn on the back, not in the hand">diving tank (worn){JSON.stringify(worn.tank) !== JSON.stringify(DEFAULT_WORN.tank) ? ' ●' : ''}</button>
-      </div>
       {tankSel && <TankEditor />}
+      {S.piece && PIECES[S.piece] && (() => {
+        const pc = PIECES[S.piece];
+        return (
+          <div>
+            <div className="st-row">
+              {([['head', 'hat (head)'], ['back', 'backpack (back)']] as const).map(([s, t]) => (
+                <button key={s} data-on={pc.slot === s || undefined} onClick={() => edit(() => (pc.slot = s))}>{t}</button>
+              ))}
+              <button disabled={!pieceDirty(S.piece)} onClick={() => edit(() => Object.assign(pc, DEFAULT_PIECES[S.piece]))}>revert</button>
+            </div>
+            {PIECE_FIELDS.map(([k, name, min, max, st]) => <Num key={k} label={name} v={pc[k]} min={min} max={max} step={st} on={(n) => edit(() => (pc[k] = n))} />)}
+            <p className="st-hint">Saving (Ctrl+S) writes pieces.json. A new accessory only needs an entry there (plus its cosmetic in shared/src/progress.ts and its .glb in public/models/cosmetics).</p>
+          </div>
+        );
+      })()}
       {S.gear && (
         <>
           <div className="st-row">

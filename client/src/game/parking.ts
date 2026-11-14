@@ -2,6 +2,8 @@ import * as THREE from 'three';
 import { ElevatorCab } from './elevator';
 import type { ParkingCue } from './parking-audio';
 import { ParkingAtmosphere } from './parking-atmosphere';
+import { ParkingPuddles } from './parking-puddles';
+import type { Terrain } from './terrain';
 import { parkingLampState } from './parking-lighting';
 import { GLTFLoader, type GLTF } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { MeshoptDecoder } from 'three/examples/jsm/libs/meshopt_decoder.module.js';
@@ -17,6 +19,20 @@ type ParkingLamp = Placement & { floor: number; stable: boolean; id: number };
 /** Primer pase de entorno: el contrato y la colisión están en shared/parking; aquí solo se dibuja. */
 export class ParkingLevel {
   readonly scene = new THREE.Scene();
+  readonly terrain = {
+    root: this.scene,
+    groundPace: { walk: 3.1, run: 6 },
+    floorAt: (x: number, z: number, y = 0) => this.fits(x, z, y)?.y ?? null,
+    fits: (x: number, z: number, y: number) => this.fits(x, z, y) !== null,
+    solid: (x: number, z: number) => !this.fits(x, z, this.map.spawn.y),
+    furniture: () => false,
+    liquidAt: () => null,
+    voidAt: () => false,
+    flashDistance: (from: THREE.Vector3, direction: THREE.Vector3, feet: THREE.Vector3) => {
+      const floor = this.fits(feet.x, feet.z, feet.y)?.floor ?? Math.round(-feet.y / H);
+      return this.flashDistance(from, direction, THREE.MathUtils.clamp(floor, 0, this.map.floors.length - 1));
+    },
+  } satisfies Terrain & { furniture(): boolean };
   onSound?: (cue: ParkingCue, position?: ParkingPoint) => void;
   private decks: THREE.Group[] = [];
   private resources = new Set<{ dispose(): void }>();
@@ -32,7 +48,8 @@ export class ParkingLevel {
   private inspectedLamp?: ParkingLamp;
   private lamps: ParkingLamp[] = [];
   private tubes: { mesh: THREE.InstancedMesh; lamps: ParkingLamp[] }[] = [];
-  private dust?: THREE.Points;
+  private puddles?: ParkingPuddles;
+  private readonly dustTime = { value: 0 };
   private atmosphere?: ParkingAtmosphere;
   readonly damageViews: (ParkingPoint & { nx: number; nz: number })[] = [];
   readonly performance = { focusMs: 0, updateMs: 0, candidates: 0, raycasts: 0 };
@@ -304,9 +321,11 @@ export class ParkingLevel {
       }
       this.floorLamps = this.map.floors.map(f=>this.lamps.filter(l=>l.floor===f.index));
       this.lampOutputs = new Float32Array(this.lamps.length);
-      this.addDust();
       this.indexInteractionMeshes();
       this.atmosphere = new ParkingAtmosphere(this.map,this.scene,this.low);
+      this.addDust();
+      const puddleAnchors = this.atmosphere.anchors.filter((a, i, anchors) => this.hash(i * 29) < .23 || i === 0 || anchors[i - 1].floor !== a.floor);
+      this.puddles = this.own(new ParkingPuddles(this.scene, puddleAnchors, n => this.hash(n), this.low));
     } finally { if (!this.alive) this.releaseResources(); }
   }
 
@@ -614,10 +633,10 @@ export class ParkingLevel {
     const link = this.map.links.find(l => (l.top === p.floor || l.bottom === p.floor) && parkingContains(l,p.x,p.z));
     const source = positional ? p : undefined;
     this.onSound?.(link?.kind ?? (run ? 'sprint' : 'walk'), source);
-    if (this.atmosphere?.wetAt(p)) this.onSound?.('splash', source);
+    if (this.wetAt(p)) this.onSound?.('splash', source);
   }
 
-  wetAt(p: ParkingPoint) { return this.atmosphere?.wetAt(p) ?? false; }
+  wetAt(p: ParkingPoint) { return this.puddles?.wetAt(p) ?? false; }
 
   audioEnvironment(p: ParkingPoint) {
     const room = this.map.floors[p.floor].rooms.some(r => parkingContains(r,p.x,p.z));
@@ -1034,11 +1053,36 @@ export class ParkingLevel {
   }
 
   private addDust() {
-    const count = this.low ? 100 : 420, points = new Float32Array(count * 3);
-    for (let i = 0; i < count; i++) { points[i * 3] = this.hash(i * 5) * 30 - 15; points[i * 3 + 1] = this.hash(i * 7) * 3.5; points[i * 3 + 2] = this.hash(i * 13) * 30 - 15; }
-    const g = this.own(new THREE.BufferGeometry()); g.setAttribute('position', new THREE.BufferAttribute(points, 3));
-    this.dust = new THREE.Points(g, this.own(new THREE.PointsMaterial({ color: 0xbcc9ab, size: .025, transparent: true, opacity: .18, depthWrite: false })));
-    this.scene.add(this.dust);
+    if (!this.atmosphere) return;
+    const material = this.own(new THREE.PointsMaterial({ color: 0xbcc9ab, size: .025, transparent: true, opacity: .16, depthWrite: false }));
+    const time = this.dustTime;
+    material.onBeforeCompile = shader => {
+      shader.uniforms.uDustTime = time;
+      shader.vertexShader = 'uniform float uDustTime;\n' + shader.vertexShader.replace('#include <begin_vertex>', `
+        #include <begin_vertex>
+        float phase = dot(position, vec3(0.93, 1.7, 0.81));
+        transformed += vec3(sin(uDustTime * 0.34 + phase), cos(uDustTime * 0.29 + phase),
+                            sin(uDustTime * 0.23 + phase)) * vec3(0.17, 0.08, 0.14);
+      `);
+    };
+    const count = this.low ? 15 : 48;
+    for (const [floor, group] of this.decks.entries()) {
+      const points: number[] = [];
+      for (const anchor of this.atmosphere.anchors) {
+        if (anchor.floor !== floor) continue;
+        const { x, y, z, lampId } = anchor;
+        for (let i = 0; i < count; i++) {
+          const seed = (lampId * count + i) * 3;
+          points.push(x + (this.hash(seed) - .5) * 4, y + .23 + this.hash(seed + 1) * 2.55, z + (this.hash(seed + 2) - .5) * 4);
+        }
+      }
+      if (!points.length) continue;
+      const geometry = this.own(new THREE.BufferGeometry());
+      geometry.setAttribute('position', new THREE.Float32BufferAttribute(points, 3));
+      const dust = new THREE.Points(geometry, material);
+      dust.name = 'World-anchored parking dust';
+      group.add(dust);
+    }
   }
 
   update(time: number, p: ParkingPoint, lightingTime = time) {
@@ -1076,7 +1120,8 @@ export class ParkingLevel {
       this.decks.forEach((g, i) => g.visible = Math.abs(i - p.floor) <= 1);
 
     }
-    if (this.dust) { this.dust.position.set(p.x, -p.floor * H, p.z); this.dust.rotation.y=time*.006; }
+    this.dustTime.value = time;
+    this.puddles?.update(p);
     this.atmosphere?.update(time,p,this.lampOutputs);
     this.performance.updateMs = performance.now() - started;
   }
@@ -1115,7 +1160,6 @@ export class ParkingLevel {
       const lamp=slot.current;this.lights[i].intensity=lamp?this.lampOutputs[lamp.id]*slot.gain*(lamp.stable?11.5:10.5):0;
       this.lights[i].color.setHex(lamp?.stable?0xe7e3d7:0xe0e5df);
     });
-    if(this.dust)(this.dust.material as THREE.PointsMaterial).opacity=.12+.06*this.lightSlots.reduce((sum,s)=>sum+(s.current?this.lampOutputs[s.current.id]*s.gain:0),0)/4;
   }
 
   private releaseResources() { for (const r of this.resources) r.dispose(); this.resources.clear(); }

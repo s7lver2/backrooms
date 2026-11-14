@@ -113,7 +113,7 @@ Exactly eight real pickups; objectives on every floor. Each increments a shared 
 
 ### Five generators
 
-Hold interact for **eight uninterrupted seconds** within reach and facing the generator. Show a circle in front of the player that fills from empty to full; clear completion feedback marks the generator as permanently on. Releasing interact or moving away resets incomplete progress to zero. No repair minigame. Activation is not an entity-attracting noise event.
+Hold interact for **eight uninterrupted seconds** within reach and facing the generator. Show the Almond Water progress bar below the crosshair, labeled ACTIVATING GENERATOR; clear completion feedback marks the generator as permanently on. Releasing interact or moving away resets incomplete progress to zero. No repair minigame. During an active repair, nearby Skinwalkers can hear the tool and investigate. Eligible dark Smiler spawn locations near the repair take priority in the next spawn wave.
 
 Each completed generator restores steady lighting across its whole owning floor and contributes one of five power steps for the elevator. Restored areas clear Smilers and are less attractive to Skinwalkers. After all five, the elevator unlocks without revealing its location. Each repair adds 0.09 m/s to Skinwalker movement and shortens its investigation interval by 0.5 seconds. It also shortens the Smiler lethal stare by 0.5 seconds and its section cooldown by 8 seconds. The five-repair totals are a +0.45 m/s movement bonus, a 7.5-second investigation interval, a 7.5-second lethal stare, and a 35-second cooldown. The active Smiler cap rises from two to three after the second repair and to four after the fourth. These settings remain in effect through extraction.
 
@@ -141,7 +141,7 @@ Entity kit: existing player rig/cosmetic rendering for disguises; beast mesh/rig
 
 Small detail is spatially motivated: puddles below leaks, damp trails to drains, rust beneath pipe joints, tyre marks along driving routes, chipped paint at corners, low-density dust in light, occasional dripping and surface ripples. Reflective wetness varies; the entire floor is not a mirror. Floor seams, decals, and prop variation break texture repetition while structural repetition remains intentional.
 
-Sound: fluorescent hum, distant ventilation, concrete/reverberant footsteps, puddle splashes, occasional pipe ticks, drops, and distant metallic disturbances. Positional audio must support threat reading. Generator interaction creates no attraction event. Ambient decorative sounds do not automatically lure entities as if they were player actions.
+Sound: fluorescent hum, distant ventilation, concrete/reverberant footsteps, puddle splashes, occasional pipe ticks, drops, and distant metallic disturbances. Positional audio must support threat reading. Generator repair plays a positional mechanical cue that attracts nearby entities. Ambient decorative sounds do not automatically lure entities as if they were player actions.
 
 Implementation proposals: local fog pockets plus distance haze, inexpensive light-shaft geometry/particles near selected fixtures, baked or procedural ambient shading, fixed-budget dynamic lights near players, and pooled particles. Use shared/limited reflection passes or cheaper approximations rather than a planar reflector per puddle/floor. Fog and lighting need scalable quality presets. Critical flicker, powered circuits, and darkness eligibility must agree with server state; visual particles and cosmetic reflections need not replicate.
 
@@ -176,7 +176,7 @@ Acceptance during implementation:
 - Flashlight cannot expose a disguise, but interrupts transformation/beast attacks and forces three-second retreat.
 - Smilers never move through lit areas; restored ceiling lights clear them; flashlight freeze/disappearance/cooldown work consistently across clients.
 - Safe-room players are protected against both entities regardless of open doors; entities cannot enter or hit through boundaries.
-- Generator circle takes eight continuous seconds, resets on interruption, and activation is silent to AI.
+- The generator progress bar takes eight continuous seconds and resets on interruption. Repair noise can attract entities while the hold is active.
 - Guns cannot function or appear as level loot; disabled carried guns survive the round. No sanity death.
 - Visual quality is checked in-browser, including reflections, flicker, dark-route readability, and multiple floors. Multiplayer is checked with at least two clients.
 - Main code verification: `python tools/build.py --check`. No added tests or dependencies unless separately requested; manual checks should include several seeds and the largest 15-minute profile.

@@ -1,5 +1,5 @@
 import {
-  HIT_DAMAGE, ParkingSkinAI, ParkingSmilerAI, addItem, canHold, generateParking, parkingContains, parkingDoorBlocks, parkingFits, parkingOptionsForMission,
+  HIT_DAMAGE, MONSTER, ParkingSkinAI, ParkingSmilerAI, addItem, boostOf, canHold, generateParking, parkingContains, parkingDoorBlocks, parkingFits, parkingGeneratorBounds, parkingOptionsForMission,
   type ItemId, type Mission, type ParkingInteraction, type ParkingPoint, type ParkingRect, type ParkingSnapshot, type PlayerState, type SkinTarget,
 } from '@backrooms/shared';
 import type { Player } from './match';
@@ -7,6 +7,7 @@ import type { Player } from './match';
 const EYE = 1.62;
 const REPAIR_REACH = 2.45;
 const REPAIR_HEARTBEAT = 400;
+const REPAIR_NOISE_RANGE = 20;
 const OPEN_MS = 1100;
 const CABIN_DEPTH = .85;
 const angleDirection = (p: PlayerState) => {
@@ -32,6 +33,7 @@ export class ParkingMatch {
   private readonly looted = new Set<string>();
   private readonly lastState = new Map<string, number>();
   private readonly moveCredit = new Map<string, number>();
+  private readonly monsterUntil = new Map<string, number>();
   private readonly controls = new Map<string, { id: string; last: number }>();
   private repair?: { id: string; by: string; since: number };
   private elevatorOpenedAt: number | null = null;
@@ -47,6 +49,7 @@ export class ParkingMatch {
     };
     this.skinwalkers = new ParkingSkinAI(this.map,{
       ...world,bright:p=>this.floorPowered(p.floor)&&this.map.floors[p.floor].fixtures.some(l=>(l.x-p.x)**2+(l.z-p.z)**2<25)?1:0,
+      repairAudible:(from,source)=>this.clear({ ...from, y: from.y + 1 }, { ...source, y: source.y + 1 }, parkingGeneratorBounds(source)),
       hit:id=>this.hit(id,false),
     });
     this.smilers = new ParkingSmilerAI(this.map,{...world,illumination:p=>this.illumination(p),hit:id=>this.hit(id,true)});
@@ -94,13 +97,17 @@ export class ParkingMatch {
     return parkingFits(this.map,x,z,feet,.25,this.doors);
   }
 
+  drinkMonster(player: Player, now = Date.now()) {
+    this.monsterUntil.set(player.id, now + 1000 * MONSTER.time * boostOf(player.cap, 'monster'));
+  }
+
   move(player: Player, next: PlayerState, now: number, admin: boolean) {
     const previous = this.lastState.get(player.id);
     this.lastState.set(player.id, now);
     if (admin && this.fits(next.x,next.z,next.y,now)) return;
     let { x,y,z } = player.st;
     const dx = next.x-x, dz = next.z-z, distance = Math.hypot(dx,dz);
-    const speed = admin ? 14 : 7;
+    const speed = admin ? 14 : now < (this.monsterUntil.get(player.id) ?? 0) ? 7 * MONSTER.speed : 7;
     const credit = Math.min(1.6,(this.moveCredit.get(player.id) ?? .8) + Math.min(.25,(now-(previous??now))/1000)*speed);
     const travel = Math.min(distance,credit), parts = Math.max(1,Math.ceil(travel/.16));
     const sx = distance ? dx*travel/distance/parts : 0, sz = distance ? dz*travel/distance/parts : 0;
@@ -272,13 +279,17 @@ export class ParkingMatch {
     this.simulationNow=now;
     this.targets=players;
     this.damage=caught;
+    const activeRepair = this.repair;
+    const repairSource = activeRepair && this.map.objectives.find(o=>o.id===activeRepair.id);
     const targets:SkinTarget[]=[];
     for(const p of players){
       if(p.dead||p.boarded||!p.seen||now-(this.lastState.get(p.id)??0)>1000)continue;
       const pos=this.fits(p.st.x,p.st.z,p.st.y,now);
       if(!pos)continue;
       const movement=this.movementNoise.get(p.id), speed=movement?movement.distance/movement.time:0;
-      targets.push({id:p.id,pos,eye:this.eye(p,pos.floor),yaw:p.st.yaw,beam:p.st.light?angleDirection(p.st):null,noise:speed>4?14:speed>1?8:0,alive:true});
+      const repairNoise = activeRepair?.by === p.id ? repairSource : undefined;
+      const noise = repairNoise ? REPAIR_NOISE_RANGE : speed > 4 ? 14 : speed > 1 ? 8 : 0;
+      targets.push({id:p.id,pos,eye:this.eye(p,pos.floor),yaw:p.st.yaw,beam:p.st.light?angleDirection(p.st):null,noise,repairNoise,alive:true});
     }
     this.skinwalkers.pressure=this.mission.kind==='generators'?0:this.progress/this.mission.goal;
     this.skinwalkers.updateMany(dt,targets);

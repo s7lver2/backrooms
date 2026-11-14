@@ -33,7 +33,7 @@ Spanish source comments use some terms; this maps them to code names.
 | hotbar / quickslots | 4 quick slots (keys 1-4), `HOT` table in `quickslots.ts` |
 | hand / left / belt | where items are held: right hand (camera, gun, watergun), left (flashlight), belt (stowed) |
 | camcorder / camera | item `camera`; photo missions; aiming it enables VHS pass |
-| rifle / gun | item `gun`; ammo packs of 3 |
+| rifle / gun | item `gun`; ammo packs of 4, magazine of 2; 10 % misfire (5 % aimed) kills the shooter |
 | tank / diving tank | item `tank`: x2.5 air, -15 % speed (Poolrooms) |
 | watergun / squirt / wet / stun | Poolrooms toy weapon vs teammates; `squirt` msg, `wet` effect |
 | refills | drinking fountains that refill the water gun |

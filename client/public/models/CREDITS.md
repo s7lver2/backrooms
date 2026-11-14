@@ -135,3 +135,4 @@ Selected components only, normalized to metre-scale with grounded pivots; WebP t
 ### Smiler
 
 `parking/smiler.glb` is adapted from **Accurate Smiler Backrooms Blender 3.22** by **ultramirage10**, licensed under **CC-BY-4.0**. Source: https://sketchfab.com/3d-models/accurate-smiler-backrooms-blender-322-902975161a7047baa5cda8fb7b5a292e — author: https://sketchfab.com/ultramirage10 — license: https://creativecommons.org/licenses/by/4.0/ . Changes: baked static bind pose, centered/oriented/rescaled, narrowed and elongated individual teeth, compressed GLB; runtime omits black pupil pieces and adds glow, chromatic fringes and smoke. Original archive is preserved.
+| `backrooms/suites/trolley.glb` | [Gold Hotel Luggage Trolley (Fallout: Miami)](https://sketchfab.com/3d-models/gold-hotel-luggage-trolley-fallout-miami-d89f1bba5e62451d9d11eaf599a6542b) | Damian Tkaczyk | CC-BY-4.0 |

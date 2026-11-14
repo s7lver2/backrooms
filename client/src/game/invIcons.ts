@@ -3,6 +3,7 @@ import type { Assets } from './game';
 import { clone as skClone } from 'three/examples/jsm/utils/SkeletonUtils.js';
 import { model } from './cosmetics';
 import { poolPart } from './poolmap';
+import { itemModel } from './itemModels';
 
 /*
  * Los iconos del inventario: capturas de los modelos del juego. Un renderer WebGL pequeño y desechable pinta cada
@@ -64,7 +65,7 @@ function release() {
   rig = undefined;
 }
 
-export type IconKey = 'flashlight' | 'camera' | 'gun' | 'tape' | 'spare' | 'ammo' | 'water' | 'caution' | 'radar' | 'totem' | 'watergun' | 'tank';
+export type IconKey = 'uno' | 'monster' | 'flashlight' | 'camera' | 'gun' | 'tape' | 'spare' | 'ammo' | 'water' | 'caution' | 'radar' | 'totem' | 'watergun' | 'tank';
 
 /** Los iconos del equipo y de los bolsillos; se hacen la primera vez y se guardan. */
 export function gearIcons(assets: Assets): Record<IconKey, string> {
@@ -89,7 +90,12 @@ export function gearIcons(assets: Assets): Record<IconKey, string> {
     cache.set('radar', shoot(g.radar.scene, -0.4, 0.5));
     cache.set('totem', shoot(g.totem.scene, -0.5, 0.2));
   }
-  return Object.fromEntries(['flashlight', 'camera', 'gun', 'tape', 'spare', 'ammo', 'water', 'caution', 'radar', 'totem', 'watergun', 'tank'].map((k) => [k, cache.get(k) ?? ''])) as Record<IconKey, string>;
+  // los modelos nuevos llegan con los demás al cargar
+  for (const [k, spin, tilt] of [['uno', -0.5, 0.3], ['monster', -0.5, 0.15]] as const) {
+    const o = itemModel(k);
+    if (o && !cache.has(k)) (cache.set(k, shoot(o, spin, tilt)), release());
+  }
+  return Object.fromEntries(['uno', 'monster', 'flashlight', 'camera', 'gun', 'tape', 'spare', 'ammo', 'water', 'caution', 'radar', 'totem', 'watergun', 'tank'].map((k) => [k, cache.get(k) ?? ''])) as Record<IconKey, string>;
 }
 
 /** El icono de un accesorio (sombrero, mochila): llega cuando se descarga su modelo. */

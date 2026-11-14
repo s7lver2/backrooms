@@ -66,3 +66,55 @@
 /* arrastrando fuera del panel: se suelta al suelo */
 .iv-ghost[data-drop] img { outline: 1px dashed var(--br-rec); outline-offset: 2px; }
 .iv-ghost__drop { position: absolute; left: 50%; top: 100%; transform: translateX(-50%); margin-top: 6px; color: var(--br-rec); font-size: 13px; letter-spacing: 0.1em; text-shadow: 2px 2px 0 #000; }
+
+/* mejoras y rarezas: lo cerrado (falta la mejora), el borde del color de la rareza y la ficha al pasar por encima */
+.iv-cell[data-locked], .iv-slot[data-locked] { border-style: dashed; border-color: #3d3b35; background: repeating-linear-gradient(45deg, rgba(0, 0, 0, 0.5) 0 6px, rgba(60, 58, 50, 0.25) 6px 12px); }
+.iv-slot[data-locked] .iv-empty { opacity: 0.6; }
+.iv-item[data-rar] { box-shadow: inset 0 0 0 2px var(--rar), inset 0 0 14px -4px var(--rar); }
+/* la ficha al pasar por encima: un estandarte con la rareza en grande (de su color) y debajo las características en dos columnas */
+.iv-tip { display: none; position: absolute; left: 50%; top: calc(100% + 8px); transform: translateX(-50%); z-index: 30; width: 190px; background: #0c0b08; border: 2px solid var(--rar); color: var(--br-ink); text-align: left; pointer-events: none; box-shadow: 4px 4px 0 rgba(0, 0, 0, 0.7); }
+.iv-hot .iv-tip { top: auto; bottom: calc(100% + 8px); } /* (la barra rápida está abajo del todo: su ficha sale hacia arriba) */
+.iv-item:hover > .iv-tip { display: block; }
+.iv-tip__banner { display: block; padding: 7px 10px 6px; background: var(--rar); color: #0c0b08; font-size: 19px; font-weight: 700; letter-spacing: 0.14em; line-height: 1; text-align: center; clip-path: polygon(0 0, 100% 0, 100% 100%, 50% 80%, 0 100%); padding-bottom: 12px; }
+.iv-tip__name { display: block; padding: 4px 10px 6px; font-size: 12px; letter-spacing: 0.08em; text-align: center; border-bottom: 1px solid #4a483f; }
+.iv-tip__rows { display: grid; grid-template-columns: 1fr auto; gap: 5px 10px; padding: 8px 10px 9px; font-size: 11px; line-height: 1.2; align-items: center; }
+.iv-tip__rows > :nth-child(odd) { color: #9c998a; letter-spacing: 0.06em; }
+.iv-tip__rows > :nth-child(even) { text-align: right; white-space: nowrap; }
+.iv-tip__rows [data-up] { color: var(--rar); font-weight: 700; }
+.iv-tip__rows [data-low] { color: var(--br-rec); }
+.iv-tip__bar { display: inline-block; vertical-align: middle; width: 46px; height: 6px; margin-right: 6px; border: 1px solid #5d5b52; }
+.iv-tip__bar > i { display: block; height: 100%; background: currentColor; }
+.iv-tip__price { font-size: 15px; font-weight: 700; }
+.iv-item:hover > .iv-tip { display: block; }
+
+/* animación de la ficha: aparece con un pequeño salto, el estandarte lleva un barrido de luz y, cuanto más raro, más vivo (épico late, legendario cambia de matiz y echa destellos) */
+.iv-item:hover > .iv-tip { animation: iv-tip-in 0.18s cubic-bezier(0.2, 1.4, 0.4, 1); }
+@keyframes iv-tip-in { from { opacity: 0; transform: translateX(-50%) translateY(-6px) scale(0.92); } to { opacity: 1; transform: translateX(-50%); } }
+.iv-hot .iv-item:hover > .iv-tip { animation-name: iv-tip-in-up; }
+@keyframes iv-tip-in-up { from { opacity: 0; transform: translateX(-50%) translateY(6px) scale(0.92); } to { opacity: 1; transform: translateX(-50%); } }
+.iv-tip { box-shadow: 4px 4px 0 rgba(0, 0, 0, 0.7), 0 0 14px -2px var(--rar); }
+.iv-tip__banner { position: relative; overflow: hidden; text-shadow: 0 0 8px rgba(255, 255, 255, 0.55); }
+.iv-tip__banner::after { content: ''; position: absolute; top: 0; bottom: 0; left: -60%; width: 40%; background: linear-gradient(100deg, transparent, rgba(255, 255, 255, 0.75), transparent); transform: skewX(-18deg); animation: iv-sheen 2.4s ease-in-out infinite; }
+@keyframes iv-sheen { 0%, 55% { left: -60%; } 100% { left: 130%; } }
+.iv-tip[data-r='0'] .iv-tip__banner::after { animation: none; display: none; }
+.iv-tip[data-r='1'] .iv-tip__banner::after { animation-duration: 3.4s; }
+.iv-tip[data-r='3'] .iv-tip__banner { animation: iv-throb 1.4s ease-in-out infinite; letter-spacing: 0.18em; }
+@keyframes iv-throb { 50% { filter: brightness(1.3); } }
+.iv-tip[data-r='4'] { animation: iv-aura 2.2s ease-in-out infinite; }
+.iv-tip[data-r='4'] .iv-tip__banner { letter-spacing: 0.22em; animation: iv-hue 4s linear infinite; background-image: linear-gradient(90deg, #ffb200, #fff3b0, #ffb200); background-size: 200% 100%; background-color: transparent; }
+@keyframes iv-aura { 50% { box-shadow: 4px 4px 0 rgba(0, 0, 0, 0.7), 0 0 26px 2px var(--rar); } }
+@keyframes iv-hue { from { background-position: 0 0; filter: hue-rotate(-14deg); } 50% { filter: hue-rotate(14deg); } to { background-position: 200% 0; filter: hue-rotate(-14deg); } }
+@media (prefers-reduced-motion: reduce) { .iv-tip, .iv-tip *, .iv-tip::after, .iv-tip__banner::after { animation: none !important; } }
+
+/* el objeto elegido en 3D (columna de detalle): estandarte de rareza arriba, visor grande, y debajo sus características */
+.iv-detail { grid-template-columns: 1fr; }
+.iv-detail__icon { aspect-ratio: 4 / 3; max-height: 26vh; border: 0; background: radial-gradient(ellipse at 50% 60%, rgba(255, 255, 255, 0.07), transparent 70%); }
+.iv-view { width: 100%; height: 100%; }
+.iv-card { position: relative; border: 2px solid var(--rar); box-shadow: 0 0 14px -2px var(--rar); }
+.iv-card .iv-tip__banner { font-size: clamp(18px, 1.8vw, 26px); }
+.iv-card[data-r='0'] .iv-tip__banner::after { display: none; }
+.iv-card[data-r='3'] .iv-tip__banner { animation: iv-throb 1.4s ease-in-out infinite; letter-spacing: 0.18em; }
+.iv-card[data-r='4'] { animation: iv-aura 2.2s ease-in-out infinite; }
+.iv-card[data-r='4'] .iv-tip__banner { letter-spacing: 0.22em; animation: iv-hue 4s linear infinite; background-image: linear-gradient(90deg, #ffb200, #fff3b0, #ffb200); background-size: 200% 100%; background-color: transparent; }
+.iv-card__rows { display: grid; margin: 6px 0 8px; }
+@media (prefers-reduced-motion: reduce) { .iv-card, .iv-card * { animation: none !important; } }

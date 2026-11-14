@@ -49,7 +49,7 @@ Item data is spread over several places; missing one gives silent desync.
 
 ## Add an achievement / cosmetic
 
-`shared/src/progress.ts` (`ACHIEVEMENTS`, `COSMETICS`, `need` key); award in server code with `award(p.uid, key)` / `count(p.uid, stat)` (accounts only); new stat key -> `StatKey` + `STAT_LABEL`. Hat/backpack model at `client/public/models/cosmetics/<id>.glb`, fit in `pieces.json`/`grips.json` via `/?grips`. Note: Poolrooms owner rule "no more achievements for now" (`docs/poolrooms.md` section 8).
+`shared/src/progress.ts` (`ACHIEVEMENTS`, `COSMETICS`, `need` key); award in server code with `award(p.uid, key)` / `count(p.uid, stat)` (accounts only); new stat key -> `StatKey` + `STAT_LABEL`. Hat/backpack model at `client/public/models/cosmetics/<id>.glb`, fit in `pieces.json`/`grips.json` via `/?anim` (IK tab). Note: Poolrooms owner rule "no more achievements for now" (`docs/poolrooms.md` section 8).
 
 ## Add a DB column/table
 

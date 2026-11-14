@@ -22,7 +22,7 @@ const cues = {
   blocked: { noise: [[.12,.13,410,1],[.055,.08,1320,2,.045]] },
   pickup: { noise: [[.09,.12,920,1],[.08,.055,2400,1,.045]] },
   tape: { noise: [[.13,.14,850,1.4]], tone: [[410,.13,.035,'sine'],[620,.19,.045,'sine',620,.09]] },
-  repairTool: { noise: [[.031,.032,1730,2],[.024,.022,1320,2,.06],[.021,.018,1870,1.8,.12]] },
+  repairTool: { noise: [[.12,.10,340,1.4],[.18,.08,720,1.8,.095],[.065,.06,1480,2,.19]], tone: [[76,.22,.028,'triangle',56,.045]] },
   generatorStart: { noise: [[.12,.067,190,1],[.14,.083,230,1.1,.15],[.24,.105,270,1.1,.31]], tone: [[41,.57,.041,'triangle',64,.13],[82,.42,.026,'triangle',128,.31]] },
   unlock: { tone: [[490,.21,.07,'sine'],[735,.33,.065,'sine',735,.16]] },
   elevatorMotor: { noise: [[.12,.12,175,1],[1.01,.11,380,1.25,.065],[.69,.042,1850,1.8,.14]], tone: [[54,.95,.041,'triangle',73,.07]] },
@@ -51,7 +51,7 @@ export class ParkingAudio extends GameAudio {
   private readonly reflection = this.ctx.createConvolver();
   private readonly wet = this.ctx.createGain();
   private readonly actors = new Map<number, { state: SkinAgent['state']; attackAt: number; x: number; z: number; stride: number }>();
-  private readonly smilers = new Map<string, { actor: Smiler; state: SmilerState; next: number }>();
+  private readonly smilers = new Map<string, { actor: Smiler; state: SmilerState }>();
   private locallyMuted = false;
   private appliedSettings?: typeof settings;
 
@@ -143,7 +143,7 @@ export class ParkingAudio extends GameAudio {
     }, { once: true });
   }
 
-  encounters(agents: Pick<SkinAgent, 'id' | 'pos' | 'beast' | 'state' | 'attackAt'>[], smilers: Smiler | readonly Smiler[] | undefined, player: ParkingPoint, time: number, emit: (cue: ParkingCue, position: ParkingPoint) => void) {
+  encounters(agents: Pick<SkinAgent, 'id' | 'pos' | 'beast' | 'state' | 'attackAt'>[], smilers: Smiler | readonly Smiler[] | undefined, player: ParkingPoint, emit: (cue: ParkingCue, position: ParkingPoint) => void) {
     for (const agent of agents) {
       const prior = this.actors.get(agent.id);
       const near = agent.pos.floor === player.floor && Math.hypot(agent.pos.x-player.x,agent.pos.z-player.z) < 23;
@@ -168,21 +168,22 @@ export class ParkingAudio extends GameAudio {
       keys.add(key);
       const prior = this.smilers.get(key);
       const changed = prior?.state !== smiler.state;
-      const due = !!prior && time >= prior.next;
-      if (changed || (smiler.state === 'watch' && due)) {
+      if ((changed || smiler.state === 'watch') && this.entityCueDue(key, 3.2, changed)) {
         emit(smiler.state === 'frozen' ? 'freeze' : 'smiler',smiler.pos);
-        this.smilers.set(key, { actor: smiler, state: smiler.state, next: time + 3.2 });
+        this.smilers.set(key, { actor: smiler, state: smiler.state });
       }
     }
     for (const [key, prior] of this.smilers) {
       if (keys.has(key)) continue;
       emit('vanish', prior.actor.pos);
+      this.clearEntityCue(key);
       this.smilers.delete(key);
     }
   }
 
   resetEncounters() {
     this.actors.clear();
+    for (const key of this.smilers.keys()) this.clearEntityCue(key);
     this.smilers.clear();
     this.stopCues();
   }

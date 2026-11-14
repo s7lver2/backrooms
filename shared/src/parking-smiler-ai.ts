@@ -1,6 +1,7 @@
 import { parkingContains,parkingArea,type ParkingMap,type ParkingPoint } from './parking';
 import type { SkinTarget } from './parking-skinwalker-ai';
 import { parkingCurseTier } from './parking-curse';
+import { beamReaches } from './perception';
 export const SMILER_MAX_ACTIVE=2,SMILER_ATTACK_RANGE=16,SMILER_GAZE_SECONDS=10,SMILER_DARK=.045,SMILER_FIRST_SPAWN=20,SMILER_COOLDOWN=75,SMILER_SPAWN_MIN=30,SMILER_SPAWN_MAX=45;
 const SMILER_FLASHLIGHT_RANGE = 6;
 const GAZE_LIMIT = [SMILER_GAZE_SECONDS, 8.5, 6.5] as const;
@@ -108,11 +109,9 @@ export class ParkingSmilerAI {
     section.cooldown = this.clock + COOLDOWN[this.curseTier] - this.repairedGenerators * SMILER_GENERATOR_COOLDOWN_REDUCTION;
   }
   private beam(a: Smiler, t: SkinTarget) {
-    if (!t.beam || a.pos.floor !== t.pos.floor || distance(a.pos, t.pos) > SMILER_FLASHLIGHT_RANGE) return false;
+    if (a.pos.floor !== t.pos.floor || distance(a.pos, t.pos) > SMILER_FLASHLIGHT_RANGE) return false;
     const face = { ...a.pos, y: a.pos.y + 1.4 };
-    const dx = face.x - t.eye.x, dy = face.y - t.eye.y, dz = face.z - t.eye.z;
-    const alignment = (dx * t.beam.x + dy * t.beam.y + dz * t.beam.z) / Math.max(.01, Math.hypot(dx, dy, dz));
-    return alignment > .94 && this.world.sight({ ...t.pos, y: t.eye.y }, face);
+    return beamReaches(t.eye, face, t.beam, Infinity, .94, .01) && this.world.sight({ ...t.pos, y: t.eye.y }, face);
   }
   update(dt:number,target:SkinTarget){this.updateMany(dt,[target]);}
   updateMany(dt:number,targets:SkinTarget[]){
@@ -165,6 +164,13 @@ export class ParkingSmilerAI {
     for(let i=pool.length-1;i>0;i--){
       const j=Math.floor(Math.random()*(i+1));
       [pool[i],pool[j]]=[pool[j],pool[i]];
+    }
+    if (targets.some(t => t.repairNoise)) {
+      const nearRepair = new Set(pool.filter(([index]) => {
+        const p = this.map.nav[index];
+        return targets.some(t => t.repairNoise?.floor === p.floor && distance(t.repairNoise, p) < t.noise);
+      }).map(([index]) => index));
+      pool.sort(([a], [b]) => Number(nearRepair.has(b)) - Number(nearRepair.has(a)));
     }
     for(const [i,base] of pool){
       const section=this.canSpawn(base);

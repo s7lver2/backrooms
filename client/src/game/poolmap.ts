@@ -1,14 +1,20 @@
 import * as THREE from 'three';
+import { glow, lootModel, pulse } from './rarityFx';
+import { LEVELS, boostOf, itemSpots, spotRarity, type Drop, type ItemId } from '@backrooms/shared';
+import { perks } from './perks';
 import { ElevatorCab } from './elevator';
 import { Reflector } from 'three/examples/jsm/objects/Reflector.js';
 import { RectAreaLightUniformsLib } from 'three/examples/jsm/lights/RectAreaLightUniformsLib.js';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { MeshoptDecoder } from 'three/examples/jsm/libs/meshopt_decoder.module.js';
+import type { Terrain } from './terrain';
+import { PickupField, type Pickup, type PickupHost } from './pickups';
 import { COIL, PK, PR, PY, PDIRS, POOL_CELL as C, POOL_STEP, generatePools, poolCellY, poolFloorY, poolMaze, type Cell, type PoolMap } from '@backrooms/shared';
 import type { Controls } from './input';
 import { settings } from '../settings';
-import { EYE, NRIP, frag, tiles, vert } from './pool';
+import { NRIP, frag, tiles, vert } from './pool';
+import { EYE, WALK, RUN, JUMP, G, CROUCH_DROP, CROUCH_SLOW, ducking, planar } from './locomotion';
 
 /*
  * Las Poolrooms de verdad (poolmap.ts lo construye a partir de shared/pools.ts): mapa grande con alturas. Geometría fusionada por
@@ -78,7 +84,7 @@ let raInit = false;
 /** Segundos con G mantenida para llenar la pistola de agua en un bebedero. */
 const FILL_T = 1.5;
 const R = 0.38; // radio del jugador (con 0,3, mirando hacia abajo pegado a una pared, los pies y los hombros la atravesaban)
-const EYE_SWIM = 0.5, HEAD = 0.65, O2_SECONDS = 30, TANK_AIR = 2.5, TANK_SLOW = 0.85, JET_TIME = 6, JET_N = 192, O2_REFILL = 2.5, FAINT = 2.4;
+const EYE_SWIM = 0.5, HEAD = 0.65, O2_SECONDS = 30, TANK_AIR = 2.5, TANK_SLOW = 0.9, JET_TIME = 6, JET_N = 288, O2_REFILL = 2.5, FAINT = 2.4;
 
 const SUB = 1.5; // tamaño máximo (m) de la malla en la que se parte cada cara para hornear la luz
 /** Malla que se va llenando de cuadriláteros (con el sentido de la cara decidido por la normal que se pide). */
@@ -236,7 +242,42 @@ const chunkOf = (x: number, y: number, lay = 0) => Math.floor(x / CHUNK) * 1000 
 const OWN = [[[1, 0], [1, 1]], [[0, 0], [0, 1]], [[0, 1], [1, 1]], [[0, 0], [1, 0]]];
 const NB = [[[0, 0], [0, 1]], [[1, 0], [1, 1]], [[0, 0], [1, 0]], [[0, 1], [1, 1]]];
 
-export class PoolLevel {
+/** Los recogibles de las Poolrooms: lo de `PickupField` (pickups.ts) con su propia colocación (cada celda tiene su altura y planta) y sus nombres. */
+class PoolPickups extends PickupField {
+  /** Altura de mis pies: la mejor pista de en qué planta caen los objetos soltados (no se sabe la de quien los suelta). */
+  floorHint = () => 0;
+  constructor(host: PickupHost, camera: THREE.Camera, private map: PoolMap, private lay?: Uint8Array) {
+    super(host, camera);
+  }
+  private static UP = new Set<Pickup['kind']>(['tape', 'water', 'tank', 'loot']);
+  /** Un modelo a `size` metros (lado mayor), centrado en su origen; `up`: el lado largo vertical, si no a lo largo de -z. */
+  protected override shape(kind: Pickup['kind'], src: THREE.Object3D, size: number) {
+    const up = PoolPickups.UP.has(kind), c = src.clone(true), g = new THREE.Group(), d = new THREE.Box3().setFromObject(c).getSize(new THREE.Vector3());
+    if (up && d.z > d.y && d.z >= d.x) c.rotation.x = -Math.PI / 2;
+    else if (!up && d.x > d.z) c.rotation.y = Math.PI / 2;
+    g.add(c);
+    const b = new THREE.Box3().setFromObject(g), k = size / Math.max(...b.getSize(new THREE.Vector3()).toArray()), ctr = b.getCenter(new THREE.Vector3());
+    c.scale.multiplyScalar(k), c.position.sub(ctr.multiplyScalar(k));
+    const out = new THREE.Group();
+    out.add(g);
+    return out;
+  }
+  protected override yOf(_kind: Pickup['kind'], size: number, c: Cell) {
+    return poolCellY(this.map, c.x, c.y, this.lay?.[c.y * this.map.w + c.x] ? 1 : 0) + size / 2 + 0.3; // (la planta del objeto: maze.lay; flota a media pierna)
+  }
+  protected override floorOf(x: number, z: number) {
+    return poolFloorY(this.map, x, z, this.floorHint())?.y ?? 0;
+  }
+  protected override spot(c: Cell) {
+    return { x: (c.x + 0.5) * C, z: (c.y + 0.5) * C };
+  }
+  protected override label(kind: Pickup['kind']) {
+    return kind === 'tape' ? 'soap' : super.label(kind);
+  }
+}
+
+const ZERO = new THREE.Vector2();
+export class PoolLevel implements Terrain {
   readonly scene = new THREE.Scene();
   readonly camera: THREE.PerspectiveCamera;
   readonly map: PoolMap;
@@ -319,6 +360,8 @@ export class PoolLevel {
   private hemi: THREE.HemisphereLight;
   readonly sun = new THREE.DirectionalLight(0xfff1d2, 3.4);
   private lamps?: THREE.InstancedMesh;
+  /** Puntos de la ruta de los toboganes (cada ~0,4 m), para chocar con los tubos: [x, y, z]. Se saltan la boca y la salida, por donde se entra y se sale. */
+  private tubePts: [number, number, number][] = [];
   private tubes: { curve: THREE.Curve<THREE.Vector3>; len: number; x: number; z: number; s0: number }[] = [];
   private ride?: { curve: THREE.Curve<THREE.Vector3>; len: number; s: number; h?: number };
   private lampLvl: number[] = [];
@@ -860,6 +903,14 @@ export class PoolLevel {
         end.applyMatrix4(place(1, M, -1, tail)), end.frustumCulled = false;
         sc.add(end);
       }
+      {
+        const mouth = v[0], endP = tail.getPoint(1), n = Math.ceil(len / 0.4);
+        for (let q = 0; q <= n; q++) {
+          const p = whole.getPointAt(q / n);
+          if (Math.hypot(p.x - mouth.x, p.z - mouth.z) < 1.4 || Math.hypot(p.x - t.pts[0][0], p.z - t.pts[0][2]) < 1.4 || Math.hypot(p.x - endP.x, p.z - endP.z) < 1.8) continue;
+          this.tubePts.push([p.x, p.y, p.z]);
+        }
+      }
       this.tubes.push({ curve: whole, len, x: t.pts[0][0], z: t.pts[0][2], s0: t.back ? Math.hypot(t.pts[0][0] - t.back[0], t.pts[0][2] - t.back[2]) : 0 });
     });
 
@@ -1077,38 +1128,20 @@ export class PoolLevel {
 
   /** Con el traje de buzo: aire x2,5 y -15 % de velocidad. */
   tank = false;
-  /** Pedir al servidor un jabón (socket 'pickup'); sin esto (desarrollo) se coge sin más. */
-  claim?: (id: string, done: (ok: boolean) => void) => void;
-  /** Algo recogido por mí (id del servidor): el juego lo suma a mi inventario. */
-  onTake?: (id: string) => void;
-  /** Mientras se dispara (máx. ~15/s): para el socket 'squirt'. */
-  onSquirt?: (x: number, z: number, yaw: number) => void;
-  /** Lo recogible o usable que tengo delante, para el HUD. */
-  hint: string | null = null;
-  /** Acción disponible (recargar). */
-  act: string | null = null;
-  /** Pistola de agua en la mano, y lo que queda en el depósito (0-1). */
-  gunOn = false;
-  /** Tengo la pistola (en la mano o guardada). */
-  hasGun = false;
-  squirtLeft = 1;
-  /** Chorro saliendo y recarga en marcha este fotograma (el juego pone el sonido). */
-  jetting = false;
-  refilling = false;
-  /** Cuánto lleva la recarga en curso (0–1; 0 si no se recarga): la barra del HUD. */
-  get fill() {
-    return this.refilling ? Math.min(1, this.fillT / FILL_T) : 0;
-  }
-  private soaps: { id: string; obj: THREE.Object3D; y: number; taken: boolean; pending?: boolean; kind: string }[] = [];
+  /** Lo recogible del nivel (ver pickups.ts). */
+  pickups!: PoolPickups;
+  private kit!: PoolKit;
+  /** Multiplicador de velocidad que pone quien lleva las manos (game.poolHands): p. ej. enfocar con la camcorder. */
+  slowMul = 1;
+  /** Multiplicadores de velocidad (mejoras, dificultad) y de salto: los pone Game con los del Player; las constantes de andar, correr y saltar son las de locomotion.ts. */
+  speedK = 1;
+  jumpK = 1;
   private refillAt: { x: number; z: number; y: number }[] = [];
-  private gun?: THREE.Object3D;
-  private tankLvl?: (k: number) => void;
-  private jet?: THREE.Points;
-  private jp = { v: new Float32Array(JET_N * 3), life: new Float32Array(JET_N), max: new Float32Array(JET_N).fill(1), sp: new Uint8Array(JET_N), i: 0, acc: 0, rip: 0 };
   private wetT = 0;
   private stunT = 0;
-  private fillT = 0;
-  private sqT = 0;
+  /** La barra de la pistola de agua del HUD: si se muestra y cuánto queda (lo pone Game con los del Player). */
+  sqShow = false;
+  sqVal = 1;
   private fxEl?: HTMLDivElement;
 
   /** Mojado (x0,5 de velocidad) o parado, durante `ms` (lo manda el servidor). */
@@ -1117,61 +1150,27 @@ export class PoolLevel {
     else this.stunT = Math.max(this.stunT, ms / 1000);
   }
 
-  private drop?: (d: { id: string; kind: string; x: number; z: number }) => void;
   /** Los objetos soltados por los jugadores (`snapshot.drops`, ids `d…`): los nuevos aparecen y los que ya no están desaparecen. */
-  syncDrops(list: { id: string; kind: string; x: number; z: number }[]) {
-    const here = new Set(list.map((d) => d.id));
-    for (const s of this.soaps) if (s.id[0] === 'd' && !s.taken && !here.has(s.id)) (s.taken = true), (s.obj.visible = false);
-    for (const d of list) if (!this.soaps.some((s) => s.id === d.id)) this.drop?.(d);
-  }
-
-  /** Lo recogido por otros (snapshot del servidor): desaparece. */
-  sync(taken: string[]) {
-    for (const s of this.soaps) if (!s.taken && taken.includes(s.id)) (s.taken = true), (s.obj.visible = false);
+  syncDrops(list: Drop[]) {
+    const k = this.kit, models = Object.fromEntries(Object.entries({ water: [k.water, 0.17], flashlight: [k.flashlight, 0.24], camera: [k.camera, 0.22], tank: [k.tank, 0.6], watergun: [k.watergun, 0.4], loot: [lootModel(), 0.24] }).filter(([, v]) => v[0]));
+    this.pickups.syncDrops(list, models as Partial<Record<ItemId | 'loot', [THREE.Object3D, number]>>, lootModel);
   }
 
   private initExtras(kit: PoolKit) {
     const sc = this.scene, m = this.map, own = <T extends { dispose(): void }>(o: T) => (this.owned.push(o), o);
-    // un modelo a `size` metros (lado mayor), centrado en su origen; `up`: el lado largo vertical, si no a lo largo de -z
-    const fit = (o: THREE.Object3D, size: number, up: boolean) => {
-      const c = o.clone(true), g = new THREE.Group(), d = new THREE.Box3().setFromObject(c).getSize(new THREE.Vector3());
-      if (up && d.z > d.y && d.z >= d.x) c.rotation.x = -Math.PI / 2;
-      else if (!up && d.x > d.z) c.rotation.y = Math.PI / 2;
-      g.add(c);
-      const b = new THREE.Box3().setFromObject(g), k = size / Math.max(...b.getSize(new THREE.Vector3()).toArray()), ctr = b.getCenter(new THREE.Vector3());
-      c.scale.multiplyScalar(k), c.position.sub(ctr.multiplyScalar(k));
-      const out = new THREE.Group();
-      out.add(g);
-      return out;
-    };
+    this.kit = kit;
     // recogibles: las celdas del mapa plano del servidor (jabones t…, latas w…, linternas f…, tanque k0, pistola p0); si su celda es honda quedan sumergidos
-    // con un brillo propio leve (como en el nivel 0) para que se vean en las salas oscuras
     const pm = poolMaze(this.seed);
-    const put = (id: string, src: THREE.Object3D | undefined, c: Cell, size: number, up: boolean, kind: string, at?: [number, number]) => {
-      if (!src) return;
-      const o = fit(src, size, up), x = at?.[0] ?? (c.x + 0.5) * C, z = at?.[1] ?? (c.y + 0.5) * C, y = poolCellY(m, c.x, c.y, pm.lay?.[c.y * m.w + c.x] ? 1 : 0) + size / 2 + 0.04; // (la planta del objeto: maze.lay)
-      o.traverse((n) => {
-        const mesh = n as THREE.Mesh, mat = mesh.material as THREE.MeshStandardMaterial | undefined;
-        if (!mat?.isMeshStandardMaterial) return;
-        const e = own(mat.clone());
-        mesh.material = e;
-        if (e.map) (e.emissiveMap = e.map), e.emissive.setScalar(kind === 'almond water' ? 0.06 : 0.22);
-        else e.emissive.copy(e.color).multiplyScalar(0.3);
-      });
-      o.position.set(x, y, z);
-      sc.add(o);
-      this.soaps.push({ id, obj: o, y, taken: false, kind });
-    };
-    if (this.withSoaps) pm.tapes.forEach((c, i) => put('t' + i, kit.soap, c, 0.2, true, 'soap'));
-    (pm.waters ?? []).forEach((c, i) => put('w' + i, kit.water, c, 0.17, true, 'almond water'));
-    (pm.flashlights ?? []).forEach((c, i) => put('f' + i, kit.flashlight, c, 0.24, false, 'flashlight'));
-    if (pm.camera) put('c', kit.camera, pm.camera, 0.22, false, 'camcorder'); // la cámara de fotos (servidor: id 'c')
-    if (pm.tank) put('k0', kit.tank, pm.tank, 0.6, true, 'diving tank');
-    if (pm.watergun) put('p0', kit.watergun, pm.watergun, 0.4, false, 'water gun');
-    this.drop = (d) => {
-      const [src, size, up, kind] = ({ water: [kit.water, 0.17, true, 'almond water'], flashlight: [kit.flashlight, 0.24, false, 'flashlight'], camera: [kit.camera, 0.22, false, 'camcorder'], tank: [kit.tank, 0.6, true, 'diving tank'], watergun: [kit.watergun, 0.4, false, 'water gun'] } as Record<string, [THREE.Object3D | undefined, number, boolean, string]>)[d.kind] ?? [];
-      if (src) put(d.id, src, { x: Math.floor(d.x / C), y: Math.floor(d.z / C) }, size, up, kind, [d.x, d.z]);
-    };
+    const pk = (this.pickups = new PoolPickups({ root: sc, solid: (x, z) => this.solidAt(x, z), cellAt: (x, z) => ({ x: Math.floor(x / C), y: Math.floor(z / C) }) }, this.camera, m, pm.lay));
+    pk.floorHint = () => this.py;
+    const put = (id: string, kind: Pickup['kind'], src: THREE.Object3D | undefined, c: Cell, size: number, rar?: number) => src && pk.put(id, kind, c, src, size, 0, undefined, false, rar);
+    if (this.withSoaps) pm.tapes.forEach((c, i) => put('t' + i, 'tape', kit.soap, c, 0.2));
+    (pm.waters ?? []).forEach((c, i) => put('w' + i, 'water', kit.water, c, 0.17));
+    (pm.flashlights ?? []).forEach((c, i) => put('f' + i, 'flashlight', kit.flashlight, c, 0.24));
+    if (pm.camera) put('c', 'camera', kit.camera, pm.camera, 0.22); // la cámara de fotos (servidor: id 'c')
+    if (pm.tank) put('k0', 'tank', kit.tank, pm.tank, 0.6);
+    if (pm.watergun) put('p0', 'watergun', kit.watergun, pm.watergun, 0.4);
+    itemSpots(pm).filter((o) => o.kind === 'loot').forEach(({ id, cell: c }) => put(id, 'loot', lootModel(spotRarity(id, c, LEVELS.poolrooms?.luck)), c, 0.24, spotRarity(id, c, LEVELS.poolrooms?.luck))); // el botín: solo para vender (los ids, los del servidor)
     // bebederos: los puntos de recarga del mapa (`refills`, cuando shared los trae)
     for (const [c, l] of [...m.refills.map((c) => [c, 0] as const), ...m.refillsUp.map((c) => [c, 1] as const)]) {
       const x = (c.x + 0.5) * C, z = (c.y + 0.5) * C, gy = poolCellY(m, c.x, c.y, l);
@@ -1182,27 +1181,7 @@ export class PoolLevel {
       b.position.set(x - ((bb.min.x + bb.max.x) / 2) * k, gy - bb.min.y * k, z - ((bb.min.z + bb.max.z) / 2) * k);
       sc.add(b);
     }
-    // la pistola, pegada a la cámara
     sc.add(this.camera);
-    if (kit.watergun) {
-      this.gun = fit(kit.watergun, 0.4, false);
-      this.tankLvl = tankFx(this.gun);
-      this.gun.position.set(0.2, -0.2, -0.45);
-      this.gun.visible = false;
-      this.camera.add(this.gun);
-    }
-    // el chorro: gotas (Points con su propio shader: redondas, blandas, se encogen y se apagan al morir), reciclados; al caer salpican
-    const geo = own(new THREE.BufferGeometry());
-    geo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(JET_N * 3).fill(-999), 3));
-    geo.setAttribute('aLife', new THREE.BufferAttribute(new Float32Array(JET_N), 1));
-    geo.setAttribute('aSize', new THREE.BufferAttribute(new Float32Array(JET_N).fill(1), 1));
-    this.jet = new THREE.Points(geo, own(new THREE.ShaderMaterial({
-      transparent: true, depthWrite: false, uniforms: { uScale: { value: 400 } },
-      vertexShader: 'attribute float aLife; attribute float aSize; varying float vA; uniform float uScale; void main(){ vec4 mv = modelViewMatrix * vec4(position, 1.0); gl_Position = projectionMatrix * mv; vA = aLife; gl_PointSize = clamp(aSize * uScale * 0.1 / max(-mv.z, 0.3) * (0.55 + 0.6 * aLife), 1.0, 40.0); }',
-      fragmentShader: 'varying float vA; void main(){ vec2 p = gl_PointCoord * 2.0 - 1.0; float d = dot(p, p); if (d > 1.0) discard; float a = smoothstep(1.0, 0.15, d) * min(1.0, vA * 3.0) * 0.8; gl_FragColor = vec4(mix(vec3(0.5, 0.78, 1.0), vec3(1.0), smoothstep(0.6, 0.0, d) * 0.8), a); }',
-    })));
-    this.jet.frustumCulled = false;
-    sc.add(this.jet);
     // mojado: viñeta azul
     const fx = (this.fxEl = document.createElement('div'));
     fx.style.cssText = 'position:fixed;inset:0;pointer-events:none;z-index:8;opacity:0;transition:opacity .3s;background:radial-gradient(ellipse at center,rgba(0,40,90,0) 40%,rgba(30,110,200,.5) 100%)';
@@ -1212,88 +1191,11 @@ export class PoolLevel {
 
   /** Cada fotograma: jabones (giran y flotan, se cogen con G), pistola, chorro, recarga y mojado/parada. Devuelve los controles con la velocidad que toca. */
   private extras(dt: number, c: Controls): Controls {
-    // jabones
-    for (const s of this.soaps) if (!s.taken) (s.obj.rotation.y += dt * 0.8), (s.obj.position.y = s.y + Math.sin(this.t * 1.6 + s.y * 7) * 0.03);
-    const d2 = (o: THREE.Object3D) => Math.hypot(o.position.x - this.px, o.position.z - this.pz);
-    const s0 = this.soaps.filter((s) => !s.taken && !s.pending && d2(s.obj) < 1.6 && Math.abs(s.y - (this.py + this.eye)) < 2.2).sort((a, b) => d2(a.obj) - d2(b.obj))[0];
-    this.hint = s0 ? s0.kind : null;
-    if (s0 && c.grab) {
-      const done = () => ((s0.taken = true), (s0.obj.visible = false), this.onTake?.(s0.id));
-      if (this.claim) {
-        s0.pending = true;
-        this.claim(s0.id, (ok) => ((s0.pending = false), ok && done()));
-      } else done();
-    }
-    // pistola: la mano, el depósito y el chorro
-    const live = this.faint <= 0, under = this.camera.position.y < this.surf && this.swim;
-    if (this.gun) this.gun.visible = this.gunOn && live;
-    if (this.gun?.visible) this.tankLvl?.(this.squirtLeft);
-    this.jetting = this.gunOn && live && !!(c.fire || c.fireHeld) && this.squirtLeft > 0 && !under && !this.ride;
-    const jp = this.jp, pos = this.jet?.geometry.getAttribute('position') as THREE.BufferAttribute | undefined, al = this.jet?.geometry.getAttribute('aLife') as THREE.BufferAttribute | undefined, sz = this.jet?.geometry.getAttribute('aSize') as THREE.BufferAttribute | undefined;
-    if (this.jet) (this.jet.material as THREE.ShaderMaterial).uniforms.uScale.value = innerHeight / 2;
-    if (this.jetting) {
-      this.squirtLeft = Math.max(0, this.squirtLeft - dt / JET_TIME);
-      jp.acc += dt * 90;
-      const cp = Math.cos(this.pitch), fwd = new THREE.Vector3(-Math.sin(this.yaw) * cp, Math.sin(this.pitch), -Math.cos(this.yaw) * cp), right = new THREE.Vector3(Math.cos(this.yaw), 0, -Math.sin(this.yaw));
-      while (jp.acc >= 1 && pos) {
-        jp.acc--;
-        const k = jp.i++ % JET_N, r = () => (Math.random() - 0.5) * 0.5, s = 9 + Math.random() * 3, t = Math.random() * 0.016; // (nacen repartidas a lo largo del fotograma)
-        pos.setXYZ(k, this.px + fwd.x * (0.6 + s * t) + right.x * 0.18, this.py + this.eye - 0.2 + fwd.y * (0.6 + s * t), this.pz + fwd.z * (0.6 + s * t) + right.z * 0.18);
-        // el chorro converge en el punto que apunta la mira (a 9 m): sale de la boca (abajo y a la derecha) y va hacia ahí
-        const dx = this.px + fwd.x * 9 - pos.getX(k), dy = this.py + this.eye + fwd.y * 9 - pos.getY(k), dz = this.pz + fwd.z * 9 - pos.getZ(k), dl = Math.hypot(dx, dy, dz) || 1;
-        jp.v[k * 3] = (dx / dl) * s + r();
-        jp.v[k * 3 + 1] = (dy / dl) * s + r() * 0.7 + 0.4;
-        jp.v[k * 3 + 2] = (dz / dl) * s + r();
-        jp.max[k] = jp.life[k] = 0.5 + Math.random() * 0.3;
-        jp.sp[k] = 0;
-        sz?.setX(k, 0.7 + Math.random() * 0.8);
-      }
-      this.sqT -= dt;
-      if (this.sqT <= 0) (this.sqT = 1 / 15), this.onSquirt?.(this.px, this.pz, this.yaw);
-    } else jp.acc = 0;
-    if (pos && al && sz) {
-      jp.rip -= dt;
-      for (let k = 0; k < JET_N; k++) {
-        if (jp.life[k] <= 0) continue;
-        jp.life[k] -= dt;
-        if (jp.life[k] <= 0) {
-          pos.setY(k, -999), al.setX(k, 0);
-          continue;
-        }
-        jp.v[k * 3 + 1] -= (jp.sp[k] ? 9 : 7) * dt;
-        const nx = pos.getX(k) + jp.v[k * 3] * dt, ny = pos.getY(k) + jp.v[k * 3 + 1] * dt, nz = pos.getZ(k) + jp.v[k * 3 + 2] * dt, f = poolFloorY(this.map, nx, nz, ny);
-        // contra una pared o columna se pierde; contra el suelo o el agua salpica (unas gotas que saltan y, si es agua, una onda)
-        const i = this.idx(nx, nz), wet = f && i >= 0 && (f.layer ? this.map.up.water[i] : this.map.water[i]) > 0, gy = !f ? 1e9 : wet ? (f.layer ? PY.upSurf : PY.surf) : f.y;
-        if (!f || (ny < gy && !jp.sp[k])) {
-          jp.life[k] = 0, pos.setY(k, -999), al.setX(k, 0);
-          if (f) {
-            for (let n = 0; n < 3; n++) {
-              const j = jp.i++ % JET_N, a = Math.random() * 6.283, v = 0.6 + Math.random() * 1.2;
-              pos.setXYZ(j, nx, gy + 0.02, nz), (jp.v[j * 3] = Math.cos(a) * v), (jp.v[j * 3 + 1] = 1.6 + Math.random() * 1.6), (jp.v[j * 3 + 2] = Math.sin(a) * v);
-              jp.max[j] = jp.life[j] = 0.25 + Math.random() * 0.2, (jp.sp[j] = 1), sz.setX(j, 0.35 + Math.random() * 0.3);
-            }
-            if (wet && jp.rip <= 0) (jp.rip = 0.07), this.splash(nx, nz, 0.25);
-          }
-          continue;
-        }
-        if (jp.sp[k] && ny < gy) (jp.life[k] = 0), pos.setY(k, -999), al.setX(k, 0);
-        else pos.setXYZ(k, nx, ny, nz), al.setX(k, jp.life[k] / jp.max[k]);
-      }
-      pos.needsUpdate = al.needsUpdate = sz.needsUpdate = true;
-    }
-    // recarga: junto a un bebedero, G mantenida ~2 s
-    const at = this.refillAt.some((r) => Math.hypot(r.x - this.px, r.z - this.pz) < 2.2 && Math.abs(r.y - this.py) < 1.5) && (this.gunOn || this.hasGun) && this.squirtLeft < 1; // (con la pistola guardada también recarga)
-    this.refilling = at && !!c.grabHeld;
-    this.act = at ? 'HOLD TO REFILL' : null;
-    if (this.refilling) {
-      this.fillT += dt;
-      if (this.fillT >= FILL_T) (this.squirtLeft = 1), (this.fillT = 0);
-    } else this.fillT = 0;
     // mojado / parado
     this.wetT = Math.max(0, this.wetT - dt);
     this.stunT = Math.max(0, this.stunT - dt);
     if (this.fxEl) this.fxEl.style.opacity = this.wetT > 0 || this.stunT > 0 ? '1' : '0';
-    const k = (this.stunT > 0 ? 0 : this.wetT > 0 ? 0.5 : 1) * (this.tank ? TANK_SLOW : 1);
+    const k = (this.stunT > 0 ? 0 : this.wetT > 0 ? 0.5 : 1) * (this.tank ? TANK_SLOW : 1) * this.slowMul;
     return k === 1 ? c : { ...c, move: c.move.clone().multiplyScalar(k), jump: this.stunT > 0 ? false : c.jump };
   }
 
@@ -1316,6 +1218,51 @@ export class PoolLevel {
   wetAt(x: number, z: number) {
     const i = this.idx(x, z);
     return i >= 0 && (!!this.map.water[i] || this.map.ya[i] > 0.5 || !!this.map.tun[i]);
+  }
+
+  // ── Terrain (ver terrain.ts): lo que el nivel dice de sí mismo ──
+  get root() {
+    return this.scene;
+  }
+  floorAt(x: number, z: number, y = this.py): number | null {
+    return this.fl(x, z, y)?.y ?? null;
+  }
+  solid(x: number, z: number) {
+    return this.solidAt(x, z);
+  }
+  fits(x: number, z: number, y: number, _r?: number) {
+    return this.fits_(x, z, y);
+  }
+  liquidAt(x: number, z: number, y = this.py) {
+    const i = this.idx(x, z), f = i < 0 ? null : this.fl(x, z, y);
+    if (!f) return null;
+    const m = this.map, tun = !f.layer && m.tun[i] > 0, w = f.layer ? m.up.water[i] : m.water[i];
+    if (!w && !tun) return null;
+    const surface = f.layer ? PY.upSurf : PY.surf;
+    return { surface, depth: Math.max(0, surface - f.y) };
+  }
+  voidAt(_x: number, _z: number) {
+    return false; // (no hay vacío: las alturas negativas son agua)
+  }
+  /** `fits` con lo de ahora (nadando o no, desde mi celda). */
+  private fits_(x: number, z: number, y: number) {
+    return this.canMove(x, z, y, this.swim, this.idx(this.px, this.pz));
+  }
+  /** Para las gotas de la pistola: la pared las pierde; si no, la altura del suelo o del agua. */
+  jetProbe = (x: number, y: number, z: number) => {
+    const f = poolFloorY(this.map, x, z, y), i = this.idx(x, z);
+    if (!f || i < 0) return null;
+    const wet = (f.layer ? this.map.up.water[i] : this.map.water[i]) > 0;
+    return { gy: wet ? (f.layer ? PY.upSurf : PY.surf) : f.y, wet };
+  };
+  /** ¿Hay un bebedero a menos de 2,2 m (y a mi altura)? */
+  refillNear(x: number, y: number, z: number) {
+    return this.refillAt.some((r) => Math.hypot(r.x - x, r.z - z) < 2.2 && Math.abs(r.y - y) < 1.5);
+  }
+  /** Altura del suelo en (x, z) (para las entidades). */
+  floorY(x: number, z: number) {
+    const i = this.idx(x, z);
+    return i < 0 ? 0 : this.ground(i, x, z);
   }
 
   spawnAt(dx: number, dz: number) {
@@ -1361,7 +1308,7 @@ export class PoolLevel {
   }
 
   /** ¿Cabe el jugador (radio R) con los pies en py en (x, z)? */
-  private fits(x: number, z: number, py: number, swim: boolean, from: number) {
+  private canMove(x: number, z: number, py: number, swim: boolean, from: number) {
     const m = this.map;
     // la cabina del ascensor: sus paredes no se cruzan (solo por la puerta, hacia donde da, y abierta)
     {
@@ -1371,6 +1318,10 @@ export class PoolLevel {
       if (now && !was && (!this.cab.isOpen || lat(x, z) > 0.3 || fwd(this.px, this.pz) < C / 2)) return false; // entrar: por la puerta, de frente
       if (was && (lat(x, z) > C / 2 - R - 0.04 || fwd(x, z) < -C / 2 + R + 0.04 || (fwd(x, z) > C / 2 - R && (!this.cab.isOpen || lat(x, z) > 0.3)))) return false; // dentro: las tres paredes y las jambas
       if (now) return true; // (la cabina está en una celda de pared: lo de abajo la daría por maciza)
+    }
+    for (const [tx, ty, tz] of this.tubePts) { // los tubos (cilindros de radio COIL.r): no se atraviesan; quien ya está dentro de uno se puede apartar
+      const d = Math.hypot(tx - x, tz - z);
+      if (d < COIL.r + R && py < ty + COIL.r && py + 1.7 > ty - COIL.r && d < Math.hypot(tx - this.px, tz - this.pz)) return false;
     }
     for (const r of this.refillAt) {
       const d = Math.hypot(r.x - x, r.z - z);
@@ -1392,7 +1343,7 @@ export class PoolLevel {
       if (swim) {
         if (!w && g - py > 0.9) return false; // salir del agua a la cubierta: hasta 0,9 m
         if (w && py < g - (!f.layer && m.ramp[i] === PR.stairs ? 0.3 : 0.01)) return false; // en la escalera, un peldaño (0,22 m) no es una pared
-      } else if (g - py > POOL_STEP) return false; // no se sube un escalón de más de 1 m (los peldaños son de 0,19)
+      } else if (g - py > (f.layer !== this.lay ? 0.3 : POOL_STEP)) return false; // (a otra planta solo se pasa a ras de ella: en lo alto de la escalera; antes, en las escaleras el suelo alto a 1 m contaba y se atravesaban sus paredes) // no se sube un escalón de más de 1 m (los peldaños son de 0,19)
     }
     // un tobogán solo se pisa desde la torre o desde otro tramo de tobogán (cuenta la celda del centro, no las esquinas)
     const ci = this.idx(x, z);
@@ -1400,7 +1351,7 @@ export class PoolLevel {
     return true;
   }
 
-  private splash(x: number, z: number, amp: number) {
+  splash(x: number, z: number, amp: number) {
     this.rip[this.ri].set(x, z, this.t, amp);
     this.ri = (this.ri + 1) % NRIP;
   }
@@ -1413,14 +1364,10 @@ export class PoolLevel {
   freeBox() {
     return { x: this.map.w * C, z: this.map.h * C, y0: PY.deep, y1: PY.tall - 0.3 };
   }
-  update(dt: number, c: Controls) {
-    this.t += dt;
-    if (this.dead && this.ghost) (this.px = this.ghost.x), (this.py = this.ghost.y), (this.pz = this.ghost.z), (this.vy = 0), (this.ride = undefined);
-    if (this.dead) c = { ...c, move: new THREE.Vector2(), jump: false, crouch: false, run: false, fire: false, fireHeld: false, grab: false, grabHeld: false }; // muerto (lo decide el servidor): sin mandos
-    c = this.extras(dt, c);
-    if (this.faint > 0 || this.hold) c = { ...c, move: new THREE.Vector2(), jump: false, crouch: false, run: false }; // desmayado (o dentro del ascensor en marcha): no controlas el cuerpo
-    this.cab.update(dt);
+  /** El cuerpo en el mundo: mirar, tubos, nadar, tobogán, andar con choques por ejes, saltar y las plantas (ver locomotion.ts para lo común a todos los niveles). */
+  private move(dt: number, c: Controls) {
     const m = this.map;
+    dt = Math.min(dt, 0.05); // (un tirón largo no da un paso enorme: atravesaría paredes y suelos)
     this.yaw -= c.look.x;
     this.pitch = Math.max(-1.45, Math.min(1.45, this.pitch - c.look.y));
     const cy = Math.cos(this.yaw), sy = Math.sin(this.yaw);
@@ -1469,22 +1416,28 @@ export class PoolLevel {
       mz = sz * 5.2 * dt + (sz === 0 ? (cj - this.pz) * Math.min(1, dt * 6) : 0);
       (this.fx = sx * 4.5), (this.fz = sz * 4.5);
     } else {
-      const sp = (c.run ? 5 : 2.8) * (c.crouch ? 0.5 : 1) * (i0 >= 0 && this.wat(i0) ? 0.7 : 1);
-      mx = (fwd.x * c.move.y + right.x * c.move.x) * sp * dt + this.fx * dt;
-      mz = (fwd.z * c.move.y + right.z * c.move.x) * sp * dt + this.fz * dt;
+      const sp = (c.run ? RUN : WALK) * this.speedK * (ducking(c.crouch, c.run) ? CROUCH_SLOW : 1), pm = planar(this.yaw, c.move, sp, dt);
+      mx = pm.x + this.fx * dt;
+      mz = pm.y + this.fz * dt;
       const k = Math.max(0, 1 - dt * 2.2); // el impulso del tobogán se apaga
       (this.fx *= k), (this.fz *= k);
     }
     // por ejes, para deslizarse por las paredes
-    const from = i0, stuck = !this.fits(this.px, this.pz, this.py, this.swim, from); // metido en algo (p. ej. al caer del tobogán): se puede salir
+    const from = i0;
+    const inside = !this.canMove(this.px, this.pz, this.py, this.swim, from); // metido en algo (p. ej. subiendo una escalera pegado a su lado: al subir los pies, la esquina entra en la losa de al lado)
+    let stuck = inside && !this.air;
+    if (inside && !dw) { // se saca el cuerpo por el sitio libre más cercano (antes, atrapado, se podía andar hacia dentro de la pared)
+      const D = [[1, 0], [-1, 0], [0, 1], [0, -1], [0.7, 0.7], [-0.7, 0.7], [0.7, -0.7], [-0.7, -0.7]];
+      out: for (const d of [0.04, 0.08, 0.16, 0.3, 0.5]) for (const [a, b] of D) if (this.canMove(this.px + a * d, this.pz + b * d, this.py, this.swim, from)) { (this.px += a * d), (this.pz += b * d), (stuck = false); break out; }
+    }
     if (dw) (this.px = Math.max(dw.x0 + 0.35, Math.min(dw.x1 - 0.35, this.px + mx))), (this.pz = Math.max(dw.z0 + 0.35, Math.min(dw.z1 - 0.35, this.pz + mz))); // dentro del pozo, sus cuatro paredes
     else {
-      if (stuck || this.fits(this.px + mx, this.pz, this.py, this.swim, from)) this.px += mx;
-      if (stuck || this.fits(this.px, this.pz + mz, this.py, this.swim, from)) this.pz += mz;
+      if (stuck || this.canMove(this.px + mx, this.pz, this.py, this.swim, from)) this.px += mx;
+      if (stuck || this.canMove(this.px, this.pz + mz, this.py, this.swim, from)) this.pz += mz;
     }
     const i1 = this.idx(this.px, this.pz);
     if (i1 >= 0) {
-      const f1 = this.flc(this.px, this.pz, this.py);
+      const f1 = this.flc(this.px, this.pz, this.py), lay0 = this.lay;
       if (f1 && !dw) (this.lay = f1.layer), (this.surf = f1.layer ? PY.upSurf : PY.surf); // (en un pozo de la alta se baja por dentro de la losa: sigue siendo la alta)
       if (this.swim) {
         const tn = !this.lay && m.tun[i1] && this.py < PY.surf - 0.6, floor = this.well ? this.well.fy - WELL : tn ? PY.deep : f1 ? f1.y : this.py;
@@ -1501,9 +1454,10 @@ export class PoolLevel {
           this.jam = 12000;
         }
       } else {
-        const g = f1 ? f1.y : this.py;
-        this.vy -= 14 * dt;
-        if (c.jump && this.py <= g + 0.05 && !slide) this.vy = 5;
+        let g = f1 ? f1.y : this.py;
+        if (this.air && f1 && f1.layer !== lay0 && g > this.py + 0.5) g = this.py - 1; // (solo el suelo de OTRA planta: con el de la misma, saliendo de una piscina en el aire, el cuerpo caía para siempre por el suelo) en el aire no se aterriza en un suelo que está muy por encima de los pies (pegado a una pared junto a unas escaleras, se subía de golpe a la otra planta)
+        this.vy -= G * dt;
+        if (c.jump && this.py <= g + 0.05 && !slide && !(i0 >= 0 && m.ramp[i0] !== PR.none)) this.vy = JUMP * this.jumpK; // (no se salta en escaleras ni rampas: en el aire el suelo de la otra planta contaba y se atravesaban las paredes)
         this.py += this.vy * dt;
         if (this.py <= g) {
           // en el suelo: sube los peldaños con suavidad, baja de golpe si el desnivel es grande
@@ -1524,13 +1478,46 @@ export class PoolLevel {
       if (inWater && speed > 0.4 && this.stepT <= 0) (this.stepT = this.swim ? 0.45 : speed > 4 ? 0.2 : 0.38), this.splash(this.px, this.pz, this.swim ? 1.2 : speed > 4 ? 1.7 : 1);
     }
     }
-    // la cámara: a la altura de los ojos (más baja al nadar), con transición suave
+  }
+
+  /** Antes de mover el cuerpo: el reloj, los mandos que no valen (muerto, desmayado, en el ascensor), lo recogible, la pistola y la cabina. Devuelve los mandos que se usan. */
+  pre(dt: number, c: Controls): Controls {
+    this.t += dt;
+    if (this.dead && this.ghost) (this.px = this.ghost.x), (this.py = this.ghost.y), (this.pz = this.ghost.z), (this.vy = 0), (this.ride = undefined);
+    if (this.dead) c = { ...c, move: new THREE.Vector2(), jump: false, crouch: false, run: false, fire: false, fireHeld: false, grab: false, grabHeld: false }; // muerto (lo decide el servidor): sin mandos
+    c = this.extras(dt, c);
+    if (this.faint > 0 || this.hold) c = { ...c, move: new THREE.Vector2(), jump: false, crouch: false, run: false }; // desmayado (o dentro del ascensor en marcha): no controlas el cuerpo
+    this.cab.update(dt);
+    return c;
+  }
+  /**
+   * El Player mueve el cuerpo por este mundo (mirada ya aplicada por él): devuelve dónde queda y cómo (para sus pasos y sus manos).
+   * `eye` es la altura de los ojos sobre los pies, sin lo que baja el agacharse (eso lo pone el Player, que también pone la cámara).
+   */
+  drive(dt: number, c: Controls, yaw: number, pitch: number) {
+    this.yaw = yaw;
+    this.pitch = pitch;
+    this.move(dt, { ...c, look: ZERO });
+    this.eye += ((this.ride ? 0.55 : this.swim ? EYE_SWIM : EYE) - this.eye) * Math.min(1, dt * 8);
+    return { x: this.px, y: this.py, z: this.pz, yaw: this.yaw, pitch: this.pitch, speed: this.hs, air: this.air && !this.swim, vy: this.vyNow, swim: this.swim, eye: this.eye, jetOk: !(this.py + this.eye < this.surf && this.swim) && !this.ride };
+  }
+  /** Sin Player (desarrollo): el mundo lo mueve todo, cámara incluida. */
+  update(dt: number, c: Controls) {
+    c = this.pre(dt, c);
+    this.move(dt, c);
+    this.post(dt, c, true);
+  }
+  /** Después de mover: la luz, el agua, el aire, la niebla y los efectos de la cámara. `own`: la cámara es de este mundo (si no, la pone el Player; muerto, siempre es de este). */
+  post(dt: number, c: Controls, own = false) {
+    const m = this.map;
     this.deadK = Math.min(1, Math.max(0, this.deadK + (this.dead ? dt : -dt * 2) * 1.5)); // muerto: la cámara cae al suelo y se ladea
     this.jam = Math.max(0, this.jam - dt * 1000);
-    const wantEye = (this.ride ? 0.55 : this.swim ? EYE_SWIM : c.crouch ? EYE - 0.6 : EYE) * (1 - 0.8 * this.deadK);
-    this.eye += (wantEye - this.eye) * Math.min(1, dt * 8);
-    this.camera.position.set(this.px, this.py + this.eye, this.pz);
-    this.camera.rotation.set(this.pitch, this.yaw, 0, 'YXZ');
+    if (own || this.dead) {
+      const wantEye = (this.ride ? 0.55 : this.swim ? EYE_SWIM : ducking(c.crouch, c.run) ? EYE - CROUCH_DROP : EYE) * (1 - 0.8 * this.deadK);
+      this.eye += (wantEye - this.eye) * Math.min(1, dt * 8);
+      this.camera.position.set(this.px, this.py + this.eye, this.pz);
+      this.camera.rotation.set(this.pitch, this.yaw, 0, 'YXZ');
+    }
     if (this.deadK > 0) this.camera.rotation.z = this.deadK * 1.2;
     if (this.stunT > 0) (this.camera.rotation.x += Math.sin(this.t * 7) * 0.05), (this.camera.rotation.z = Math.sin(this.t * 4.3) * 0.08);
     if (this.hold) this.camera.position.y += this.cab.shake;
@@ -1595,7 +1582,7 @@ export class PoolLevel {
       if (this.faint < FAINT - 1.2 && this.faint + dt >= FAINT - 1.2) (this.px = this.lastAir.x), (this.pz = this.lastAir.z), (this.py = this.lastAir.y), (this.swim = false), (this.vy = 0), this.splash(this.px, this.pz, 1.4);
       if (this.faint <= 0) this.o2 = 0.35;
     } else if (head) {
-      this.o2 = Math.max(0, this.o2 - dt / (O2_SECONDS * (this.tank ? TANK_AIR : 1)));
+      this.o2 = Math.max(0, this.o2 - dt / (O2_SECONDS * (this.tank ? TANK_AIR * boostOf(perks, 'tank') : 1))); // (la rareza de la bombona da más aire)
       if (this.o2 <= 0) this.faint = FAINT;
     } else {
       this.o2 = Math.min(1, this.o2 + dt / O2_REFILL);
@@ -1606,8 +1593,8 @@ export class PoolLevel {
       const low = this.o2 < 0.28, f = this.faint > 0 ? Math.min(1, Math.min(this.faint, FAINT - this.faint) * 1.6) : 0;
       this.hud.bar.style.opacity = this.o2 < 0.999 ? '1' : '0';
       this.hud.fill.style.width = this.o2 * 100 + '%';
-      this.hud.sq.style.opacity = this.gunOn ? '1' : '0';
-      this.hud.sqFill.style.width = this.squirtLeft * 100 + '%';
+      this.hud.sq.style.opacity = this.sqShow ? '1' : '0';
+      this.hud.sqFill.style.width = this.sqVal * 100 + '%';
       this.hud.fill.style.background = low ? '#ff6a4d' : '#9fe8dc';
       this.hud.veil.style.background = f > 0.01 ? '#000' : 'radial-gradient(ellipse at center,rgba(0,0,0,0) 35%,rgba(2,14,12,.95) 100%)';
       this.hud.veil.style.opacity = String(f > 0.01 ? f : Math.max(0, (0.5 - this.o2) * 1.6) * (low ? 0.75 + 0.25 * Math.sin(this.t * 9) : 1));

@@ -1,6 +1,6 @@
 import {
-  Breath, levelCaps, seesXZ, CELL, DIFFICULTY, HIT_DAMAGE, EntitySim, TV_REACH, centerOf, generateMaze, poolMaze, hideStates, itemSpots, solidAt, tickHides, totemSpot, tvPoint, tvSites, NOISE_RUN, NOISE_SHOT,
-  type Difficulty, type Inventory, type Look, type Mission, type HideState, type EntState, type ItemSpot, type Kind, type Maze, type Noise, type PlayerState, type SimTarget, type WorldSnapshot,
+  Breath, levelCaps, seesXZ, CELL, DIFFICULTY, EEH_HOLD, HIT_DAMAGE, EntitySim, TV_REACH, centerOf, generateMaze, poolMaze, generatePools, PK, suitesMaze, hideStates, itemSpots, solidAt, tickHides, totemSpot, tvPoint, tvSites, NOISE_RUN, NOISE_SHOT, SUITE_L, wrapX,
+  type Difficulty, type Inventory, type Ups, type Look, type Mission, type HideState, type EntState, type ItemSpot, type Kind, type Maze, type Noise, type PlayerState, type SimTarget, type WorldSnapshot,
 } from '@backrooms/shared';
 import { ParkingMatch } from './parking-match';
 
@@ -41,6 +41,8 @@ export interface Player {
   /** Lo que conserva entre rondas (la tienda y lo que trajo del ascensor) y lo que puede llevar ahora (inicio + recogido - soltado): el tope de lo que declara al subir. */
   inv: Inventory;
   cap: Inventory;
+  /** Sus mejoras del árbol en esta sala (niveles comprados). */
+  ups: Ups;
   /** Ha subido vivo al ascensor: ya no juega (las entidades no lo ven) hasta que acabe la ronda. */
   boarded?: boolean;
   /** Cuándo soltó (o compró) algo por última vez (anti-spam). */
@@ -49,6 +51,7 @@ export interface Player {
   /** Fotos de esta partida (ids de entidad ya contados), la última y si lo están inspeccionando ahora. */
   shot?: Set<number>;
   lastPhoto?: number;
+  lastSnap?: number;
   inspected?: boolean;
   /** Escondites (los lleva Match): el nicho en que está (-1 ninguno), su aire y el ruido reciente (1 al correr). */
   hide?: number;
@@ -102,7 +105,7 @@ export class Match {
   /** Los ruidos de este paso (carreras, disparos, objetos que caen): los oyen las entidades. */
   private noises: Noise[] = [];
   noise(x: number, z: number, r: number) {
-    this.noises.push({ x, z, r });
+    if (!this.parking) this.noises.push({ x, z, r });
   }
   private nextId = 1;
   private age = 0;
@@ -111,6 +114,12 @@ export class Match {
   tvs: { cell: { x: number; y: number }; rot: number }[] = [];
   readonly tvOff = new Set<number>();
   private photos = 0;
+  /** Misión de recepción: artefactos entregados al Faceling. */
+  delivered = 0;
+  /** Lo que ya valía el contador de la misión al empezarla (las misiones se encadenan en una ronda). */
+  private base = 0;
+  private readonly hotel: boolean;
+  private eehOn = false;
   /** Admin: las entidades se quedan quietas. */
   frozen = false;
 
@@ -123,13 +132,16 @@ export class Match {
 
   /** Nivel sin entidades (las Poolrooms, mientras no tengan sus propias). */
   private noEnts: boolean;
+  /** El mapa por el que andan las entidades (en las Poolrooms, sin la planta alta). */
+  private emaze?: Maze;
 
-  constructor(readonly seed: number, difficulty: Difficulty = 'normal', players = 1, readonly levelId = 'level0') {
+  constructor(readonly seed: number, difficulty: Difficulty = 'normal', players = 1, readonly levelId = 'level0', floor = 1) {
     this.speed = DIFFICULTY[difficulty].speed;
     this.grace = DIFFICULTY[difficulty].grace;
     const caps = levelCaps(levelId);
     this.noEnts = !caps.ents;
-    this.maze = caps.pool ? poolMaze(seed) : generateMaze(seed, players);
+    this.hotel = !!caps.hotel;
+    this.maze = caps.hotel ? suitesMaze(seed, floor) : caps.pool ? poolMaze(seed) : generateMaze(seed, players);
     this.maze.totem = this.noEnts ? null : totemSpot(this.maze, seed, players);
     this.hides = hideStates(this.maze);
     const D = DIFFICULTY[difficulty];
@@ -141,6 +153,31 @@ export class Match {
     }
     // al empezar, entidades según la dificultad (alternando bacteria y partygoer), en los arranques más lejanos
     const m = this.maze;
+    if (caps.pool) {
+      // Poolrooms: una sola entidad, al azar (según la semilla), y solo por la planta baja (la alta no se pisa desde el suelo)
+      // la planta baja entera, agua honda incluida (la cruzan nadando); `lay` no sirve: también marca celdas con objeto arriba y suelo abajo
+      const gp = generatePools(seed);
+      if (m.lay) this.emaze = { ...m, open: gp.kind.map((k) => (k === PK.floor ? 1 : 0)) as unknown as Uint8Array };
+      this.spawn(((seed >>> 3) & 1 ? 'partygoer' : 'bacteria') as Kind, m.spawns[0]);
+    }
+    if (this.hotel) {
+      const span = SUITE_L * CELL;
+      // el paseante del pasillo (en el centro del bucle; el cliente lo pinta en la copia más cercana)
+      this.spawn('faceling', { x: Math.floor((span * 1.5) / CELL), y: Math.floor(12.75 / CELL) }, 1, 3);
+      const w = this.ents[this.ents.length - 1].sim;
+      (w.z = 12.75), (w.passive = true), (w.patrol = { z: 12.75, dir: 1, v: 1 });
+      // el personal: un Faceling de pie en cada sitio donde el cliente pinta uno (suelto, o tras el mostrador)
+      const DIRS = [[1, 0], [-1, 0], [0, 1], [0, -1]];
+      for (const p of m.props) {
+        if (p.kind !== 'faceling' && p.kind !== 'reception') continue;
+        const c = centerOf(p.cell), [dx, dz] = DIRS[p.rot] ?? DIRS[0], k = p.kind === 'reception' ? -0.95 : 0;
+        const x = c.x + (p.off?.[0] ?? 0) + dx * k, z = c.z + (p.off?.[1] ?? 0) + dz * k;
+        if (x < span || (x >= 2 * span && x < 3 * span)) continue; // (el pasillo se repite: solo la copia del medio y el vestíbulo)
+        this.spawn('faceling', { x: Math.floor(x / CELL), y: Math.floor(z / CELL) }, 1, 3);
+        const e = this.ents[this.ents.length - 1].sim;
+        (e.x = x), (e.z = z), (e.facing = Math.atan2(dx, dz)), (e.passive = true);
+      }
+    }
     if (!this.noEnts) for (let i = 0; i < D.ents; i++) this.spawn(i % 2 ? 'partygoer' : 'bacteria', m.spawns[i] ?? m.spawns[i % Math.max(1, m.spawns.length)] ?? m.spawns[0]);
   }
 
@@ -148,10 +185,19 @@ export class Match {
   setMission(m: Mission) {
     this.mission = m;
     if (this.levelId === 'parking') { this.parking = new ParkingMatch(this.seed, m); return; }
-    // las cintas solo hay si la misión es encontrarlas
-    if (m.kind !== 'tapes' && m.kind !== 'soaps') for (const id of [...this.items.keys()]) if (id[0] === 't' && this.items.get(id)?.kind === 'tape') this.items.delete(id);
+    this.eehOn = false;
+    this.base = this.raw(m);
+    // las cintas solo hay si la misión es encontrarlas (en el hotel hay siempre, por si toca encadenar esa misión)
+    if (!this.hotel && m.kind !== 'tapes' && m.kind !== 'soaps') for (const id of [...this.items.keys()]) if (id[0] === 't' && this.items.get(id)?.kind === 'tape') this.items.delete(id);
     this.tvs =m.kind === 'tvs' ? tvSites(this.maze, m.goal) : [];
   }
+
+  /** Se cumplió el fallo del evaporador: el personal vuelve a estar en paz (salvo que lo enfurecieran matando a uno). */
+  calmStaff() {
+    if (this.vengeance) return;
+    for (const q of this.ents) if (q.sim.kind === 'faceling') (q.sim.enraged = q.sim.roused = false), (q.sim.passive = true), (q.sim.path = []), (q.sim.state = 'wander');
+  }
+  private vengeance = false;
 
   /** Segundos de partida. */
   get elapsed() {
@@ -163,8 +209,11 @@ export class Match {
     if (this.parking) return this.parking.progress;
     const m = this.mission;
     if (!m) return 0;
-    const v = m.kind === 'photos' ? this.photos : m.kind === 'tapes' || m.kind === 'soaps' ? this.tapes : m.kind === 'survive' ? Math.floor(this.age) : this.tvOff.size;
-    return Math.min(m.goal, v);
+    return Math.min(m.goal, this.raw(m) - this.base);
+  }
+
+  private raw(m: Mission) {
+    return m.kind === 'photos' ? this.photos : m.kind === 'tapes' || m.kind === 'soaps' ? this.tapes : m.kind === 'survive' || m.kind === 'eeh' ? Math.floor(this.age) : m.kind === 'power' ? [...this.taken].filter((id) => id[0] === 'e').length : m.kind === 'order' ? this.delivered : this.tvOff.size;
   }
 
   /** Apagar la televisión `i`: hay que estar cerca de ella. */
@@ -182,8 +231,8 @@ export class Match {
     return this.parking?.map.spawn ?? centerOf(this.maze.start);
   }
 
-  private spawn(kind: Kind, at: { x: number; y: number }, speed = 1, hp = 1) {
-    const m = this.maze;
+  private spawn(kind: Kind, at: { x: number; y: number }, speed = 1, hp = 3) {
+    const m = this.emaze ?? this.maze;
     this.ents.push({ id: this.nextId++, sim: new EntitySim(kind, m, (x, z) => solidAt(m, x, z), at, speed * this.speed, hp, true) });
   }
 
@@ -197,7 +246,7 @@ export class Match {
         const d = Math.max(Math.abs(xx - cx), Math.abs(y - cy));
         if (d >= 3 && m.open[y * m.w + xx]) open.push({ x: xx, y });
       }
-    this.spawn(kind, open[(Math.random() * open.length) | 0] ?? m.spawns[0], 1, 1);
+    this.spawn(kind, open[(Math.random() * open.length) | 0] ?? m.spawns[0], 1, 3);
   }
   /** Admin: quita todas las entidades. */
   clearEnts() {
@@ -222,6 +271,11 @@ export class Match {
   tick(dt: number, players: Player[], caught: (p: Player, entityId: number) => void) {
     this.age += dt;
     if (this.parking) { this.parking.frozen=this.frozen; this.parking.tick(dt, players, Date.now(), p=>caught(p,-1)); return; }
+    // misión EEH: el evaporador falla a su hora y entran las entidades (partygoers y una bacteria, por los arranques más lejanos)
+    if (this.mission?.kind === 'eeh' && !this.eehOn && this.age - this.base >= this.mission.goal - EEH_HOLD) {
+      this.eehOn = true;
+      for (const q of this.ents) q.sim.kind === 'faceling' && q.sim.rage(); // el evaporador falla: el personal, que estaba en paz, va a por todos
+    }
     const targets: SimTarget[] = [];
     this.hiding(dt, players);
     const hidden = this.age > this.grace ? this.hides.filter((h) => h.occ) : [];
@@ -241,11 +295,15 @@ export class Match {
     this.noises = [];
     for (const e of this.frozen ? [] : this.ents) {
       const id = e.sim.update(dt, targets, false, hidden, noises);
+      if (this.hotel) {
+        const x = wrapX(e.sim.x);
+        if (x !== e.sim.x) (e.sim.x = x), (e.sim.path = []); // (como los jugadores: siempre en la copia del medio)
+      }
       if (id === undefined) continue;
       const p = players.find((q) => q.id === id);
       if (!p) continue;
       // un golpe quita vida; muere con la vida a cero o si lo pillan en un nicho (sin salida)
-      p.hp = (p.hide ?? -1) >= 0 ? 0 : Math.max(0, p.hp - HIT_DAMAGE);
+      p.hp = (p.hide ?? -1) >= 0 || e.sim.kind === 'faceling' ? 0 : Math.max(0, p.hp - HIT_DAMAGE); // (el personal no deja heridos)
       e.sim.state = 'attack'; // ataca y vuelve a lo suyo (ver recover)
       if (p.hp > 0) continue; // sigue vivo
       p.dead = true;
@@ -308,6 +366,11 @@ export class Match {
     }
   }
 
+  /** La celda de un objeto del mapa que sigue ahí (de ella sale su rareza). */
+  cellOf(id: string) {
+    return this.taken.has(id) ? undefined : this.items.get(id)?.cell;
+  }
+
   /** Recoger un objeto: el primero en llegar se lo lleva; hay que estar cerca de donde está. */
   pickup(p: Player, id: string) {
     const it = this.items.get(id);
@@ -315,7 +378,16 @@ export class Match {
     const c = centerOf(it.cell);
     if (Math.hypot(p.st.x - c.x, p.st.z - c.z) > PICK_REACH) return false;
     this.taken.add(id);
+    if (id[0] === 'e') this.ents.forEach((q) => q.sim.kind === 'faceling' && q.sim.rouse(c.x, c.z)); // un cuadro de luz encendido: el personal va a mirar
     return true;
+  }
+
+  /** Distancia en el plano entre un jugador y una entidad (en el hotel, el pasillo se repite: la copia más cercana). */
+  private far(a: { x: number; z: number }, b: { x: number; z: number }) {
+    const span = SUITE_L * CELL;
+    let dx = a.x - b.x;
+    if (this.hotel && a.x < 3 * span && b.x < 3 * span) dx = ((((dx + span / 2) % span) + span) % span) - span / 2;
+    return Math.hypot(dx, a.z - b.z);
   }
 
   /** Un tiro a una entidad: se acepta si va con el rifle y está a tiro; muere al llegar su hp a cero (true) y otra la sustituye. */
@@ -323,15 +395,26 @@ export class Match {
     const i = this.ents.findIndex((e) => e.id === entityId);
     if (i < 0 || p.dead || p.st.held !== 'gun') return false;
     const e = this.ents[i];
-    if (Math.hypot(p.st.x - e.sim.x, p.st.z - e.sim.z) > SHOT_REACH) return false;
+    if (this.far(p.st, e.sim) > SHOT_REACH) return false;
     this.noise(p.st.x, p.st.z, NOISE_SHOT);
     if (!e.sim.hit()) return false;
+    this.down(i, p);
+    return true;
+  }
+
+  /** Una entidad muerta: sale, y la siguiente entra en el arranque más lejano de quien la mató (15 % más rápida y un tiro más). */
+  private down(i: number, p: { st: { x: number; z: number } }) {
+    const e = this.ents[i];
     this.ents.splice(i, 1);
-    if (this.noEnts) return true;
-    // la siguiente, en el arranque más lejano del que disparó: 15 % más rápida y un tiro más
+    if (e.sim.kind === 'faceling') return void ((this.vengeance = true), this.ents.forEach((q) => q.sim.rage())); // matan a uno del personal: van todos a por vosotros
+    if (this.noEnts) return;
     const far = [...this.maze.spawns].sort((a, b) => dist(centerOf(b), p.st) - dist(centerOf(a), p.st))[0];
     this.spawn(e.sim.kind === 'bacteria' ? 'partygoer' : 'bacteria', far, Math.min(1.2, (e.sim.speed / this.speed) * 1.1), e.sim.hp0 + 1);
-    return true;
+  }
+
+  /** Estallido del rifle: las entidades a ≤ `r` m reciben 2 de daño. */
+  blast(x: number, z: number, r: number, p: Player) {
+    for (const e of [...this.ents]) if (this.far({ x, z }, e.sim) <= r && (e.sim.hit(), e.sim.hit() || !e.sim.alive)) this.down(this.ents.indexOf(e), p);
   }
 
   /**

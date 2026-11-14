@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { DIFFICULTY, NAME_MAX, type Difficulty, type Joined, type RoomInfo } from '@backrooms/shared';
+import { DIFFICULTY, NAME_MAX, type Difficulty, type Joined, type RoomInfo, type SaveInfo } from '@backrooms/shared';
 import type { Net, Link, Server } from '../net';
 import { DIFF } from './RoomSettings';
 
@@ -56,6 +56,9 @@ export default function Lobby({ net, onSolo, server, error, account }: { net: Ne
   });
   const [code, setCode] = useState('');
   const [rooms, setRooms] = useState<RoomInfo[]>([]);
+  // mis salas guardadas (solo con cuenta) y la que se está a punto de borrar (pide un segundo clic)
+  const [saves, setSaves] = useState<SaveInfo[]>([]);
+  const [del, setDel] = useState('');
   const [err, setErr] = useState('');
   const [q, setQ] = useState('');
   const [hideFull, setHideFull] = useState(false);
@@ -77,7 +80,8 @@ export default function Lobby({ net, onSolo, server, error, account }: { net: Ne
   const refresh = useCallback(() => {
     const t = performance.now();
     sock?.emit('list', (r) => (setRooms(r), setPing(Math.round(performance.now() - t))));
-  }, [sock]);
+    if (account) sock?.emit('saves', setSaves);
+  }, [sock, account]);
   const join = (c: string) => sock!.emit('join', { code: c, name: nick }, joined);
   const joinable = (r: RoomInfo) => r.phase === 'lobby' && r.count < r.max;
   const shown = rooms
@@ -195,6 +199,27 @@ export default function Lobby({ net, onSolo, server, error, account }: { net: Ne
         </ul>
         {!shown.length && <p className="br-rooms__empty">{!ready ? 'NOT CONNECTED' : rooms.length ? 'NO TAPE MATCHES' : 'NO TAPES · CREATE THE FIRST'}</p>}
       </div>
+      {!!saves.length && (
+        <div className="br-saves" role="group" aria-label="My saved rooms">
+          <p className="br-lobby__dim br-saves__h">MY SAVED ROOMS · BANK, ROUND AND UPGRADES ARE KEPT</p>
+          <ul>
+            {saves.map((s) => (
+              <li key={s.code}>
+                <span className="br-tape__name">{s.name}</span>
+                <span className="br-rooms__dim">{s.code}</span>
+                <span>${s.bank}</span>
+                <span className="br-rooms__dim">ROUND {s.round}</span>
+                <button type="button" className="br-opt" disabled={!ready} onClick={() => sock!.emit('create', { name: nick, public: false, resume: s.code }, joined)}>
+                  {s.live ? 'REJOIN' : 'RESUME'}
+                </button>
+                <button type="button" className="br-opt" disabled={!ready || s.live} onClick={() => (del === s.code ? (setDel(''), sock!.emit('unsave', s.code, refresh)) : setDel(s.code))}>
+                  {del === s.code ? 'SURE? DELETE' : 'DELETE'}
+                </button>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
       <div className="br-actions" role="group" aria-label="Actions">
         <button type="button" className="br-opt" disabled={!ready} onClick={quick}>
           QUICK JOIN

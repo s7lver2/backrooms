@@ -18,7 +18,7 @@ export default function End({ win, result, me, label = 'INSERT TAPE', onInsert }
   // por qué salió mal: sin misión o sin nadie vivo en el ascensor
   const why = !r || r.won ? '' : r.completed ? 'NOBODY CAME BACK ALIVE' : 'MISSION NOT COMPLETED';
   return (
-    <div className="br" data-screen="off">
+    <div className="br" data-screen="off" data-fell={r?.fell || undefined}>
       <nav className="br-menu" aria-label="Backrooms">
         <h1 className="br-menu__title">{win ? 'NOCLIP' : 'EJECTED'}</h1>
         <p className="br-menu__sub">{win ? 'YOU GOT OUT. THIS TIME.' : why || 'THE TAPE IS OUT OF THE DECK'}</p>
@@ -30,6 +30,12 @@ export default function End({ win, result, me, label = 'INSERT TAPE', onInsert }
             <dd data-bad={!r.won || undefined}>{r.won ? `+$${r.reward}` : `-$${r.penalty}`}</dd>
             <dt data-rule>NEW BANK</dt>
             <dd data-rule>${r.bank}</dd>
+            {r.floor !== undefined && (
+              <>
+                <dt>HOTEL</dt>
+                <dd data-bad={r.fell || undefined}>{r.fell ? 'THE ELEVATOR FELL. BACK TO FLOOR 1.' : r.floor > 1 ? `NEXT: FLOOR ${r.floor}` : r.won ? 'YOU CLEARED THE HOTEL.' : 'BACK TO FLOOR 1.'}</dd>
+              </>
+            )}
             {fate && (
               <>
                 <dt>YOU</dt>

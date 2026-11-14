@@ -56,6 +56,19 @@ const MIGRATIONS = [
      data BLOB NOT NULL,
      updated_at INTEGER NOT NULL
    );`,
+  // salas guardadas: una partida del dueño (ajustes, banco, ronda y lo de cada cuenta: mejoras e inventario) en un JSON
+  `CREATE TABLE saves (
+     code TEXT PRIMARY KEY,
+     owner_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+     data TEXT NOT NULL,
+     updated_at INTEGER NOT NULL
+   );
+   CREATE INDEX saves_owner ON saves(owner_id);`,
+  // login con Discord: la cuenta de Discord (su id) enlazada a una cuenta del juego
+  `CREATE TABLE discord (
+     discord_id TEXT PRIMARY KEY,
+     user_id INTEGER NOT NULL UNIQUE REFERENCES users(id) ON DELETE CASCADE
+   );`,
 ];
 const version = Number(db.prepare('PRAGMA user_version').get()?.user_version ?? 0);
 for (let v = version; v < MIGRATIONS.length; v++) {
@@ -101,6 +114,26 @@ const q = {
 
 export const userByName = (name: string) => user(q.byLower.get(name.toLowerCase()));
 export const userById = (id: number) => user(q.byId.get(id));
+/** La cuenta enlazada a una cuenta de Discord (por su id), si la hay. */
+export const userByDiscord = (did: string) => user(db.prepare('SELECT u.id, u.username, u.pass_hash, u.recovery_hash FROM discord d JOIN users u ON u.id = d.user_id WHERE d.discord_id = ?').get(did));
+/** Cambia el nombre de la cuenta; false si ya lo lleva otra (la restricción UNIQUE lo decide). */
+export function renameUser(id: number, name: string) {
+  try {
+    db.prepare('UPDATE users SET username = ?, username_lower = ? WHERE id = ?').run(name, name.toLowerCase(), id);
+    return true;
+  } catch {
+    return false;
+  }
+}
+/** Enlaza una cuenta de Discord a la cuenta; false si esa cuenta ya tiene otra Discord (o esta ya es de otra). */
+export function linkDiscord(did: string, uid: number) {
+  try {
+    db.prepare('INSERT INTO discord (discord_id, user_id) VALUES (?, ?)').run(did, uid);
+    return true;
+  } catch {
+    return false;
+  }
+}
 /** Crea la cuenta; null si el usuario ya existe (la restricción UNIQUE lo decide, sin carreras). */
 export function createUser(username: string, passHash: string, recoveryHash: string): number | null {
   try {
@@ -170,6 +203,34 @@ export const avatarOf = (id: number) => qa.get.get(id) as unknown as { mime: str
 export const avatarRef = (id: number) => (id && qa.ver.get(id) ? `${id}?v=${qa.ver.get(id)!.updated_at}` : '');
 export const saveAvatar = (id: number, mime: string, data: Uint8Array) => void qa.set.run(id, mime, data, Date.now());
 export const deleteAvatar = (id: number) => void qa.del.run(id);
+
+// salas guardadas
+const qs = {
+  get: db.prepare('SELECT owner_id, data FROM saves WHERE code = ?'),
+  list: db.prepare('SELECT code, data, updated_at FROM saves WHERE owner_id = ? ORDER BY updated_at DESC'),
+  set: db.prepare('INSERT INTO saves (code, owner_id, data, updated_at) VALUES (?, ?, ?, ?) ON CONFLICT(code) DO UPDATE SET data = excluded.data, updated_at = excluded.updated_at'),
+  del: db.prepare('DELETE FROM saves WHERE code = ? AND owner_id = ?'),
+  trim: db.prepare('DELETE FROM saves WHERE owner_id = ? AND code NOT IN (SELECT code FROM saves WHERE owner_id = ? ORDER BY updated_at DESC LIMIT ?)'),
+};
+/** Salas guardadas por cuenta: al pasar de aquí se borra la más antigua. */
+export const MAX_SAVES = 6;
+const parse = (t: unknown) => {
+  try {
+    return JSON.parse(String(t)) as Record<string, unknown>;
+  } catch {
+    return {};
+  }
+};
+export const saveOf = (code: string) => {
+  const r = qs.get.get(code);
+  return r && { owner: Number(r.owner_id), data: parse(r.data) };
+};
+export const savesOf = (owner: number) => qs.list.all(owner).map((r) => ({ code: String(r.code), data: parse(r.data), at: Number(r.updated_at) }));
+export function writeSave(code: string, owner: number, data: unknown) {
+  qs.set.run(code, owner, JSON.stringify(data), Date.now());
+  qs.trim.run(owner, owner, MAX_SAVES);
+}
+export const deleteSave = (code: string, owner: number) => Number(qs.del.run(code, owner).changes) > 0;
 
 export const saveLoadout =(id: number, l: Look) => void q.setLoadout.run(id, l.color, l.head, l.back);
 

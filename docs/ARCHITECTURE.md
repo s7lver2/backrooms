@@ -67,7 +67,7 @@ E:\backrooms
 | `game/mission.ts` | TURN OFF TVS visuals |
 | `game/vhsPass.ts` | `VhsShader`, `FilmShader` post passes |
 | `game/audio.ts` | all sound is synthesized (WebAudio), no audio files |
-| `game/rig.ts`, `ik.ts`, `cosmetics.ts`, `grips.ts` + `grips.json`, `pieces.json` | Mixamo rig, arm IK, hats/backpacks, hand grips and accessory fit data (edited via dev tool `/?grips`, `client/src/dev/GripTool.tsx`) |
+| `game/rig.ts`, `ik.ts`, `cosmetics.ts`, `grips.ts` + `grips.json`, `pieces.json` | Mixamo rig, arm IK, hats/backpacks, hand grips and accessory fit data (edited via dev tool `/?anim`, IK tab, `client/src/dev/anim/Grips.tsx`) |
 | `game/input.ts` | keyboard/mouse/touch -> `Controls` per frame |
 | `game/maze.ts` | re-export of shared maze (+ ascii debug) |
 
@@ -152,7 +152,7 @@ Vite proxies `/socket.io` (ws), `/status`, `/api` to `localhost:${SERVER_PORT||5
 ## 8. How to dev-test
 
 - Typecheck is the main automated check (`--check`); there are no test suites (owner convention: none unless asked).
-- Single-player sandboxes (dev only, localhost): `/?pool` water test room; `/?poolmap&seed=N` full Poolrooms level without server (`devPool(true)`); `/?runlevel` hospital run; `/?seed=N` level0 solo without room (add `&god`, `&totem`, `&low`, `&reduced`); `/?grips` hand/accessory tuning tool (saves `grips.json`/`pieces.json` through dev-only `POST /__grips`, localhost only).
+- Single-player sandboxes (dev only, localhost): `/?pool` water test room; `/?poolmap&seed=N` full Poolrooms level without server (`devPool(true)`); `/?runlevel` hospital run; `/?seed=N` level0 solo without room (add `&god`, `&totem`, `&low`, `&reduced`); `/?anim` studio (IK tab: hand grips, hats/backpacks, tank; saves `grips.json`/`pieces.json`/`worn.json` through dev-only `POST /__grips`, localhost only).
 - Console handles: `window.__game` (BackroomsGame: `netInfo()`, `adminSolo`, `adminCheat`, ...), `window.__pool` (PoolLevel/PoolTest: e.g. `__pool.splash(x, z, 1.5)`), `__maze(seed)` prints ASCII map.
 - Multiplayer test: open two browser tabs/profiles on `localhost:5180`, create a room in one, join by code in the other; admin console needs an account named `s7lver` (backtick/F9) for `level`, `tp`, `give`, `money`, `ent`, etc. Admin `level` forces any level/seed.
 - Perf: `renderer.info`, `Hud` FPS toggle in settings, `adminPerf('ao'|'smaa'|'sun')`.

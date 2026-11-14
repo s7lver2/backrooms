@@ -1,0 +1,3 @@
+wallpaper_red.jpg
+This work is based on "vintage wallpaper texture" (https://sketchfab.com/3d-models/vintage-wallpaper-texture-b0a9471193014762902799dea45fa52c) by gre4esky (https://sketchfab.com/gre4esky) licensed under CC-BY-4.0 (http://creativecommons.org/licenses/by/4.0/)
+Changes: the green background was recolored to dark red (hue shift) and the image was reduced to 1024x1024.

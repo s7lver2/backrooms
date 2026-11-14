@@ -1,0 +1,7 @@
+Reducidos con gltf-transform (texturas a 512 px en WebP, malla simplificada).
+
+This work is based on "Locker" (https://sketchfab.com/3d-models/locker-3ebc5746b7784253bb0ebd151022757b) by Zambur (https://sketchfab.com/Zambur) licensed under CC-BY-4.0 (http://creativecommons.org/licenses/by/4.0/)
+
+This work is based on "Uno Reverse Card" (https://sketchfab.com/3d-models/uno-reverse-card-e15ee883deb14fbe8a476cce325c2983) by SandWich34 (https://sketchfab.com/SandWich34) licensed under CC-BY-4.0 (http://creativecommons.org/licenses/by/4.0/)
+
+This work is based on "White Monster 3D Scan" (https://sketchfab.com/3d-models/white-monster-3d-scan-62f9706628244398804e23adeb2bc982) by Laser Design (https://sketchfab.com/Laserdesign) licensed under CC-BY-4.0 (http://creativecommons.org/licenses/by/4.0/)

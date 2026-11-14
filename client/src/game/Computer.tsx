@@ -3,11 +3,12 @@ import { useEffect, useRef, useState, type KeyboardEvent } from 'react';
 import * as THREE from 'three';
 import { clone } from 'three/examples/jsm/utils/SkeletonUtils.js';
 import type { GLTF } from 'three/examples/jsm/loaders/GLTFLoader.js';
-import { ACHIEVEMENTS, COSMETICS, DEFAULT_LOOK, cleanLook, cosmetic, type CosmeticDef, type Look, type RoomView, type Slot } from '@backrooms/shared';
+import { ACHIEVEMENTS, COSMETICS, DEFAULT_LOOK, cleanLook, cosmetic, levelsOpen, type CosmeticDef, type Look, type RoomView, type Slot } from '@backrooms/shared';
 import type { Inventory } from '@backrooms/shared';
 import type { Sock } from '../net';
 import type { Assets } from './game';
 import Shop from './Shop';
+import Upgrades from './Upgrades';
 import type { Account } from '../account';
 import RoomSettingsPanel from './RoomSettings';
 import { Cosmetics } from './cosmetics';
@@ -270,7 +271,7 @@ function Summary({ room, me }: { room: RoomView; me: string }) {
   );
 }
 
-type Tab = 'room' | 'shop' | 'ward';
+type Tab = 'room' | 'shop' | 'ups' | 'ward';
 
 export default function Computer({ room, me, sock, hazmat, assets, inv, reduced = false, acct, onClose }: { room: RoomView; me: string; sock?: Sock; hazmat?: GLTF; assets?: Assets; inv: Inventory | null; reduced?: boolean; acct: Account; onClose: () => void }) {
   const [tab, setTab] = useState<Tab>('room');
@@ -287,7 +288,7 @@ export default function Computer({ room, me, sock, hazmat, assets, inv, reduced 
     if (!booted) root.current?.focus();
     else root.current?.querySelector<HTMLElement>('[role="tab"][aria-selected="true"]')?.focus();
   }, [booted]);
-  const tabs: [Tab, string][] = [['room', 'ROOM'], ['shop', 'SHOP'], ['ward', 'WARDROBE']];
+  const tabs: [Tab, string][] = [['room', 'ROOM'], ['shop', 'SHOP'], ['ups', 'UPGRADES'], ['ward', 'WARDROBE']];
   const nav = (e: KeyboardEvent<HTMLElement>) => {
     if (e.key === 'Escape') return void (e.preventDefault(), onClose());
     if (!booted) return void (e.preventDefault(), setBoot(BOOT.length + 1)); // cualquier tecla se salta el arranque
@@ -342,7 +343,9 @@ export default function Computer({ room, me, sock, hazmat, assets, inv, reduced 
                   <Summary room={room} me={me} />
                 </div>
               ) : tab === 'shop' ? (
-                <Shop bank={room.bank} inv={inv} sock={sock} assets={assets} />
+                <Shop bank={room.bank} inv={inv} sock={sock} assets={assets} open={levelsOpen(room.players.map((p) => p.ups))} />
+              ) : tab === 'ups' ? (
+                <Upgrades bank={room.bank} ups={room.players.find((p) => p.id === me)?.ups ?? {}} sock={sock} assets={assets} />
               ) : (
                 <Wardrobe gltf={hazmat} reduced={reduced} acct={acct} sock={sock} />
               )}

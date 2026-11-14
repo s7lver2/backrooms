@@ -13,7 +13,7 @@ import { H, HW, OPEN, Hospital, fit, mulberry, type Slot } from './hospital';
  * en el cliente del caído; el servidor solo se entera del final (runDone). La cámara es suya (no el mapa ni el World): game.ts la pone en
  * el compositor mientras dura.
  *
- *  - Avanza solo (V0 m/s, estamina infinita); A/D esquiva a los lados, ratón mira (también hacia atrás), Space salta y C/Ctrl/Shift agacha.
+ *  - Avanza solo (V0 m/s, estamina infinita); A/D esquiva a los lados, ratón mira (también hacia atrás), Space salta y C/Shift agacha.
  *  - Los monstruos van a su ritmo: si el hueco con el primero es mayor que GAP aprietan, si es menor aflojan. Todos los objetos son
  *    sólidos, pero con colisiones generosas (cajas más pequeñas que el modelo, margen al saltar y al agacharse): un golpe te hace
  *    tropezar (frena un instante y se come ~2 m de hueco) y lo que sale de las aberturas cae/sale EARLY s antes de lo que tocaría;
@@ -203,7 +203,7 @@ export class RunLevel {
 
     // los monstruos: los modelos de las entidades del juego, corriendo hacia delante (+z)
     for (const c of PACK) {
-      const rig = new Rig(assets.gltf[c.kind]);
+      const rig = new Rig(assets.gltf[c.kind as 'bacteria' | 'partygoer']);
       if (c.kind === 'bacteria')
         rig.root.traverse((o) => {
           const m = (o as THREE.Mesh).material as THREE.MeshStandardMaterial | undefined;
@@ -599,7 +599,7 @@ export class RunLevel {
     }
     this.go += dt;
     // esquivar, saltar y agacharse (a la derecha es -x: se corre hacia +z)
-    // los mismos controles que en las Backrooms: WASD relativo a hacia dónde miras, Shift corre, C/Ctrl agacha (correr manda)
+    // los mismos controles que en las Backrooms: WASD relativo a hacia dónde miras, Shift corre, C agacha (correr manda)
     const duck = !!c.crouch && !c.run && this.py <= 0;
     this.duck += ((duck ? 1 : 0) - this.duck) * Math.min(1, dt * 14);
     const mv = Math.min(1, c.move.length()), want = mv * (c.run ? V0 : duck ? 1.5 : 3) * (this.stumble > 0 ? 0.35 : 1);

@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "python tools/build.py",
     "build": "python tools/build.py --build",
+    "start": "npm run start -w server",
     "typecheck": "npm run typecheck -w client && npm run typecheck -w server"
   }
 }

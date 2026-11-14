@@ -2,7 +2,6 @@ import * as THREE from 'three';
 import { generateParking, parkingArea, parkingFloorLabel, parkingSpawn, SMILER_GAZE_SECONDS, type Inventory, type Look, type ParkingOptions, type ParkingPoint, type WorldSnapshot } from '@backrooms/shared';
 import type { Assets } from './game';
 import type { Controls } from './input';
-import { Cosmetics } from './cosmetics';
 import { EYE, Player } from './player';
 import { ParkingLevel } from './parking';
 import { ParkingAudio, type ParkingCue } from './parking-audio';
@@ -17,7 +16,6 @@ export class ParkingRound {
   player?: Player;
   enemies?: ParkingSkinwalkers;
   audio?: ParkingAudio;
-  private cosmetics?: Cosmetics;
   private disposed = false;
   private stride = 0;
   private nextAmbient = 0;
@@ -50,21 +48,8 @@ export class ParkingRound {
 
   start(assets: Assets, look: Look, inventory: Inventory, life: number, camera: THREE.PerspectiveCamera, flash: THREE.SpotLight, reduced: boolean) {
     const level = this.level;
-    const player = this.player = new Player(
-      { root: level.scene, solid: () => false, furniture: () => false, voidAt: () => false },
-      assets, camera, flash, reduced,
-      {
-        walk: 3.1, run: 6,
-        floorAt: (x, z, y) => {
-          const p = level.fits(x, z, y);
-          if (p) Object.assign(this.position, p);
-          return p?.y ?? null;
-        },
-        flashDist: (from, direction) => level.flashDistance(from, direction, this.position.floor),
-      },
-    );
-    this.cosmetics = new Cosmetics(player.rig.root);
-    this.cosmetics.set(look);
+    const player = this.player = new Player(level.terrain, assets, camera, flash, reduced);
+    player.setLook(look);
     player.load(inventory);
     player.life = life;
     if (level.map.options.mission === 'survive') player.life = (level.map.options.minutes ?? 5) * 30 + 45;
@@ -106,7 +91,9 @@ export class ParkingRound {
     const playing = active && player.hp > 0 && !level.repair.finished;
     const prev = { ...p };
     player.update(dt, c);
-    this.cosmetics?.update(player.pitch);
+    const feet = player.pos;
+    const position = level.fits(feet.x, feet.z, feet.y);
+    if (position) Object.assign(p, position);
     const pressed = playing && (c.bag || c.grab);
     const held = playing && c.bagHeld;
     const focus = pressed || held ? level.roomInteraction(camera, p) : undefined;
@@ -173,7 +160,7 @@ export class ParkingRound {
     level.update(time, viewer);
     this.enemies?.updateNetwork(dt, { pos: viewer, eye: camera.position, beam: null, noise: 0, alive: !!this.player?.hp });
     if (this.encounters) {
-      this.audio?.encounters(this.encounters.skinwalkers, this.encounters.smilers, viewer, time, this.emit);
+      this.audio?.encounters(this.encounters.skinwalkers, this.encounters.smilers, viewer, this.emit);
     }
     if (time < this.nextAmbient) return;
     const mix = level.audioEnvironment(viewer);
@@ -202,7 +189,6 @@ export class ParkingRound {
 
   dispose() {
     this.disposed = true;
-    this.cosmetics?.dispose();
     this.enemies?.dispose();
     this.level.dispose();
   }

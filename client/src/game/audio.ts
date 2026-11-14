@@ -6,6 +6,11 @@
  */
 import { settings } from '../settings';
 
+/** El audio vivo, para que la interfaz (React) pueda sonar sin tenerlo a mano: `sound('buy')`. */
+let live: GameAudio | undefined;
+type Cue = 'ui' | 'buy' | 'sell' | 'upgrade' | 'bag' | 'bagClose' | 'equip' | 'hurt' | 'denied';
+export const sound = (k: Cue) => live?.cue(k);
+
 export class GameAudio {
   readonly ctx: AudioContext;
   private out: GainNode;
@@ -14,7 +19,7 @@ export class GameAudio {
   protected amb: GainNode; // el fondo (zumbido, ventilación, siseo): el ajuste AMBIENT
   protected sfx: GainNode; // lo puntual (pasos, disparo, entidades…): el ajuste EFFECTS
   private noise: AudioBuffer;
-  private nearNext = { bacteria: 0, partygoer: 0 };
+  private readonly nearNext = new Map<string, number>();
   private nodes: AudioNode[] = [];
 
   private vol = 1;
@@ -27,7 +32,7 @@ export class GameAudio {
     this.muted = muted;
     this.shaper = c.createWaveShaper();
     this.out = c.createGain();
-    this.out.gain.value = 0.8;
+    this.out.gain.value = 1.1;
     this.master = c.createGain();
     this.master.gain.value = muted ? 0 : volume;
     this.amb = c.createGain();
@@ -35,12 +40,68 @@ export class GameAudio {
     this.amb.connect(this.shaper);
     this.sfx.connect(this.shaper);
     this.setMix();
-    this.shaper.connect(this.out);
+    // un compresor antes de la salida: se puede subir todo sin que varios sonidos a la vez saturen
+    const comp = c.createDynamicsCompressor();
+    comp.threshold.value = -16;
+    comp.knee.value = 12;
+    comp.ratio.value = 5;
+    comp.attack.value = 0.004;
+    comp.release.value = 0.2;
+    this.shaper.connect(comp);
+    comp.connect(this.out);
     this.out.connect(this.master);
     this.master.connect(c.destination);
     this.noise = c.createBuffer(1, c.sampleRate * 2, c.sampleRate);
     const d = this.noise.getChannelData(0);
     for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
+    live = this;
+    document.addEventListener('click', this.onClick, true);
+  }
+
+  /** Cualquier botón de la interfaz hace su clic (los del juego ya suenan por su cuenta: solo botones y casillas). */
+  private onClick = (e: MouseEvent) => {
+    if ((e.target as Element | null)?.closest?.('button, [role=button], [role=treeitem], .iv-slot, .iv-cell')) this.cue('ui');
+  };
+
+  /** Los sonidos de la interfaz y de los hechos del juego (compra, venta, mejora…). */
+  cue(k: Cue) {
+    switch (k) {
+      case 'ui':
+        this.burst(0.02, 0.35, 3200, 3, 'bandpass');
+        this.tone(1500, 0.05, 0.08, 'square', 0, 900);
+        break;
+      case 'buy': // una moneda que cae
+        this.tone(1568, 0.1, 0.16, 'triangle');
+        this.tone(2093, 0.4, 0.14, 'triangle', 0.07);
+        break;
+      case 'sell': // la caja registradora: el timbre y las monedas
+        this.burst(0.04, 0.5, 5000, 2, 'bandpass');
+        [0, 0.06, 0.12, 0.18].forEach((t, i) => this.tone([1318, 1568, 1976, 2637][i], 0.35, 0.14, 'triangle', t));
+        this.tone(3136, 0.8, 0.07, 'sine', 0.2);
+        break;
+      case 'upgrade': // un arpegio que sube
+        [0, 0.09, 0.18, 0.27].forEach((t, i) => (this.tone([392, 494, 587, 784][i], 0.5, 0.16, 'triangle', t), this.tone([392, 494, 587, 784][i] * 2, 0.5, 0.05, 'sine', t)));
+        break;
+      case 'bag': // la mochila que se abre: un roce de tela
+        this.burst(0.18, 0.3, 700, 1.1, 'bandpass');
+        this.burst(0.1, 0.2, 2200, 2, 'bandpass', 0.07);
+        break;
+      case 'bagClose':
+        this.burst(0.14, 0.25, 500, 1.1, 'bandpass');
+        break;
+      case 'equip': // un clac metálico
+        this.burst(0.03, 0.5, 1800, 4, 'bandpass');
+        this.tone(320, 0.08, 0.15, 'square', 0.02, 180);
+        break;
+      case 'hurt':
+        this.burst(0.3, 0.8, 320, 0.8, 'lowpass');
+        this.tone(150, 0.35, 0.5, 'sawtooth', 0, 55);
+        break;
+      case 'denied':
+        this.tone(160, 0.18, 0.25, 'square');
+        this.tone(120, 0.25, 0.25, 'square', 0.14);
+        break;
+    }
   }
 
   /** Quitar o devolver el volumen de todo el juego. */
@@ -57,8 +118,8 @@ export class GameAudio {
 
   /** Los volúmenes de efectos y ambiente de los ajustes. */
   setMix() {
-    this.sfx.gain.value = settings.sfx;
-    this.amb.gain.value = settings.ambient;
+    this.sfx.gain.value = settings.sfx * 2.6; // (antes todo sonaba muy bajo: el volumen de base sube y el compresor lo contiene)
+    this.amb.gain.value = settings.ambient * 2;
   }
 
   protected loop(src: AudioScheduledSourceNode, ...chain: AudioNode[]) {
@@ -212,16 +273,17 @@ export class GameAudio {
     if (this.siren) return;
     const g = c.createGain(), lp = c.createBiquadFilter(), a = c.createOscillator(), b = c.createOscillator(), lfo = c.createOscillator(), lg = c.createGain();
     lp.type = 'lowpass';
-    lp.frequency.value = 520;
+    lp.frequency.value = 1800;
     a.type = 'sawtooth';
     b.type = 'square';
-    a.frequency.value = 98;
-    b.frequency.value = 49;
-    lfo.frequency.value = 0.9; // sube y baja casi cada segundo
-    lg.gain.value = 26;
+    a.frequency.value = 520;
+    b.frequency.value = 262;
+    lfo.frequency.value = 0.7; // el aullido de una sirena: sube y baja entre ~300 y ~740 Hz
+    lg.gain.value = 220;
+    lfo.connect(b.frequency);
     lfo.connect(lg).connect(a.frequency);
     g.gain.setValueAtTime(0, t);
-    g.gain.linearRampToValueAtTime(0.07, t + 0.6);
+    g.gain.linearRampToValueAtTime(0.22, t + 0.4);
     a.connect(lp);
     b.connect(lp);
     lp.connect(g).connect(this.sfx);
@@ -242,6 +304,43 @@ export class GameAudio {
   }
 
   private mad?: GainNode;
+  private muz?: GainNode;
+  private muzNext = 0;
+  private muzI = 0;
+  /**
+   * Las Suites: el hilo musical, lejos y apagado (piano eléctrico sobre Cmaj7 · Am7 · Dm7 · G7, algo desafinado). Cada fotograma:
+   * cuando toca, un acorde arpegiado; entre acorde y acorde, silencio, y de vez en cuando la campanilla de un ascensor lejano.
+   */
+  muzak(dt: number) {
+    const c = this.ctx;
+    if (!this.muz) {
+      const lp = c.createBiquadFilter();
+      lp.type = 'lowpass';
+      lp.frequency.value = 1300;
+      this.muz = c.createGain();
+      this.muz.gain.value = 0.7;
+      this.muz.connect(lp).connect(this.amb);
+      this.nodes.push(this.muz, lp);
+    }
+    if ((this.muzNext -= dt) > 0) return;
+    this.muzNext = 5 + Math.random() * 3;
+    const chords = [[261.6, 329.6, 392, 493.9], [220, 261.6, 329.6, 392], [293.7, 349.2, 440, 523.3], [196, 246.9, 293.7, 349.2]], ch = chords[this.muzI++ % 4], det = 2 ** ((Math.random() * 24 - 12) / 1200);
+    [...ch, ch[2] * 2, ch[1] * 2].forEach((f, i) => {
+      const t = c.currentTime + i * 0.45 + Math.random() * 0.03;
+      for (const [m, g] of [[1, 0.05], [2, 0.014]] as const) {
+        const o = c.createOscillator(), e = c.createGain();
+        o.frequency.value = f * m * det;
+        e.gain.setValueAtTime(0.0001, t);
+        e.gain.exponentialRampToValueAtTime(g, t + 0.02);
+        e.gain.exponentialRampToValueAtTime(0.0001, t + 2.2);
+        o.connect(e).connect(this.muz!);
+        o.start(t);
+        o.stop(t + 2.3);
+      }
+    });
+    if (Math.random() < 0.25) this.tone(1320, 0.9, 0.012, 'sine', 3 + Math.random() * 2); // una campanilla de ascensor, lejos
+  }
+
   private open = 0;
   private nextAmb = 10;
   /**
@@ -265,18 +364,26 @@ export class GameAudio {
    */
   near(kind: 'bacteria' | 'partygoer', d: number) {
     const v = Math.max(0, Math.min(1, 1 - d / 16));
-    const now = this.ctx.currentTime;
-    if (v < 0.05 || now < this.nearNext[kind]) return;
+    if (v < 0.05) return;
+    const delay = kind === 'bacteria' ? 0.4 + Math.random() * 1.2 : 1.2 + Math.random() * 2;
+    if (!this.entityCueDue(kind, delay)) return;
     if (kind === 'bacteria') {
       for (let i = 0; i < 3 + Math.random() * 4; i++) this.burst(0.03, 0.25 * v, 2500 + Math.random() * 3000, 6, 'bandpass', i * 0.05 + Math.random() * 0.03);
-      this.nearNext[kind] = now + 0.4 + Math.random() * 1.2;
     } else {
       const f = 520 + Math.random() * 80;
       this.tone(f, 0.35, 0.05 * v, 'sawtooth', 0, f * 0.82);
       if (Math.random() < 0.4) [0, 0.11, 0.2].forEach((t, i) => this.tone(700 - i * 60, 0.07, 0.03 * v, 'triangle', 0.45 + t));
-      this.nearNext[kind] = now + 1.2 + Math.random() * 2;
     }
   }
+
+  protected entityCueDue(id: string, interval: number, immediate = false) {
+    const now = this.ctx.currentTime;
+    if (!immediate && now < (this.nearNext.get(id) ?? 0)) return false;
+    this.nearNext.set(id, now + interval);
+    return true;
+  }
+
+  protected clearEntityCue(id: string) { this.nearNext.delete(id); }
 
   shot() {
     this.burst(0.35, 0.9, 900, 0.5, 'lowpass');
@@ -341,9 +448,11 @@ export class GameAudio {
     this.burst(0.012, 0.3, 4200, 4, 'bandpass');
     this.burst(0.015, 0.2, 2600, 4, 'bandpass', 0.06);
   }
-  pickup() {
+  /** Recoger algo; con rareza (1–4) suena además un campanilleo de tantas notas como rareza. */
+  pickup(rarity = 0) {
     this.burst(0.08, 0.15, 600, 1.5);
     this.tone(880, 0.06, 0.03, 'square', 0.05);
+    for (let i = 0; i < rarity; i++) this.tone(1046 * 1.25 ** i, 0.5, 0.1, 'sine', 0.1 + i * 0.08);
   }
   /** Un trozo del chorro de la pistola de agua (se llama a ~8 Hz mientras se dispara) y el glu-glu de la recarga. */
   squirt() {
@@ -410,6 +519,8 @@ export class GameAudio {
   }
 
   dispose() {
+    document.removeEventListener('click', this.onClick, true);
+    if (live === this) live = undefined;
     for (const n of this.nodes) {
       try {
         (n as AudioScheduledSourceNode).stop?.();

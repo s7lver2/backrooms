@@ -1,0 +1,18 @@
+/* La tienda de recepción, con el OSD del resto de menús: cajitas de borde fino, la elegida en negativo. La cámara enseña al Faceling a la izquierda */
+.sg { position: fixed; right: var(--br-gut, 4vw); top: 50%; transform: translateY(-50%); width: min(40vw, 480px); padding: 14px; background: rgba(0, 0, 0, 0.72); border: 1px solid var(--br-dim); color: var(--br-ink); font-family: var(--br-font); font-size: clamp(12px, 1.35vw, 16px); line-height: 1.35; text-shadow: var(--br-shadow); z-index: 30; }
+.sg__head { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 10px; padding-bottom: 6px; border-bottom: 2px solid var(--br-ink); letter-spacing: 0.1em; }
+.sg__bank { font-size: 1.4em; }
+.sg__grid { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 4px; padding: 4px; border: 1px solid var(--br-dim); width: min(100%, 44vh); margin: 0 auto; }
+.sg__cell { position: relative; aspect-ratio: 1; padding: 0; border: 1px solid #5d5b52; background: rgba(0, 0, 0, 0.35); color: inherit; font: inherit; text-shadow: inherit; cursor: var(--br-arrow, default); touch-action: none; user-select: none; overflow: hidden; }
+button.sg__cell { cursor: var(--br-hand, pointer); border-color: var(--br-dim); }
+button.sg__cell:hover, button.sg__cell[data-sel] { background: var(--br-ink); color: #000; border-color: var(--br-ink); text-shadow: none; outline: none; }
+button.sg__cell[data-off] { opacity: 0.45; }
+button.sg__cell::before { content: ''; position: absolute; inset: auto 0 0 0; height: calc(var(--p, 0) * 100%); background: rgba(255, 58, 46, 0.6); pointer-events: none; }
+.sg__cell img { position: absolute; inset: 6% 6% 24%; width: 88%; height: 70%; object-fit: contain; pointer-events: none; filter: drop-shadow(2px 2px 0 rgba(0, 0, 0, 0.8)); }
+.sg__price { position: absolute; left: 0; right: 0; bottom: 2px; text-align: center; font-size: 0.78em; }
+.sg__info { margin-top: 10px; min-height: 8em; }
+.sg__info p { margin: 0.3em 0; }
+.sg__dim { color: var(--br-dim); }
+.sg__msg { margin-top: 0.8em !important; color: var(--br-dim); }
+.sg__msg[data-bad] { color: var(--br-rec); }
+@media (max-width: 800px) { .sg { width: 92vw; right: 4vw; top: auto; bottom: 2vh; transform: none; } }

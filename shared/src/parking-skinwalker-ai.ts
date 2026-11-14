@@ -1,6 +1,7 @@
 import { parkingContains, parkingGeneratorBounds, type ParkingMap, type ParkingPoint, type ParkingRoom } from './parking';
 import { runBehaviors } from './behaviors';
 import { parkingCurseTier } from './parking-curse';
+import { beamReaches, faces, withinHearingRange } from './perception';
 
 export type SkinState = 'wander'|'idle'|'approach'|'run'|'transform'|'recover'|'beast'|'flee'|'search'|'wait';
 export const SKIN_APPROACH_BEAT = 1, SKIN_VISION = 15, SKIN_RUN_DISTANCE = 7, SKIN_TRANSFORM_DISTANCE = 5;
@@ -14,8 +15,8 @@ const SKIN_SURVIVAL_SPEED = .05;
 const SKIN_SURVIVAL_INVESTIGATION_REDUCTION = .4;
 export const SKIN_SPEED = { walk: 1.6, run: 5.1, beast: 5.82, flee: 5.82 };
 export interface SkinAgent { id:number; originFloor:number; pos:ParkingPoint; yaw:number; state:SkinState; beast:boolean; transform:number; recoverUntil:number; repelUntil:number; nextThink:number; nextPath:number; lastSeen?:ParkingPoint; seenAt:number; path:number[]; goal:number; attackAt:number; moving:boolean; waitUntil:number; fakeTask?:ParkingPoint; investigationGoal?:number }
-export interface SkinTarget { id?:string; pos:ParkingPoint; eye:{x:number;y:number;z:number}; yaw?:number; beam:{x:number;y:number;z:number}|null; noise:number; alive:boolean }
-export interface SkinWorld { fits(x:number,z:number,y:number):ParkingPoint|null; sight(a:ParkingPoint,b:ParkingPoint):boolean; bright(p:ParkingPoint):number; hit(id?:string):void }
+export interface SkinTarget { id?:string; pos:ParkingPoint; eye:{x:number;y:number;z:number}; yaw?:number; beam:{x:number;y:number;z:number}|null; noise:number; repairNoise?:ParkingPoint; alive:boolean }
+export interface SkinWorld { fits(x:number,z:number,y:number):ParkingPoint|null; sight(a:ParkingPoint,b:ParkingPoint):boolean; repairAudible?(from:ParkingPoint, generator:ParkingPoint):boolean; bright(p:ParkingPoint):number; hit(id?:string):void }
 const distance=(a:ParkingPoint,b:ParkingPoint)=>Math.hypot(a.x-b.x,a.y-b.y,a.z-b.z);
 const roomDistance=(r:ParkingRoom,p:ParkingPoint)=>Math.hypot(Math.max(r.x-p.x,0,p.x-r.x-r.w),Math.max(r.z-p.z,0,p.z-r.z-r.d));
 const BRAIN_ORDER = ['waitOutside', 'approach', 'search', 'investigate', 'wander'] as const;
@@ -122,8 +123,36 @@ export class ParkingSkinAI {
     agent.path = [];
     agent.nextThink = 0;
   }
-  private sees(a:SkinAgent,t:SkinTarget){const d=distance(a.pos,t.pos);if(d>SKIN_VISION||Math.abs(a.pos.y-t.pos.y)>3.8)return false;const dot=(Math.sin(a.yaw)*(t.pos.x-a.pos.x)+Math.cos(a.yaw)*(t.pos.z-a.pos.z))/Math.max(.01,d);return (dot>-.25||d<4)&&this.world.sight({...a.pos,y:a.pos.y+1.3},{...t.pos,y:t.eye.y});}
-  private beam(a:SkinAgent,t:SkinTarget){if(!t.beam||distance(a.pos,t.pos)>13)return false;const dx=a.pos.x-t.eye.x,dy=a.pos.y+1.15-t.eye.y,dz=a.pos.z-t.eye.z,d=Math.hypot(dx,dy,dz);return (dx*t.beam.x+dy*t.beam.y+dz*t.beam.z)/Math.max(.01,d)>.93&&this.world.sight({...t.pos,y:t.eye.y},{...a.pos,y:a.pos.y+1.15});}
+  private sees(a: SkinAgent, t: SkinTarget) {
+    const range = distance(a.pos, t.pos);
+    if (range > SKIN_VISION || Math.abs(a.pos.y - t.pos.y) > 3.8) return false;
+    const facing = faces(t.pos.x - a.pos.x, t.pos.z - a.pos.z, a.yaw, range, -.25);
+    const tracking = (a.state === 'approach' || a.state === 'run' || a.state === 'beast')
+      && this.clock - a.seenAt < .35 && !!a.lastSeen && distance(a.lastSeen, t.pos) < 3;
+    return (tracking || facing || range < 4) && this.world.sight({ ...a.pos, y: a.pos.y + 1.3 }, { ...t.pos, y: t.eye.y });
+  }
+  private beam(a: SkinAgent, t: SkinTarget) {
+    if (distance(a.pos, t.pos) > 13) return false;
+    const face = { ...a.pos, y: a.pos.y + 1.15 };
+    return beamReaches(t.eye, face, t.beam, Infinity, .93, .01) && this.world.sight({ ...t.pos, y: t.eye.y }, face);
+  }
+
+  private hears(a: SkinAgent, t: SkinTarget) {
+    const source = t.repairNoise ?? t.pos;
+    if (this.safe(t.pos) || Math.abs(a.pos.y - source.y) >= 1 || !withinHearingRange(distance(a.pos, source), t.noise, 1 + .2 * this.pressure)) return false;
+    if (t.repairNoise && this.world.repairAudible) return this.world.repairAudible(a.pos, source);
+    return this.world.sight({ ...a.pos, y: a.pos.y + 1 }, { ...source, y: source.y + 1 });
+  }
+
+  private clearWalk(from: ParkingPoint, to: ParkingPoint) {
+    const steps = Math.ceil(distance(from, to) / .22);
+    for (let i = 1; i <= steps; i++) {
+      const t = i / steps;
+      const p = this.world.fits(from.x + (to.x - from.x) * t, from.z + (to.z - from.z) * t, from.y + (to.y - from.y) * t);
+      if (!p || !this.onDeck(p, from.floor) || this.safe(p) || this.boundary(p) < 0) return false;
+    }
+    return true;
+  }
 
   private startFlank(agent: SkinAgent, target: SkinTarget) {
     if (target.yaw === undefined || agent.pos.floor !== target.pos.floor) return false;
@@ -218,6 +247,7 @@ export class ParkingSkinAI {
         return false;
       }
       const startingApproach = !agent.beast && !['approach', 'run', 'transform'].includes(agent.state);
+      const runRange = agent.state === 'run' ? SKIN_RUN_DISTANCE + .75 : SKIN_RUN_DISTANCE;
       if (startingApproach)
         this.walkUntil.set(agent.id, this.clock + SKIN_APPROACH_BEAT);
       this.remember(agent, target.pos);
@@ -225,7 +255,7 @@ export class ParkingSkinAI {
       if (agent.beast) agent.state = 'beast';
       else if (walking) agent.state = 'approach';
       else if (range < SKIN_TRANSFORM_DISTANCE) agent.state = 'transform';
-      else agent.state = range < SKIN_RUN_DISTANCE ? 'run' : 'approach';
+      else agent.state = range < runRange ? 'run' : 'approach';
       if (followingFlank) return true;
       this.flanks.delete(agent.id);
       if (startingApproach && range >= SKIN_RUN_DISTANCE && this.startFlank(agent, target)) return true;
@@ -235,13 +265,11 @@ export class ParkingSkinAI {
     search: (agent: SkinAgent, target: SkinTarget) => {
       if (!this.occupied && target.alive) {
         const range = distance(agent.pos, target.pos);
-        const heard = target.noise > 0 && range < target.noise * (1 + .2 * this.pressure)
-          && Math.abs(agent.pos.y - target.pos.y) < 1
-          && this.world.sight({ ...agent.pos, y: agent.pos.y + 1 }, { ...target.pos, y: target.pos.y + 1 });
+        const heard = this.hears(agent, target);
         const flashlight = !!target.beam && range < SKIN_FLASH_ATTENTION
           && this.world.sight({ ...agent.pos, y: agent.pos.y + 1.3 }, { ...target.pos, y: target.eye.y });
         if (heard || flashlight) {
-          this.remember(agent, target.pos);
+          this.remember(agent, flashlight ? target.pos : target.repairNoise ?? target.pos);
         }
       }
       const last = agent.lastSeen;
@@ -340,7 +368,8 @@ export class ParkingSkinAI {
         continue;
       }
       const ranked=targets.filter(target=>target.pos.floor===a.originFloor).sort((l,r)=>distance(a.pos,l.pos)-distance(a.pos,r.pos));
-      const t=(ranked.length<=1?ranked[0]:ranked.find(target=>!roomOf(target)&&this.sees(a,target))??ranked[0])
+      const t=(ranked.length<=1?ranked[0]:ranked.find(target=>!roomOf(target)&&this.sees(a,target))
+        ?? ranked.find(target=>target.repairNoise && this.hears(a,target)) ?? ranked[0])
         ?? {pos:a.pos,eye:a.pos,beam:null,noise:0,alive:false};
       this.occupied=t.alive?roomOf(t):undefined;
       const canRepel = this.clock + 1e-9 >= a.repelUntil + SKIN_LIGHT_RESISTANCE_SECONDS || a.repelUntil === 0;
@@ -364,7 +393,11 @@ export class ParkingSkinAI {
       const canMove=a.state!=='transform'&&a.state!=='recover'&&a.state!=='idle';
       if(canMove){
         const speed=a.state==='flee'?SKIN_SPEED.flee:a.state==='beast'?SKIN_SPEED.beast:a.state==='run'?SKIN_SPEED.run:SKIN_SPEED.walk;
-        const direct=!this.occupied&&(a.state==='beast'||a.state==='run'||a.state==='approach')&&this.clock-a.seenAt<.35&&!!a.lastSeen&&distance(a.pos,a.lastSeen)<4;
+        const direct = !this.occupied && !this.flanks.has(a.id) && (a.state === 'beast' || a.state === 'run' || a.state === 'approach')
+          && this.clock - a.seenAt < .35 && !!a.lastSeen && distance(a.pos, a.lastSeen) < 7 && this.clearWalk(a.pos, a.lastSeen);
+        if (!direct && a.path.length > 1 && distance(a.pos, this.map.nav[a.path[1]]) <= 5 && this.clearWalk(a.pos, this.map.nav[a.path[1]])) {
+          a.path.shift();
+        }
         this.move(a, (speed + speedBonus) * dt, direct);
       }
       if(a.beast&&a.state==='beast'&&!this.occupied&&t.alive&&this.clock>=a.repelUntil&&this.clock>=a.attackAt&&distance(a.pos,t.pos)<1.35&&this.world.sight({...a.pos,y:a.pos.y+1.1},{...t.pos,y:t.eye.y})){a.attackAt=this.clock+1.4;this.world.hit(t.id);}
@@ -382,7 +415,10 @@ export class ParkingSkinAI {
       if(d<.0001){if(!direct){a.path.shift();continue;}break;}
       const step=Math.min(d,remaining),f=step/d,x=a.pos.x+(n.x-a.pos.x)*f,z=a.pos.z+(n.z-a.pos.z)*f,y=a.pos.y+(n.y-a.pos.y)*f,p=this.world.fits(x,z,y),oldBoundary=this.boundary(a.pos);
       if(!p||(!returning&&!this.onDeck(p,a.originFloor))||this.safe(p)||(this.boundary(p)<0&&this.boundary(p)<oldBoundary-.001)){a.path=[];a.nextPath=0;a.nextThink=0;break;}
-      a.yaw=Math.atan2(x-a.pos.x,z-a.pos.z);a.pos=p;a.moving=true;remaining-=step;
+      const heading = Math.atan2(x-a.pos.x,z-a.pos.z);
+      const turn = Math.atan2(Math.sin(heading - a.yaw), Math.cos(heading - a.yaw));
+      a.yaw += turn * .45;
+      a.pos=p;a.moving=true;remaining-=step;
       if(!direct&&d-step<.0001){a.path.shift();if(!a.path.length&&a.state==='wander')a.waitUntil=this.clock+2+this.random(a.id*71+this.clock)*3;}
       if(direct&&d-step<.0001)break;
     }

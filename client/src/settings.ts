@@ -19,6 +19,7 @@ export interface Settings {
   toggleBreath: boolean; // alternar en vez de mantener (sin aplicar aún)
   resScale: number; // 0,5–1: escala de la resolución de dibujo
   brightness: number; // 0,6–1,6: brillo de la imagen
+  ui: number; // 0,7–1,5: tamaño de la interfaz (menús y HUD), aparte del zoom del navegador
   quality: number; // 0 automático (bajo en táctiles), 1 bajo, 2 alto: el perfil gráfico (bajo: sin sombras, sin brillo, 60 % de resolución); se aplica al recargar
   shadows: number; // 0 sin, 1 bajas (mapa de 512), 2 altas (1024): las sombras de la linterna y del sol; se aplica al recargar
   bloom: boolean; // el halo de los fluorescentes (en vivo; en calidad baja no existe)
@@ -26,10 +27,12 @@ export interface Settings {
   poolAO: boolean; // oclusión ambiental de las Poolrooms (al entrar)
   poolAA: boolean; // antialiasing (SMAA) de las Poolrooms (al entrar)
   texFilter: number; // índice en ANISO: filtrado anisótropo de las texturas del mundo; se aplica al recargar
+  voiceMode: number; // chat de voz: 0 apagado, 1 pulsar para hablar (V), 2 micrófono abierto
+  voiceVol: number; // 0–1.5: el volumen de las voces de los compañeros
   warmup: number; // 0 perezoso, 1 rápido, 2 completo: cuánto se precompila al cargar (ver game/compile.ts; se aplica al recargar)
 }
 
-export const DEFAULTS: Settings = { volume: 1, sfx: 1, ambient: 1, sens: 1, invertY: false, vhs: 1, fov: 70, fps: false, crosshair: true, reduceMotion: false, toggleBreath: false, resScale: 1, brightness: 1, quality: 0, shadows: 2, bloom: true, fpsLimit: 3, poolAO: true, poolAA: true, texFilter: 2, warmup: 2 };
+export const DEFAULTS: Settings = { volume: 1, sfx: 1, ambient: 1, sens: 1, invertY: false, vhs: 1, fov: 70, fps: false, crosshair: true, reduceMotion: false, toggleBreath: false, resScale: 1, brightness: 1, ui: 1, quality: 0, shadows: 2, bloom: true, fpsLimit: 3, poolAO: true, poolAA: true, texFilter: 2, voiceMode: 1, voiceVol: 1, warmup: 2 };
 
 /** Los topes de fotogramas por segundo de FPS LIMIT (0 = sin tope) y los niveles de TEXTURE FILTERING. */
 export const FPS_CAPS = [30, 45, 60, 0] as const;

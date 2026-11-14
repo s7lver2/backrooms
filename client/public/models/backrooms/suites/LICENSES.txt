@@ -1,0 +1,36 @@
+Model Information:
+* title:	Door with frame
+* source:	https://sketchfab.com/3d-models/door-with-frame-2f2f149f3ec44d658a02c1f924dfa449
+* author:	witnessk (https://sketchfab.com/witnessk)
+
+Model License:
+* license type:	CC-BY-4.0 (http://creativecommons.org/licenses/by/4.0/)
+* requirements:	Author must be credited. Commercial use is allowed.
+
+If you use this 3D model in your project be sure to copy paste this credit wherever you share it:
+This work is based on "Door with frame" (https://sketchfab.com/3d-models/door-with-frame-2f2f149f3ec44d658a02c1f924dfa449) by witnessk (https://sketchfab.com/witnessk) licensed under CC-BY-4.0 (http://creativecommons.org/licenses/by/4.0/)
+This work is based on "Victorian Bed" (https://sketchfab.com/3d-models/victorian-bed-c56b0776992041648ba5c1615f6e1fed) by BATRIC_18 (https://sketchfab.com/BATRIC_18) licensed under CC-BY-4.0 (http://creativecommons.org/licenses/by/4.0/)
+
+This work is based on "chesterfield-sofa" (https://sketchfab.com/3d-models/chesterfield-sofa-66ba4225efaa4de59d9a9b7086363199) by League Studio (https://sketchfab.com/leaguestudio) licensed under CC-BY-4.0 (http://creativecommons.org/licenses/by/4.0/)
+
+This work is based on "Secretary Desk - 20MB" (https://sketchfab.com/3d-models/secretary-desk-20mb-37151a4623c24fc498593f56ec0cbb34) by Mehdi Shahsavan (https://sketchfab.com/ahmagh2e) licensed under CC-BY-4.0 (http://creativecommons.org/licenses/by/4.0/)
+
+This work is based on "Luggage" (https://sketchfab.com/3d-models/luggage-a3b193911c6b4cbda3b610ce8ee8abbb) by Melon Polygons (https://sketchfab.com/Melonpolygons) licensed under CC-BY-4.0 (http://creativecommons.org/licenses/by/4.0/)
+
+This work is based on "Trash Can" (https://sketchfab.com/3d-models/trash-can-a65eb3a1b6f149d7a78f7f44e80c7627) by rickmaolly (https://sketchfab.com/rickmaolly) licensed under CC-BY-4.0 (http://creativecommons.org/licenses/by/4.0/)
+
+This work is based on "Art Deco Mirror" (https://sketchfab.com/3d-models/art-deco-mirror-e35c64fa1e6f4e1e9235912317cb77f8) by Ardocast (https://sketchfab.com/Ardocast) licensed under CC-BY-4.0 (http://creativecommons.org/licenses/by/4.0/)
+
+This work is based on "Monstera Deliciosa Potted Mid-Century plant" (https://sketchfab.com/3d-models/monstera-deliciosa-potted-mid-century-plant-1ab9bf841df04c07b1819be596327629) by Giora (https://sketchfab.com/ChubbyPanda) licensed under CC-BY-4.0 (http://creativecommons.org/licenses/by/4.0/)
+
+
+This work is based on "Old Chair" (https://sketchfab.com/3d-models/old-chair-6e35f6fdf1264db4880049b802f18ea2) by A18K (https://sketchfab.com/A18K) licensed under CC-BY-4.0 (http://creativecommons.org/licenses/by/4.0/)
+
+This work is based on "wardrobe antique" (https://sketchfab.com/3d-models/wardrobe-antique-b003c56eb67e487d93c7cdc83497a5ba) by lagesnpiet (https://sketchfab.com/lagesnpiet) licensed under CC-BY-4.0 (http://creativecommons.org/licenses/by/4.0/)
+
+This work is based on "Bar Table" (https://sketchfab.com/3d-models/bar-table-4517652104744f4981defb6d4d18e481) by CommonSpence (https://sketchfab.com/commonspence) licensed under CC-BY-4.0 (http://creativecommons.org/licenses/by/4.0/)
+
+
+faceling.glb
+This work is based on "Backrooms Faceling PS1/PSX style" (https://sketchfab.com/3d-models/backrooms-faceling-ps1psx-style-76ff872b6d12402ba6d363c6d16f64c7) by TacoModels (https://sketchfab.com/TacoModels) licensed under CC-BY-4.0 (http://creativecommons.org/licenses/by/4.0/)
+Changes: the texture was repainted (red jacket, white shirt, black trousers and shoes) and reduced to 512x512 (tools/pack_glb.py).

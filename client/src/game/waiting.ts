@@ -2,7 +2,8 @@ import * as THREE from 'three';
 import { GLTFLoader, type GLTF } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { MeshoptDecoder } from 'three/examples/jsm/libs/meshopt_decoder.module.js';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
-import { EMOTE_GAP, INV_MAX, WAIT_HALF, WAIT_SPAWNS, canHold, shopItem, type Inventory } from '@backrooms/shared';
+import { emoteGate } from './emotes';
+import { EMOTE_DEFS, EMOTE_GAP, emoteOpen, INV_MAX, SCALE, WAIT_HALF, WAIT_SPAWNS, canHold, rarity, shopItem, type Inventory, type Sold } from '@backrooms/shared';
 import type { Assets } from './game';
 import type { Controls } from './input';
 import { Corridor } from './waitCorridor';
@@ -28,6 +29,7 @@ const R = 0.3; // el radio del cuerpo
 const EYE = 1.62;
 const WALK = 1.6, RUN = 3.6;
 const H = WAIT_HALF;
+const SCALE_H = 1.1; // altura de la báscula (m)
 const HEIGHT = 2.6;
 const DOOR_W = 1.1, DOOR_H = 2.1;
 const HINGE_X = -DOOR_W / 2;
@@ -35,7 +37,7 @@ const TUBE = [12, 8]; // lo que alumbra cada fluorescente (cd)
 const SEAT = { x: H.x - 0.6, z: H.z - 0.6, yaw: Math.PI / 4 }; // el sillón: dónde se sienta uno y hacia dónde mira
 const FOG0 = new THREE.Color(0x17130a), HAZE = new THREE.Color(0x8c7634);
 /** Cuánto dura cada emote con tiempo (s). */
-const EMOTE_LEN = [0, 3, 2.5, 3.2, 0];
+const EMOTE_LEN = [0, ...EMOTE_DEFS.map((e) => e.len)];
 
 /**
  * Los tiempos de la entrada (s): los tubos, la alarma, el golpe de la cerradura, la puerta, la cámara, el negro y el
@@ -89,6 +91,8 @@ export class WaitingRoom {
   /** El emote en marcha (0 ninguno; ver PlayerState.emote). */
   emote = 0;
   private emoteUntil = 0;
+  /** 0 → 1: la cámara pasa de mis ojos a verme bailar. */
+  private emK = 0;
   private emoteAt = -1e9;
   private hop?: { from: THREE.Vector3; t: number };
   // la escena
@@ -135,11 +139,11 @@ export class WaitingRoom {
   static async load(assets: Assets, reduced: boolean) {
     const gl = new GLTFLoader().setMeshoptDecoder(MeshoptDecoder);
     const get = (n: string) => gl.loadAsync(`/models/waiting/${n}.glb`).catch((e) => (console.warn('waiting model', n, e), undefined));
-    const [pc, btn, chair, vend, wb] = await Promise.all([get('computer'), get('button'), get('chair50'), get('vending'), get('whiteboard')]);
-    return new WaitingRoom(assets, reduced, pc, btn, { chair }, vend, wb);
+    const [pc, btn, chair, vend, wb, scale] = await Promise.all([get('computer'), get('button'), get('chair50'), get('vending'), get('whiteboard'), get('scale')]);
+    return new WaitingRoom(assets, reduced, pc, btn, { chair }, vend, wb, scale);
   }
 
-  private constructor(assets: Assets, private reduced: boolean, pc?: GLTF, btn?: GLTF, extra: Extra = {}, vend?: GLTF, wb?: GLTF) {
+  private constructor(assets: Assets, private reduced: boolean, pc?: GLTF, btn?: GLTF, extra: Extra = {}, vend?: GLTF, wb?: GLTF, scaleGltf?: GLTF) {
     const S = this.scene;
     S.background = FOG0.clone();
     S.fog = new THREE.Fog(FOG0.getHex(), 6, 20);
@@ -327,6 +331,45 @@ export class WaitingRoom {
     this.decor.shadowUnder(this.boxes[this.boxes.length - 1]);
     this.placeButton(btn, new THREE.Vector3(1.5, 1.0, -H.z + 0.26));
 
+    // la báscula: una plataforma en el suelo (sin colisión: se pisa) con su visor; lo que se suelta encima se vende (lo decide el servidor)
+    const plat = new THREE.Mesh(new THREE.BoxGeometry(0.9, 0.05, 0.9), new THREE.MeshStandardMaterial({ color: 0x4a4d46, roughness: 0.45, metalness: 0.7 }));
+    plat.position.set(SCALE.x, 0.025, SCALE.z);
+    const rim = new THREE.Mesh(new THREE.BoxGeometry(1.0, 0.03, 1.0), new THREE.MeshStandardMaterial({ color: 0xc9a227, roughness: 0.6 }));
+    rim.position.set(SCALE.x, 0.015, SCALE.z);
+    const post = new THREE.Mesh(new THREE.BoxGeometry(0.06, 1.25, 0.06), dark);
+    post.position.set(-H.x + 0.1, 0.625, SCALE.z - 0.2);
+    this.scaleTex.colorSpace = THREE.SRGBColorSpace;
+    const read = new THREE.Mesh(new THREE.PlaneGeometry(0.62, 0.31), new THREE.MeshBasicMaterial({ map: this.scaleTex }));
+    read.position.set(-H.x + 0.14, 1.1, SCALE.z - 0.2);
+    read.rotation.y = Math.PI / 2;
+    if (scaleGltf) {
+      // el modelo de la báscula (CC-BY, ver LICENSES.txt): se centra sobre su sitio, apoyado en el suelo y a la altura de una báscula de tienda
+      const m = scaleGltf.scene.clone(true);
+      m.updateMatrixWorld(true);
+      // el modelo trae un suelo/sombra enorme (la malla más grande): fuera
+      let big: THREE.Object3D | undefined, bigV = 0;
+      m.traverse((o) => {
+        if (!(o as THREE.Mesh).isMesh) return;
+        const sz = new THREE.Box3().setFromObject(o).getSize(new THREE.Vector3()), v = sz.x * sz.y * sz.z;
+        if (v > bigV) (bigV = v), (big = o);
+      });
+      big?.removeFromParent();
+      m.updateMatrixWorld(true);
+      const bx = new THREE.Box3().setFromObject(m), size = bx.getSize(new THREE.Vector3()), c = bx.getCenter(new THREE.Vector3());
+      const k = SCALE_H / size.y;
+      const holder = new THREE.Group();
+      m.position.set(-c.x, -bx.min.y, -c.z);
+      holder.add(m);
+      holder.scale.setScalar(k);
+      holder.position.set(SCALE.x, 0, SCALE.z);
+      holder.rotation.y = Math.PI / 2;
+      add(holder);
+      add(read);
+    } else add(rim, plat, post, read);
+    this.own.push(plat.geometry, plat.material as THREE.Material, rim.geometry, rim.material as THREE.Material, post.geometry, read.geometry, read.material as THREE.Material);
+    this.tex.push(this.scaleTex);
+    this.sold();
+
     // un sillón en la esquina, de cara al cuarto (sus materiales, copiados: los del juego llevan el parche del mapa de luz)
     const chair = assets.gltf.armchair.scene.clone(true);
     chair.traverse((o) => {
@@ -505,12 +548,12 @@ export class WaitingRoom {
    * moverse también. Con tiempo (1–3) se acaban solos. Los demás lo ven por `PlayerState.emote`.
    */
   doEmote(n: number) {
-    if (this.mode !== 'free' || this.blend > 0 || this.seat === 'chair' || n < 1 || n > 4 || this.age - this.emoteAt < EMOTE_GAP * 1.5e-3) return;
+    if (this.mode !== 'free' || this.blend > 0 || this.seat === 'chair' || n < 1 || n > EMOTE_DEFS.length || !emoteOpen(n, emoteGate.have) || this.age - this.emoteAt < EMOTE_GAP * 1.5e-3) return;
     this.emoteAt = this.age;
     if (this.emote === n) return this.endEmote();
     this.emote = n;
     this.emoteUntil = EMOTE_LEN[n] ? this.age + EMOTE_LEN[n] : 0;
-    if (n === 4) this.sitAt('floor');
+    if (EMOTE_DEFS[n - 1].sit) this.sitAt('floor');
     else if (this.seat === 'floor') this.seat = 'none';
   }
   private endEmote() {
@@ -607,6 +650,17 @@ export class WaitingRoom {
     cam.position.set(this.pos.x, y, this.pos.z).lerp(vp, e);
     _q.setFromEuler(_e.set(this.pitch, this.yaw, 0, 'YXZ'));
     cam.quaternion.copy(_q).slerp(vq, e);
+    // con un emote en marcha, la cámara se pone delante para verte bailar (y vuelve a tus ojos al acabar); la sala es pequeña: sin salirse de ella
+    this.emK += ((this.emote && this.mode === 'free' && this.seat !== 'chair' ? 1 : 0) - this.emK) * Math.min(1, dt * 5);
+    if (this.emK > 0.01) {
+      const fx = -Math.sin(this.yaw), fz = -Math.cos(this.yaw), cx = WAIT_HALF.x - 0.25, cz = WAIT_HALF.z - 0.25, at = (d: number) => _v.set(clamp(this.pos.x + fx * d, -cx, cx), 1.35 + this.py * 0.5, clamp(this.pos.z + fz * d, -cz, cz));
+      let tp = at(2.3).clone();
+      if (Math.hypot(tp.x - this.pos.x, tp.z - this.pos.z) < 1.5) tp = at(-2.3).clone(); // (contra una pared: por detrás)
+      const look = new THREE.Vector3(this.pos.x, 0.95 + this.py * 0.6, this.pos.z), qd = new THREE.Quaternion().setFromRotationMatrix(new THREE.Matrix4().lookAt(tp, look, new THREE.Vector3(0, 1, 0)));
+      const k = smooth(this.emK);
+      cam.position.lerp(tp, k);
+      cam.quaternion.slerp(qd, k);
+    }
     // al sentarse o levantarse, la cámara viaja (no salta)
     if (this.hop) {
       this.hop.t += dt / 0.45;
@@ -683,6 +737,37 @@ export class WaitingRoom {
   /** El nivel al que lleva la puerta, en la pizarra de la pared. */
   setBoard(round: number, levelId: string) {
     this.decor.setBoard(round, levelId);
+  }
+
+  private scaleCv = Object.assign(document.createElement('canvas'), { width: 256, height: 128 });
+  private scaleTex = new THREE.CanvasTexture(this.scaleCv);
+  /** El visor de la báscula: lo último vendido (nombre, rareza y precio) o, sin nada, cómo se usa. */
+  sold(s?: Sold) {
+    const x = this.scaleCv.getContext('2d')!;
+    x.fillStyle = '#0b1408';
+    x.fillRect(0, 0, 256, 128);
+    x.strokeStyle = '#3d5a2a';
+    x.lineWidth = 4;
+    x.strokeRect(4, 4, 248, 120);
+    x.textAlign = 'center';
+    x.font = 'bold 20px ui-monospace, Consolas, monospace';
+    x.fillStyle = '#7fd35a';
+    x.fillText(s ? 'SOLD' : 'SCALE', 128, 30);
+    if (s) {
+      x.fillStyle = '#' + rarity(s.r).color.toString(16).padStart(6, '0');
+      x.font = 'bold 18px ui-monospace, Consolas, monospace';
+      x.fillText(`${rarity(s.r).name} ${s.name}`.slice(0, 22), 128, 62);
+      x.fillStyle = '#e8f7c8';
+      x.font = 'bold 34px ui-monospace, Consolas, monospace';
+      x.fillText(`+$${s.price}`, 128, 104);
+    } else {
+      x.fillStyle = '#9fc48a';
+      x.font = 'bold 17px ui-monospace, Consolas, monospace';
+      x.fillText('DROP AN ITEM HERE', 128, 66);
+      x.fillText('TO SELL IT', 128, 92);
+    }
+    this.scaleTex.needsUpdate = true;
+    if (s) this.say(`${s.by} SOLD ${s.name} · +$${s.price}`);
   }
 
   /** Un aviso corto sobre la escena. */
