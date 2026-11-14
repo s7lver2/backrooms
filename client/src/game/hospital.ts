@@ -390,7 +390,7 @@ export class Hospital {
       else if (k === 'wheelchair') o = fit(gl['hospital/wheelchair'], 0.95);
       else if (k === 'drip') o = fit(gl['hospital/drip'], 1.9);
       else if (k === 'stretcher') o = fit(gl['hospital/stretcher'], 2.0, 'x');
-      else if (k === 'stools') o = fit(gl['hospital/stools'], 0.7);
+      else if (k === 'stools') o = fit(gl['hospital/stools'], 1);
       else {
         o = fit(gl['hospital/extinguisher'], 0.55);
         o.position.set(s.side * (HW - 0.12), 0.95, s.z + 1.2);

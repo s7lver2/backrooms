@@ -482,7 +482,7 @@ export class RunLevel {
 
   /** Un taburete que rueda de una abertura a la pared de enfrente (pequeño: se salta o se esquiva). */
   private stool(op: Slot) {
-    const { side, z } = op, obj = fit(this.assets.gltf['hospital/stools'], 0.62), x0 = side * (HW + 3), xEnd = -side * (HW - 0.4), oz = z + (side > 0 ? 0.4 : -0.4), ob = this.addObs(oz, 0, 0.6, 0.3);
+    const { side, z } = op, obj = fit(this.assets.gltf['hospital/stools'], 0.95), x0 = side * (HW + 3), xEnd = -side * (HW - 0.4), oz = z + (side > 0 ? 0.4 : -0.4), ob = this.addObs(oz, 0, 0.85, 0.4);
     let stopped = false;
     this.add({
       z, lead: 0.9, obj,
