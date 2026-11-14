@@ -18,6 +18,9 @@ const MAX = 40; // mensajes distintos que se guardan (el más viejo se descarta)
 const MAXLEN = 4000; // un error de shader lleva el código de alrededor: se recorta
 const WARN = /three|webgl|shader|glsl|texture|gltf|glb|geometry|material|framebuffer|render|pool kit/i;
 
+// avisos de three que no son un fallo: la GPU no tiene la extensión (solo se compila en serie) y el dev server de Vite carga three dos veces (HMR)
+const BENIGN = /KHR_parallel_shader_compile|Multiple instances of Three\.js/i;
+
 const list: ErrEntry[] = [];
 const subs = new Set<() => void>();
 let ver = 0;
@@ -45,6 +48,7 @@ const changed = () => {
 };
 
 function note(kind: string, msg: string) {
+  if (BENIGN.test(msg)) return;
   const now = Date.now(), key = kind + msg.slice(0, 300);
   const old = list.find((e) => e.kind + e.msg.slice(0, 300) === key);
   if (old) (old.n++, (old.last = now));
