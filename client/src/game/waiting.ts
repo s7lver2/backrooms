@@ -3,6 +3,7 @@ import { GLTFLoader, type GLTF } from 'three/examples/jsm/loaders/GLTFLoader.js'
 import { MeshoptDecoder } from 'three/examples/jsm/libs/meshopt_decoder.module.js';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { emoteGate } from './emotes';
+import { settings } from '../settings';
 import { EMOTE_DEFS, EMOTE_GAP, emoteOpen, INV_MAX, SCALE, WAIT_HALF, WAIT_SPAWNS, canHold, rarity, shopItem, type Inventory, type Sold } from '@backrooms/shared';
 import type { Assets } from './game';
 import type { Controls } from './input';
@@ -655,7 +656,7 @@ export class WaitingRoom {
     _q.setFromEuler(_e.set(this.pitch, this.yaw, 0, 'YXZ'));
     cam.quaternion.copy(_q).slerp(vq, e);
     // con un emote en marcha, la cámara se pone delante para verte bailar (y vuelve a tus ojos al acabar); la sala es pequeña: sin salirse de ella
-    this.emK += ((this.emote && this.mode === 'free' && this.seat !== 'chair' ? 1 : 0) - this.emK) * Math.min(1, dt * 5);
+    this.emK += ((settings.emoteCam && this.emote && this.mode === 'free' && this.seat !== 'chair' ? 1 : 0) - this.emK) * Math.min(1, dt * 5);
     if (this.emK > 0.01) {
       const fx = -Math.sin(this.yaw), fz = -Math.cos(this.yaw), cx = WAIT_HALF.x - 0.25, cz = WAIT_HALF.z - 0.25, at = (d: number) => _v.set(clamp(this.pos.x + fx * d, -cx, cx), 1.35 + this.py * 0.5, clamp(this.pos.z + fz * d, -cz, cz));
       let tp = at(2.3).clone();

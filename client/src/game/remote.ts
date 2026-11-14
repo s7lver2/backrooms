@@ -167,6 +167,7 @@ export class Remote {
     this.hiding = false;
     this.crouch = 0;
     this.rig.root.scale.set(1, 1, 1);
+    this.fpv = false;
     this.fresh = true;
     this.track = new Track(); // un jugador nuevo en este clon: otro reloj, otro buffer
     this.base = undefined;
@@ -249,7 +250,9 @@ export class Remote {
   }
 
   /** La cabeza se esconde mientras se mira por sus ojos. */
+  private fpv = false;
   setFirstPerson(on: boolean) {
+    this.fpv = on;
     this.bones.Head?.scale.setScalar(on ? 0.001 : 1);
     this.rig.root.visible = !on || this.dead; // por sus ojos no se ve su cuerpo por dentro (cuello, hombros); lo que lleva en las manos cuelga de otro sitio y sí se ve
   }
@@ -321,6 +324,8 @@ export class Remote {
       this.goal.copy(this.pos);
     }
     const body = this.rig.root;
+    body.visible = !this.fpv || this.dead; // (cada fotograma: un clip o un clon reutilizado no lo deja oculto para los demás)
+    if (!this.fpv && this.bones.Head) this.bones.Head.scale.setScalar(1);
     body.position.copy(this.pos);
     this.crouch += ((this.hiding && !this.dead ? 1 : 0) - this.crouch) * Math.min(1, dt * 8);
     body.scale.set(1, 1 - 0.4 * this.crouch, 1);

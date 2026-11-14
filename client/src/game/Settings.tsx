@@ -69,6 +69,7 @@ const SECTIONS = {
   ],
   ACCESSIBILITY: [
     { id: 'reduceMotion', label: 'REDUCE MOTION', desc: 'No sway, shake or flicker', long: 'Stills the camera sway, the tape bands and the flicker. Also on if your system asks for it.', flag: 'reduceMotion' },
+    { id: 'emoteCam', label: 'THIRD-PERSON EMOTES', desc: 'Camera swings round on emotes', long: 'OFF: you stay in first person while you emote and only the others see you. ON: the camera moves in front of you so you can watch yourself.', flag: 'emoteCam' },
     { id: 'toggleBreath', label: 'TOGGLE BREATH HOLD', desc: 'Press once, not hold', long: 'Hiding in a niche and an entity looks in: press SPACE once to hold your breath and again to let go, instead of keeping the key down.', flag: 'toggleBreath' },
   ],
 } satisfies Record<string, Row[]>;
@@ -214,6 +215,8 @@ function Caption({ row, s, muted }: { row: Row; s: Settings; muted: boolean }): 
       return <p className="br-big">{s.fps ? '60 FPS' : 'HIDDEN'}</p>;
     case 'reduceMotion':
       return <p className="br-big">{s.reduceMotion ? 'STILL' : 'FULL MOTION'}</p>;
+    case 'emoteCam':
+      return <p className="br-big">{s.emoteCam ? 'THIRD PERSON' : 'FIRST PERSON'}</p>;
     case 'toggleBreath':
       return <p className="br-big">SPACE · {s.toggleBreath ? 'PRESS TO HOLD, PRESS TO LET GO' : 'KEEP PRESSED'}</p>;
   }
