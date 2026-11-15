@@ -7,7 +7,7 @@
   extensión KHR_materials_transmission (el cristal queda como un material con alfa normal).
 - Lo demás (geometría, materiales, nodos) pasa tal cual: se carga con el GLTFLoader del juego.
 
-Solo hace falta Pillow. Las fuentes (los .zip de client/public) se extraen a una carpeta temporal propia;
+Solo hace falta Pillow (y node, opcional, para el informe de check_glb.mjs al final). Las fuentes (los .zip de client/public) se extraen a una carpeta temporal propia;
 no se ejecuta nada de lo que traen. Ejemplo (lo que se usó para models/waiting):
 
   unzip client/public/old_computer.zip -d $TMP/old_computer
@@ -15,7 +15,9 @@ no se ejecuta nada de lo que traen. Ejemplo (lo que se usó para models/waiting)
 """
 import io
 import json
+import shutil
 import struct
+import subprocess
 import sys
 from pathlib import Path
 
@@ -101,6 +103,8 @@ def main() -> int:
         f.write(struct.pack("<I4s", len(js), b"JSON") + js)
         f.write(struct.pack("<I4s", len(blob), b"BIN\0") + bytes(blob))
     print(f"{out}  {total / 1024:.0f} KB")
+    if shutil.which("node"):  # informe de calidad (solo avisa, nunca falla): tools/check_glb.mjs
+        subprocess.run(["node", str(Path(__file__).with_name("check_glb.mjs")), str(out)])
     return 0
 
 
