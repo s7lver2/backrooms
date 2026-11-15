@@ -666,6 +666,8 @@ export class Match {
       if (e.sim.hit()) this.down(this.ents.indexOf(e), p);
       else e.knock = { dx: fx, dz: fz, left: force, by: p };
     }
+    // la Habitable Zone: los skinwalkers (no son `ents`) también se empujan y se aturden
+    if (this.parking) for (const a of this.parking.skinwalkers.agents) if (Math.abs(a.pos.y - p.st.y) < 1.6 && inCone(a.pos.x, a.pos.z)) (this.parking.skinwalkers.knock(a, fx, fz, Math.min(force, 3.5)), (hit = true));
     this.noise(p.st.x, p.st.z, NOISE_DROP);
     return { pushed, hit, fx, fz };
   }

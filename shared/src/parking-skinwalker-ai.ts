@@ -427,5 +427,10 @@ export class ParkingSkinAI {
       if(direct&&d-step<.0001)break;
     }
   }
+  /** Un golpe de bate: empuja al agente `force` metros (sin atravesar paredes ni cambiar de planta) y lo deja aturdido un momento. */
+  knock(a:SkinAgent,dx:number,dz:number,force:number){
+    for(let i=0;i<Math.ceil(force/.25);i++){const p=this.world.fits(a.pos.x+dx*.25,a.pos.z+dz*.25,a.pos.y);if(!p||p.floor!==a.pos.floor)break;a.pos=p;}
+    a.state='recover';a.recoverUntil=this.clock+1.6;a.path=[];a.goal=-1;a.moving=false;a.nextThink=this.clock+1.6;
+  }
   get time(){return this.clock;}
 }
