@@ -11,6 +11,7 @@ Start here (for LLMs): `workflow/PROJECT-CONVENTIONS.md` (owner conventions) -> 
 | [SPEC.md](SPEC.md) | game rules, constants, levels, missions, economy, death/revive, admin, socket/HTTP protocol |
 | [GLOSSARY.md](GLOSSARY.md) | terms (EN/ES) mapped to code |
 | [CONTRIBUTING-LLM.md](CONTRIBUTING-LLM.md) | how to add item/level/mission/entity/event/achievement, checklist, don'ts |
+| [DECISIONES.md](DECISIONES.md) | decisions already taken that must not be undone (decision / why / do not touch without...) |
 | [level-caps.md](level-caps.md) | `LevelCaps`: per-level component switches |
 | [poolrooms.md](poolrooms.md) | Poolrooms design and implemented mechanics (sections 10-11 = current state) |
 | [spec-fase1-multijugador.md](spec-fase1-multijugador.md), [spec-fase2-sala-de-espera.md](spec-fase2-sala-de-espera.md), [spec-fase3-cuentas.md](spec-fase3-cuentas.md), [spec-lobby-pulido.md](spec-lobby-pulido.md), [spec-mapa-abierto-escondites.md](spec-mapa-abierto-escondites.md) | historical phase specs (Spanish); may lag the code |

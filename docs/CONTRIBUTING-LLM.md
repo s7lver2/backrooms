@@ -68,6 +68,7 @@ Append a string to `MIGRATIONS` in `server/src/db.ts` (never edit old ones). Acc
 
 ## Do not
 
+- Do not undo decisions recorded in [DECISIONES.md](DECISIONES.md) (fusing, culling, instancing, lights, shared sim) without measuring first.
 - Do not edit `workflow/`, `node_modules/`, `server/data/`, or commit `assets-src/` / `*.zip`.
 - Do not add server physics for water or oxygen without moving it from the client wholesale.
 - Do not bump `three` (pinned 0.160; examples imports like `three/examples/jsm/...` depend on it).
