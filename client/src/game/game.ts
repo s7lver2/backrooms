@@ -1211,6 +1211,7 @@ export class BackroomsGame {
       if (!quit) c.bag = c.grab = c.jump = false;
     }
     if (this.totemOpen && c.bag) (c.bag = false), this.closeTotem(); // Esc o E cierran el selector del Tótem
+    if (this.shopOpen && c.grab) (c.grab = false), (c.bag = true); // con la tienda abierta, G también la cierra
     // el inventario: E lo abre y lo cierra (Escape también lo cierra, sin pausar)
     if (this.dying < 0 && !this.winning && c.bag) {
       if (this.bagOpen) this.closeBag();
@@ -1233,6 +1234,7 @@ export class BackroomsGame {
     if (this.camera.near !== nr) (this.camera.near = nr), this.camera.updateProjectionMatrix(); // (en el conducto, agachado casi al paso de andar y con la vista adelantada: el pecho no se mete en la cámara)
     if (!this.spectating || this.player?.dead) this.player?.update(dt, pc);
     this.camPlace(dt);
+    if (this.player) this.world?.vents?.gate(this.player.pos.z, this.camUse >= 0);
     if (this.player && this.camUse < 0) this.world?.vents?.renderLive(this.renderer, this.scene, this.t, dt, this.player.pos); // (un televisor de la sala de control enseña de vez en cuando una cámara de verdad)
     if (this.caps.hotel && this.player) {
       // Las Suites: el pasillo se cierra sobre sí mismo (shared/src/suites.ts). Quien acaba de entrar del vestíbulo NO salta: la puerta se cierra a su espalda y recorre la última copia

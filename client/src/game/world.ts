@@ -1198,7 +1198,7 @@ export class World implements Terrain {
         const nc = nb.getCenter(new THREE.Vector3()), proxy = new THREE.Group(), pm = new THREE.Mesh(new THREE.BoxGeometry(ns.x, ns.y, ns.z), new THREE.MeshBasicMaterial({ colorWrite: false, depthWrite: false }));
         pm.position.copy(nc);
         proxy.add(pm);
-        for (const im of instanced(proxy, ms, (mat) => mat, this.hotel)) ((im.castShadow = true), this.root.add(im));
+        for (const im of instanced(proxy, ms, (mat) => mat, this.hotel)) (this.root.add(im));
       }
       for (const im of instanced(norm, ms, (mat) => ((mat.side = THREE.DoubleSide), t.tint && (mat as THREE.MeshStandardMaterial).color.set(t.tint), lightmapped(mat)), this.hotel)) ((im.receiveShadow = kind !== 'wardrobe'), (im.castShadow = kind === 'bed' || kind === 'sofa'), this.root.add(im)); // (el armario, de dos caras y casi cerrado, se rayaba con sus propias sombras)
     }
@@ -1700,7 +1700,8 @@ export class World implements Terrain {
       const stop = !!nearest && w.groups.includes(nearest as THREE.Group);
       this.walkOff.set(w, (this.walkOff.get(w) ?? 0) + (stop ? dt : 0));
       const x = (((w.phase * span + w.dir * w.v * (t - (this.walkOff.get(w) ?? 0))) % span) + span) % span;
-      w.groups.forEach((g, k) => (g.position.set(x + k * span, 0, w.z), stop && g === nearest ? turn(g, true) : (g.rotation.y = w.dir > 0 ? Math.PI / 2 : -Math.PI / 2), (w.blk[k].x = x + k * span)));
+      w.groups.forEach((g, k) => (g.scale.setScalar(Math.min(1, Math.max(0, Math.min(x + k * span, 3 * span - x - k * span) / 10))), (g.visible = g.scale.x > 0.02), g.position.set(x + k * span, 0, w.z), // (en los extremos del pasillo, lejos, se encogen en vez de saltar)
+ stop && g === nearest ? turn(g, true) : (g.rotation.y = w.dir > 0 ? Math.PI / 2 : -Math.PI / 2), (w.blk[k].x = x + k * span)));
       w.rigs.forEach((r) => r.update(dt));
     }
     for (const s of this.staff) s.update(dt);

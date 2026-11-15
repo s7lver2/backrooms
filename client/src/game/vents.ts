@@ -63,6 +63,9 @@ function fitModel(assets: Assets, key: keyof Assets['gltf'], size: number, axis:
   return wrap;
 }
 
+/** Desde esta z (m) hacia el sur empiezan los conductos y la sala de control; el hotel acaba antes. */
+const DEEP_Z = 28;
+
 const ductTex = () => {
   // chapa galvanizada: una celda (1,5 m) con juntas, remaches, rozaduras y mugre abajo
   const c = canvas(256, 256), g = c.getContext('2d')!;
@@ -139,7 +142,19 @@ export class Vents {
     this.fanBlades(open);
     this.dimLights(open);
     if (maze.control) this.control(maze.control);
+    // lo de abajo (conductos y sala de control, todo al sur del hotel): se deja de dibujar mientras no se está cerca (las paredes lo tapan, pero la GPU no lo sabe)
+    const box = new THREE.Box3(), c = new THREE.Vector3();
+    this.deep = this.group.children.filter((o) => !(o as THREE.Light).isLight && box.setFromObject(o).getCenter(c).z > DEEP_Z);
     this.cameras();
+  }
+  private deep: THREE.Object3D[] = [];
+  private deepOn = true;
+  /** Dibuja lo de abajo solo si el jugador está allí (o si se mira por una cámara, que puede ver los conductos). */
+  gate(z: number, force: boolean) {
+    const on = force || z > DEEP_Z - 3;
+    if (on === this.deepOn) return;
+    this.deepOn = on;
+    for (const o of this.deep) o.visible = on;
   }
 
   /** ¿Es una celda de los conductos? */
@@ -434,26 +449,51 @@ export class Vents {
     f.tex.needsUpdate = true;
   }
 
-  /** Las cámaras de seguridad (el modelo, colgado del techo, girando despacio hacia donde miran). */
+  /** Las cámaras de seguridad: el modelo de pared (la placa y el brazo, quietos; la cámara gira sobre su eje barriendo de un lado a otro). */
   private cameras() {
     const cams = this.maze.cams ?? [];
     if (!cams.length) return;
-    const proto = fitModel(this.assets, 'suites/camera', 0.5, 'z', { roll: Math.PI, top: true });
-    const mount = new THREE.MeshStandardMaterial({ color: 0x2b2d2e, metalness: 0.7, roughness: 0.45 });
+    const K = 0.45, PX = 0.06, PZ = -0.2, BACK = 0.7, MOVE = /LightBulb|Joint|CamShield|Lense|CameraBody|Buttons|knob/; // (el modelo: la pared en z = -0,7, mira a +z; el eje, en (0,06, -0,2))
+    const src = this.assets.gltf['suites/camera'].scene.clone(true);
+    src.updateMatrixWorld(true);
+    const sets: Map<THREE.Material, THREE.BufferGeometry[]>[] = [new Map(), new Map()];
+    src.traverse((o) => {
+      const m = o as THREE.Mesh;
+      if (!m.isMesh) return;
+      const g = m.geometry.clone().applyMatrix4(m.matrixWorld);
+      if (!g.getAttribute('normal')) g.computeVertexNormals();
+      if (!g.getAttribute('uv')) g.setAttribute('uv', new THREE.BufferAttribute(new Float32Array(g.getAttribute('position').count * 2), 2));
+      for (const n of Object.keys(g.attributes)) if (n !== 'position' && n !== 'normal' && n !== 'uv') g.deleteAttribute(n);
+      const ng = g.index ? g.toNonIndexed() : g, mat = Array.isArray(m.material) ? m.material[0] : m.material, set = sets[MOVE.test(m.parent?.name ?? '') ? 1 : 0];
+      set.set(mat, [...(set.get(mat) ?? []), ng]);
+    });
+    const body = new THREE.Group(), mov = new THREE.Group();
+    mov.name = 'mov';
+    mov.position.set(PX * K, 0, PZ * K);
+    sets.forEach((set, k) => {
+      for (const [mat, gs] of set) {
+        const g = mergeGeometries(gs);
+        if (!g) continue;
+        const own = mat.clone();
+        own.side = THREE.DoubleSide;
+        lightmapped(own);
+        const me = new THREE.Mesh(g, own);
+        me.castShadow = me.receiveShadow = true;
+        me.scale.setScalar(K);
+        if (k) (me.position.set(-PX * K, 0, -PZ * K), mov.add(me));
+        else body.add(me);
+      }
+    });
+    body.add(mov);
+    body.position.z = BACK * K; // (el origen, en el plano de la pared)
+    const proto = new THREE.Group().add(body);
     cams.forEach((c, i) => {
-      const h = proto.clone(true);
-      const top = c.wall ? c.y - 0.14 : c.y;
-      h.position.set(c.x, top, c.z);
+      const h = proto.clone(true), [wx, wz] = c.wall ?? [0, 0], th = c.wall ? Math.atan2(-wx, -wz) : c.yaw + Math.PI;
+      h.position.set(c.x + wx * 0.32, c.y - 0.3, c.z + wz * 0.32);
+      h.rotation.y = th;
+      h.userData = { th, mov: h.getObjectByName('mov') };
       this.group.add(h);
       this.heads[i] = h;
-      if (c.wall) {
-        // el brazo que sale de la pared hasta la cámara, y la placa de anclaje
-        const [wx, wz] = c.wall, L = 0.32, arm = new THREE.Mesh(new THREE.BoxGeometry(wx ? L : 0.07, 0.07, wz ? L : 0.07), mount);
-        arm.position.set(c.x + (wx * L) / 2, top - 0.035, c.z + (wz * L) / 2);
-        const plate = new THREE.Mesh(new THREE.BoxGeometry(wx ? 0.03 : 0.22, 0.22, wz ? 0.03 : 0.22), mount);
-        plate.position.set(c.x + wx * L, top - 0.035, c.z + wz * L);
-        this.group.add(arm, plate);
-      }
     });
   }
 
@@ -516,7 +556,7 @@ export class Vents {
     for (const f of this.fans) f.rotor.rotation.z += f.v * dt;
     this.heads.forEach((h, i) => {
       const p = this.camPose(i, t);
-      h.rotation.y = p.yaw + Math.PI;
+      (h.userData.mov as THREE.Object3D).rotation.y = p.yaw + Math.PI - h.userData.th; // (solo gira la cámara; la placa y el brazo se quedan)
     });
     // las pantallas de la sala de control: una por fotograma, unas 6 veces por segundo cada una
     this.feedT += dt;
