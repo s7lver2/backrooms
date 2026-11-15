@@ -3926,3 +3926,7 @@ server-synced inv ${JSON.stringify(this.mp.inv)}` : ''}`);
     this.renderer.forceContextLoss();
   }
 }
+
+// HMR: lo que cuelga de game.ts (mundo, entidades, audio, shaders...) no se parcha en caliente: un cambio ahí recarga la página entera (el navegador libera
+// el contexto WebGL, el socket y los listeners de golpe) en vez de dejar una escena a medias; Backrooms.tsx sí se refresca solo (su limpieza llama a dispose)
+if (import.meta.hot) import.meta.hot.accept(() => location.reload());
