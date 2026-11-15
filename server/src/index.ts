@@ -1530,6 +1530,18 @@ setInterval(() => {
 const lobbyHad = new Set<string>(); // salas de espera a las que ya se mandó una lista con algo (para mandar también la vacía)
 setInterval(() => {
   for (const r of rooms.values()) {
+    if (r.phase === 'playing' && r.match) {
+      // la pokeball vuelve sola a quien la lanzó 2 s después de caer (salvo la que tiene atrapado a un compañero: esa se recoge)
+      const now = Date.now();
+      for (const [id, d] of r.drops) {
+        const o = d.kind === 'pokeball' && d.q?.c !== 'player' && now - d.at >= 2000 ? r.players.get(d.by) : undefined;
+        if (!o || o.dead || o.boarded || !fitsDrop(o.cap, d, o)) continue;
+        r.drops.delete(id);
+        o.cap = withDrop(o.cap, d);
+        io.to(o.id).emit('adminFx', { k: 'give', item: 'pokeball' });
+        bag(o);
+      }
+    }
     if (r.phase === 'playing' && r.match) io.to(r.code).volatile.emit('world', { ...r.match.snapshot(), drops: [...r.drops.values()].map(({ at: _a, ...d }) => d), t: Date.now() });
     else if (r.phase === 'lobby') {
       const now = Date.now();

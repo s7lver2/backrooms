@@ -335,6 +335,7 @@ export class BackroomsGame {
     };
     for (const e of this.entities) if (e.alive) mark(e.rig.root, false, ENT_HEIGHT[e.kind] / 1.8);
     for (const r of this.remotes.values()) if (!r.dead) mark(r.root, true, 1);
+    for (const o of this.parking?.enemies?.bodies() ?? []) mark(o, false, 1); // (la Habitable Zone: skinwalkers y smilers, que no son `Entity`)
     for (const [k, m] of this.warden) if (!live.has(k)) (m.removeFromParent(), this.warden.delete(k));
   }
 
@@ -3319,7 +3320,7 @@ fps ${(1 / Math.max(dt, 1e-3)).toFixed(0)}`;
       } else if (pl) (pl.teleport(fx.x, fx.z, fx.yaw, fx.y), (p.yaw = fx.yaw));
       else p.spawn(new THREE.Vector3(fx.x, 0, fx.z), fx.yaw);
     } else if (fx.k === 'give') {
-      if (this.parking && !['flashlight', 'water', 'camera'].includes(fx.item)) return;
+      if (this.parking && !['flashlight', 'water', 'camera', 'pokeball'].includes(fx.item)) return;
       p.receive(fx.item);
       this.poolInv();
     } else if (fx.k === 'take') p.lose(fx.item);

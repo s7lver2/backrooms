@@ -53,6 +53,8 @@ export class ParkingSkinwalkers {
   private killBySmiler(){const p=this.lastPlayer;if(this.paused||this.hp<=0||!p||this.level.map.floors[p.floor].rooms.some(r=>parkingContains(r,p.x,p.z,.15)))return;this.hp=0;this.hitAt=this.ai.time;}
   recentHit(){return this.ai.time-this.hitAt<.8;}
   /** El final de ronda: los skinwalkers y los smilers desaparecen (bailan las entidades del final). */
+  /** Los cuerpos que se ven ahora (para la silueta de las gafas): skinwalkers y smilers. */
+  bodies():THREE.Object3D[]{return [...this.actors.filter(a=>a.root.visible).map(a=>a.root),...this.smilers.bodies()];}
   hide(){for(const a of this.actors)a.root.visible=false;this.smilers.hide();}
   setLook(look:Look){for(const a of this.actors){a.cos.set(look);const mats=new Set<THREE.Material>();a.human.root.traverse(o=>{const m=o as THREE.Mesh;if(m.isMesh)(Array.isArray(m.material)?m.material:[m.material]).forEach(v=>mats.add(v));});a.humanMats=[...mats];}}
   update(dt:number,target:SkinTarget,smilerDt=dt){if(this.disposed)return;

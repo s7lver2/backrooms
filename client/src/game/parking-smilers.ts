@@ -6,6 +6,7 @@ import { ParkingSmilerAI,SMILER_DARK,type DarkSection,type Smiler } from './park
 
 /** Cara del Smiler sobre el humo, orientada hacia el jugador. */
 export class ParkingSmilers {
+  bodies():THREE.Object3D[]{return this.group.visible?[...this.visuals.values()].filter(v=>v.visible):[];}
   hide(){this.group.visible=false;}
   readonly ai:ParkingSmilerAI;
   private networkTime=0;
