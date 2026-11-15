@@ -16,6 +16,22 @@ Piezas que se escriben **una sola vez** y valen para todos los niveles (nivel 0,
 | `Epilogue` / `Stage` / `Actor` | `epilogue.ts` | El final de una ronda ganada |
 | Emotes | `shared/src/index.ts` (`EMOTE_DEFS`), `emotes.ts` | Bailes equipables y pose de victoria |
 
+## Qué prefab usa cada nivel (revisado 15/11/2026, leyendo el código)
+
+| Prefab | Nivel 0 / Suites | Poolrooms | Habitable Zone (parking) |
+|---|---|---|---|
+| `LevelCaps` | sí | sí | sí (`parking`) |
+| `Player` + `Terrain` | sí (`World`) | sí (`PoolLevel`) | sí (`level.terrain`) |
+| `Remote` | sí | sí | sí |
+| `Rig` / `Cosmetics` | sí | sí | sí (skinwalkers) |
+| `ElevatorCab` | sí | sí | sí |
+| `Epilogue` | sí | sí | sí |
+| `entityBody` / `Entity` | sí | sí (entidades del servidor) | **no**: usa sus propios skinwalkers y smilers (`caps.ents = false`) |
+| `PickupField` | sí (`Items`) | sí (`PoolPickups`) | **no**: taquillas, objetos y cintas son código propio de `parking.ts` (`storageItems`, `takeItem`, `parkingInteract`); no hay objetos soltados ni `syncDrops` |
+| `Gadgets` | sí | sí | **no** |
+
+Pendiente para igualar la Habitable Zone: pasar sus taquillas y objetos a `PickupField` (que ya entiende `locker` y piezas de taquilla `given`) y valorar `Gadgets`. Los enemigos propios son deliberados.
+
 ---
 
 ## 1. Capacidades del nivel (`LevelCaps`)
