@@ -192,4 +192,4 @@ export class Animator {
 
 let ready: Promise<Pack> | undefined;
 /** Los datos pesados (clips) de las animaciones del jugador; se bajan una vez. */
-export const loadAnimations = () => (ready ??= loadPack());
+export const loadAnimations = () => (ready ??= loadPack().catch((e) => ((ready = undefined), Promise.reject(e)))); // (si falla la descarga —un túnel lento— se puede reintentar)

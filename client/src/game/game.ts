@@ -964,7 +964,7 @@ export class BackroomsGame {
     await paint();
     prepAvatar(this.assets); // y el muñeco del inventario (con sus shaders compilados), listo antes de abrirlo
     at(1, 1 / 6);
-    await loadAnimations().catch((e) => console.error('animations', e)); // (el paquete de animaciones del jugador: sin él, los clips del modelo)
+    await loadAnimations().catch((e) => (console.error('animations', e), setTimeout(() => void loadAnimations().catch(() => {}), 8000))); // (el paquete de animaciones del jugador: sin él, los clips del modelo; si falla se reintenta)
     at(1, 2 / 6);
     await loadPoolKit(); // (el tanque y la pistola de agua salen de ahí; sin él no tienen icono)
     at(1, 3 / 6);
@@ -3122,6 +3122,11 @@ fps ${(1 / Math.max(dt, 1e-3)).toFixed(0)}`;
         this.closeBag();
         c.bag = c.grab = c.bagHeld = false;
       } else if (!this.bagOpen && (c.inventory || (c.bag && !c.grab && !round.level.roomInteraction(this.camera, round.position)))) {
+        // (diagnóstico: E abre la mochila solo si no hay nada que usar delante; si alguien dice que E no hace nada, esto dice por qué)
+        if (c.bag && !c.inventory) {
+          const lv = round.level as unknown as { performance?: { candidates: number; raycasts: number } }, fit = round.level.fits(player.pos.x, player.pos.z, player.pos.y);
+          console.info('[parking] E sin nada delante', JSON.stringify({ floor: round.position.floor, fitFloor: fit?.floor ?? null, y: +player.pos.y.toFixed(2), x: +player.pos.x.toFixed(1), z: +player.pos.z.toFixed(1), candidates: lv.performance?.candidates, raycasts: lv.performance?.raycasts }));
+        }
         this.openBag();
       }
     }

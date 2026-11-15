@@ -280,7 +280,7 @@ export class Remote {
       this.wearingGlasses = !!s.xrayGlasses;
       this.emote = s.emote ?? 0;
       this.duck = !!s.duck;
-      const A = this.rig.animator;
+      const A = this.rig.animator ?? this.rig.useAnimator(); // (si el paquete de animaciones llegó tarde, ahora ya se pone)
       if (A) {
         if ((s.variant ?? '') !== A.variant) A.setVariant(s.variant ?? '');
         if (!this.dead && !this.dancing && this.emote !== this.emoting) {
