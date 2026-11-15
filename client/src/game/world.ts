@@ -121,6 +121,13 @@ function fuse(from: THREE.Object3D, into: THREE.Object3D, ok: Set<THREE.Material
   }
 }
 
+/** Un modelo quieto (el cartel de salida, 17 mallas) como una malla por material. */
+function fuseAll(o: THREE.Object3D) {
+  const ok = new Set<THREE.Material>();
+  o.traverse((x) => (x as THREE.Mesh).isMesh && !Array.isArray((x as THREE.Mesh).material) && ok.add((x as THREE.Mesh).material as THREE.Material));
+  fuse(o, o, ok);
+}
+
 const UP = new THREE.Vector3(0, 1, 0);
 
 // la suciedad, pintada a mano en un lienzo: regueros de agua que bajan desde el techo
@@ -1406,6 +1413,7 @@ export class World implements Terrain {
           const sign = assets.gltf.exit.scene.clone(true);
           sign.scale.setScalar(2.2);
           sign.position.set(0, 2.32, 0.02);
+          fuseAll(sign);
           g.add(sign);
         });
       }
@@ -1516,6 +1524,7 @@ export class World implements Terrain {
     const sign = assets.gltf.exit.scene.clone(true);
     sign.scale.setScalar(2.2);
     sign.position.set(0, 2.45, 0.02);
+    fuseAll(sign);
     holder.add(sign);
     // los ascensores de adorno (el mismo marco y puertas cerradas, sin luz): el pasillo de las Suites se repite y no puede haber uno solo
     for (const d of exits) {
