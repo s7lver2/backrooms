@@ -52,18 +52,20 @@ export default function Board({ room, me, sock }: { room: RoomView; me: string; 
   const who = (id: string) => room.players.find((p) => p.id === id);
   const voters = room.players.length, cast = room.offers.reduce((n, o) => n + o.votes.length, 0);
   const loaded = room.vote?.loaded.length ?? 0;
+  const auto = closed && cast === 0 && (room.quota ?? 0) > 0; // el hotel con contrato en marcha: el encargo lo asigna el servidor, no hay nada que votar
+  const shown = auto ? room.offers.filter((o) => o.id === winner) : room.offers;
   return (
     <aside className="br-board" role="dialog" aria-label="Mission vote">
       <p className="br-board__bar">
-        <span>MISSION VOTE</span>
+        <span>{auto ? "TODAY'S JOB" : 'MISSION VOTE'}</span>
         <span className="br-lobby__dim">ROUND {room.round}</span>
         <span aria-live="off">{closed ? 'CLOSED' : `${String(left).padStart(2, '0')}S`}</span>
       </p>
       <p className="br-lobby__dim br-board__sub">
-        {closed ? `${room.mission!.text} · LOADING THE LEVEL ${loaded}/${voters} READY` : `PICK TODAY'S JOB. ${cast}/${voters} VOTED. A TIE IS DRAWN AT RANDOM. THE LEVEL LOADS WHILE YOU VOTE.`}
+        {auto ? `ASSIGNED · LOADING THE LEVEL ${loaded}/${voters} READY` : closed ? `${room.mission!.text} · LOADING THE LEVEL ${loaded}/${voters} READY` : `PICK TODAY'S JOB. ${cast}/${voters} VOTED. A TIE IS DRAWN AT RANDOM. THE LEVEL LOADS WHILE YOU VOTE.`}
       </p>
       <ul className="br-board__grid">
-        {room.offers.map((o, i) => (
+        {shown.map((o, i) => (
           <li key={o.id}>
             <button type="button" className="br-tile" disabled={closed} data-on={o.id === mine || undefined} data-lead={(closed ? o.id === winner : o.id === room.leading) || undefined} aria-pressed={o.id === mine} onClick={() => sock?.emit('vote', o.id === mine ? '' : o.id)}>
               <span className="br-tile__top">
