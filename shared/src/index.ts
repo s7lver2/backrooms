@@ -112,15 +112,16 @@ export const LOAD_GRACE = 12000;
 export const WAIT_HALF = { x: 4.5, z: 3.5 };
 /** Dónde aparece cada jugador (por orden en la sala): en fila frente a la puerta, mirando a -z. */
 export const WAIT_SPAWNS = [-2.25, -0.75, 0.75, 2.25].flatMap((x) => [{ x, z: 0.2 }, { x, z: 1.4 }]); // hasta 8, en dos filas en medio de la sala, lejos de los muebles de las paredes
-export type Difficulty = 'easy' | 'normal' | 'hard';
+export type Difficulty = 'easy' | 'normal' | 'hard' | 'nightmare';
 /**
  * Lo que mueve cada dificultad: entidades más o menos rápidas, tiempo sin que ataquen al empezar (s), vida de la linterna (s; balance: un 40 % menos que antes, 140/90/60),
- * cuántas entidades hay al empezar, qué parte de las latas, linternas y rifles extra del mapa queda (loot) y cuánto paga cada misión (money).
+ * cuántas entidades hay al empezar, qué parte de las latas, linternas y rifles extra del mapa queda (loot) y cuánto paga cada misión (money), cuánto daño hace cada golpe (dmg), cada cuántos segundos llega otra entidad (reinforce; 0 ninguna, hasta 3) y cuánto se aceleran por ronda (ramp).
  */
-export const DIFFICULTY: Record<Difficulty, { speed: number; grace: number; life: number; ents: number; loot: number; money: number }> = {
-  easy: { speed: 0.75, grace: 16, life: 84, ents: 1, loot: 1, money: 0.75 },
-  normal: { speed: 0.88, grace: 10, life: 54, ents: 2, loot: 0.8, money: 1 },
-  hard: { speed: 0.95, grace: 6, life: 36, ents: 3, loot: 0.5, money: 1.5 },
+export const DIFFICULTY: Record<Difficulty, { speed: number; grace: number; life: number; ents: number; loot: number; money: number; dmg: number; reinforce: number; ramp: number }> = {
+  easy: { speed: 0.75, grace: 16, life: 84, ents: 1, loot: 1, money: 0.75, dmg: 0.6, reinforce: 0, ramp: 0.02 },
+  normal: { speed: 0.88, grace: 10, life: 54, ents: 2, loot: 0.8, money: 1, dmg: 1, reinforce: 240, ramp: 0.03 },
+  hard: { speed: 0.95, grace: 6, life: 36, ents: 3, loot: 0.5, money: 1.5, dmg: 1.25, reinforce: 150, ramp: 0.05 },
+  nightmare: { speed: 1.02, grace: 3, life: 24, ents: 4, loot: 0.3, money: 2.2, dmg: 1.6, reinforce: 90, ramp: 0.08 },
 };
 export const ROOM_NAME_MAX = 20;
 /** Lo que el propietario puede cambiar de la sala (en el lobby). */

@@ -174,7 +174,9 @@ export class Match {
   constructor(readonly seed: number, difficulty: Difficulty = 'normal', players = 1, readonly levelId = 'level0', floor = 1, round = 2) {
     // la primera ronda de la sala es de rodaje: entidades un 20 % más lentas, 8 s más de gracia y una entidad menos al empezar
     const first = round <= 1;
-    this.speed = DIFFICULTY[difficulty].speed * (first ? 0.8 : 1);
+    this.speed = DIFFICULTY[difficulty].speed * (first ? 0.8 : 1) * Math.min(1.35, 1 + DIFFICULTY[difficulty].ramp * Math.max(0, round - 2)); // (y se aceleran con las rondas)
+    this.dmg = DIFFICULTY[difficulty].dmg;
+    this.reinforce = DIFFICULTY[difficulty].reinforce;
     this.grace = DIFFICULTY[difficulty].grace + (first ? 8 : 0);
     const caps = levelCaps(levelId);
     this.noEnts = !caps.ents;
@@ -279,6 +281,9 @@ export class Match {
     return this.parking?.map.spawn ?? centerOf(this.maze.start);
   }
 
+  private readonly dmg: number;
+  private readonly reinforce: number;
+  private reinforced = 0;
   private staffBack: { at: number; x: number; z: number; facing: number; lobby?: boolean; patrol?: EntitySim['patrol'] }[] = [];
   private spawn(kind: Kind, at: { x: number; y: number }, speed = 1, hp = 3) {
     const m = this.emaze ?? this.maze;
@@ -325,6 +330,12 @@ export class Match {
       this.parking.skinwalkers.speedBonus = now < this.curseUntil ? .5 : 0;
       this.parking.tick(dt, players, now, p => caught(p, -1));
       return;
+    }
+    // refuerzos: pasado un rato llega otra entidad por un arranque lejano (hasta 3), según la dificultad
+    if (this.reinforce && !this.noEnts && !this.hotel && !this.poolGeometry && this.reinforced < 3 && this.age >= this.reinforce * (this.reinforced + 1)) {
+      const sp = this.maze.spawns;
+      this.spawn(this.reinforced % 2 ? 'bacteria' : 'partygoer', sp[(this.reinforced + 1) % Math.max(1, sp.length)] ?? sp[0]);
+      this.reinforced++;
     }
     for (const b of this.staffBack.filter((q) => this.age >= q.at)) {
       this.staffBack.splice(this.staffBack.indexOf(b), 1);
@@ -421,7 +432,7 @@ export class Match {
       if (!p || p.dead || p.boarded) continue;
       if (e.sim.kind === 'faceling') console.log(`[staff] un Faceling mata a ${p.id}: enraged=${e.sim.enraged} roused=${e.sim.roused} vengeance=${this.vengeance} eehOn=${this.eehOn} estado=${e.sim.state} mision=${this.mission?.kind}`);
       // un golpe quita vida; muere con la vida a cero o si lo pillan en un nicho (sin salida)
-      p.hp = (p.hide ?? -1) >= 0 || e.sim.kind === 'faceling' ? 0 : Math.max(0, p.hp - HIT_DAMAGE); // (el personal no deja heridos)
+      p.hp = (p.hide ?? -1) >= 0 || e.sim.kind === 'faceling' ? 0 : Math.max(0, p.hp - HIT_DAMAGE * this.dmg); // (el personal no deja heridos)
       e.sim.state = 'attack'; // ataca y vuelve a lo suyo (ver recover)
       if (p.hp > 0) continue; // sigue vivo
       p.dead = true;

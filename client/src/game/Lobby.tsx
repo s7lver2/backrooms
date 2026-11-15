@@ -16,7 +16,7 @@ const LINK: Record<Link, string> = {
   offline: 'OFFLINE',
 };
 const tape = (n: number) => String(n).padStart(3, '0');
-const DIFF_FILTER: (Difficulty | 'all')[] = ['all', 'easy', 'normal', 'hard'];
+const DIFF_FILTER: (Difficulty | 'all')[] = ['all', 'easy', 'normal', 'hard', 'nightmare'];
 const clock = (s: number) => `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
 
 /** El aviso del servidor: en mantenimiento, con su mensaje y, si está anunciado, cuándo empieza; o sin respuesta. Nada si todo va bien. */
@@ -273,6 +273,9 @@ export default function Lobby({ net, onSolo, server, error, account }: { net: Ne
                       <span>{D.ents} ENTIT{D.ents === 1 ? 'Y' : 'IES'} AT THE START</span>
                       <span>ENTITY SPEED x{D.speed}</span>
                       <span>{D.life}S OF FLASHLIGHT</span>
+                      <span>HITS x{D.dmg}</span>
+                      <span>{D.reinforce ? `+1 ENTITY EVERY ${D.reinforce}S` : 'NO REINFORCEMENTS'}</span>
+                      <span>FASTER EACH ROUND +{Math.round(D.ramp * 100)}%</span>
                     </span>
                   </button>
                 </li>

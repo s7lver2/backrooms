@@ -1802,7 +1802,7 @@ export class BackroomsGame {
     this.waitPhase = room.phase;
     wr.owner = room.ownerId === mp.id;
     wr.setBoard(room.round, room.levelId);
-    const DIFF = { easy: 'EASY', normal: 'NORMAL', hard: 'HARD' } as const;
+    const DIFF = { easy: 'EASY', normal: 'NORMAL', hard: 'HARD', nightmare: 'NIGHTMARE' } as const;
     wr.setScreen(['BACKROOMS', `ROOM ${room.code}`, room.name.toUpperCase(), `${room.public ? 'PUBLIC' : 'PRIVATE'} ${room.players.length}/${room.max}`, `DIFFICULTY ${DIFF[room.difficulty]}`, `SEED ${room.fixedSeed || 'RANDOM'}`]);
     if (room.phase === 'starting' && !wr.entering) {
       // todos pasan a la cámara automática: los mandos quedan suspendidos

@@ -7,7 +7,7 @@ import type { Sock } from '../net';
  * valor. Solo el propietario los cambia; los demás los ven. Los usa la pantalla del ordenador de la sala de espera.
  */
 
-export const DIFF: Record<Difficulty, string> = { easy: 'EASY', normal: 'NORMAL', hard: 'HARD' };
+export const DIFF: Record<Difficulty, string> = { easy: 'EASY', normal: 'NORMAL', hard: 'HARD', nightmare: 'NIGHTMARE' };
 
 /** Un ajuste de la sala: etiqueta a la izquierda y valor a la derecha. */
 export function Setting({ label, children }: { label: string; children: ReactNode }) {
@@ -68,7 +68,7 @@ export default function RoomSettingsPanel({ room, me, sock }: { room: RoomView; 
             ◀ {DIFF[room.difficulty]} ▶
           </button>
         ) : DIFF[room.difficulty]}
-        <small className="br-lobby__dim"> MONEY x{DIFFICULTY[room.difficulty].money} · LOOT {Math.round(DIFFICULTY[room.difficulty].loot * 100)}% · {DIFFICULTY[room.difficulty].ents} ENT</small>
+        <small className="br-lobby__dim"> MONEY x{DIFFICULTY[room.difficulty].money} · LOOT {Math.round(DIFFICULTY[room.difficulty].loot * 100)}% · {DIFFICULTY[room.difficulty].ents} ENT · DMG x{DIFFICULTY[room.difficulty].dmg}</small>
       </Setting>
     </div>
   );
