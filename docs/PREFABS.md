@@ -104,7 +104,7 @@ ep.frame(dt)    // cada fotograma; ep.dispose() al salir
 2. Si su cuerpo no cuelga del mundo, usa el clon `Remote` propio (como parking y Poolrooms).
 3. Esconde lo propio del nivel que no deba verse (enemigos, entidades reales).
 4. En `epiFrame()`, lo que el nivel necesite para pintarse sin su bucle normal (agua, luz, `round.render`...). La cámara la mueve el prefab.
-5. La última posición viva de la cámara se guarda en `liveAt`/`liveYaw` (en `frame()`); si el nivel usa otra cámara, ahí se añade.
+5. El final **no** ocurre donde se acabó: `findSpot(arena)` busca al azar un sitio espacioso (círculo de ~8 m libre). El nivel solo da su `Arena` (límites + `ok(x, z)`: se puede estar de pie). Si no hay ninguno, usa la última posición viva (`liveAt`/`liveYaw`, que se guardan en `frame()`; si el nivel usa otra cámara, se añade ahí).
 
 Si `epilogue()` devuelve `false` (nivel sin soporte, derrota), se usa la pantalla de fin de siempre.
 

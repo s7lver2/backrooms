@@ -29,6 +29,29 @@ interface Dancer {
   yaw: number;
 }
 
+/** Una zona donde buscar sitio: sus límites y si se puede estar de pie en un punto. */
+export interface Arena {
+  x0: number;
+  x1: number;
+  z0: number;
+  z1: number;
+  ok(x: number, z: number): boolean;
+}
+/** Un sitio al azar con mucho espacio libre alrededor (un círculo de ~8 m), para que quepa toda la escena; undefined si no hay ninguno. */
+export function findSpot(a: Arena, tries = 500): { x: number; z: number } | undefined {
+  let best: { x: number; z: number } | undefined, top = 0;
+  for (let i = 0; i < tries; i++) {
+    const x = a.x0 + Math.random() * (a.x1 - a.x0), z = a.z0 + Math.random() * (a.z1 - a.z0);
+    if (!a.ok(x, z)) continue;
+    let n = 1, free = 1;
+    for (const r of [2, 4, 6, 8])
+      for (let k = 0; k < 8; k++, n++) free += a.ok(x + Math.cos((k * Math.PI) / 4) * r, z + Math.sin((k * Math.PI) / 4) * r) ? 1 : 0;
+    if (free / n > top) ((top = free / n), (best = { x, z }));
+    if (top >= 1) break;
+  }
+  return top >= 0.8 ? best : undefined;
+}
+
 const ROW = 1.25;
 export class Epilogue {
   /** Los pies de la cámara (de donde se acabó), hacia dónde se mira y el centro de la fila. */

@@ -46,8 +46,8 @@ import { ANISO, FPS_CAPS, settings } from '../settings';
 import { watchCanvas } from '../errlog';
 import { gearIcons } from './invIcons';
 import { prepAvatar } from './InvAvatar';
-import { Epilogue, type Actor, type Stage } from './epilogue';
-import { WAIT_HALF, EMOTE_DEFS, type RoundResult, type Sold } from '@backrooms/shared';
+import { Epilogue, findSpot, type Actor, type Arena, type Stage } from './epilogue';
+import { POOL_CELL, WAIT_HALF, EMOTE_DEFS, type RoundResult, type Sold } from '@backrooms/shared';
 import { type LockerItem, RIFLE_MAG, canHold, ITEM_IDS, START_INV, type AdminFx, makeMission, missionLine, tvCount, type ActiveMission, type Inventory, type ItemId, type MissionKind, type Maze, type LevelCaps, levelCaps, NOISE_RUN, NOISE_SHOT, NOISE_PHOTO, type Noise } from '@backrooms/shared';
 import { Explosion } from './explosion';
 import { Breath, HEIGHT as ENT_HEIGHT, DEFAULT_LOOK, EEH_HOLD, HIT_DAMAGE, HP_MAX, MONSTER, PILLS, GLASSES, SUITE_FLOORS, REVIVE_IMMUNE, boostOf, totemSpot, type Look, hideStates, tickHides, startOffset, type HideState, type PlayerState, type RoomView, type ToolFx, type WorldSnapshot, FLIGHT_DT, flight } from '@backrooms/shared';
@@ -1583,18 +1583,34 @@ export class BackroomsGame {
   }
 
   /** El final de una ronda ganada, igual en todos los niveles (epilogue.ts): de pie en fila donde se acabó, cada uno con su pose de victoria y las entidades bailando. */
-  private epi?: { ep: Epilogue; self?: Remote; lv?: PoolLevel; pk: boolean };
+  private epi?: { floor: number; ep: Epilogue; self?: Remote; lv?: PoolLevel; pk: boolean };
   private liveAt = new THREE.Vector3();
   private liveYaw = 0;
   /** Monta el final (false: no se puede aquí y se sigue con la pantalla de siempre). Cada nivel solo pone su escenario. */
   epilogue(r: RoundResult, me: string): boolean {
     const w = this.world, pl = this.player, pk = this.parking, lv = this.pool instanceof PoolLevel ? this.pool : undefined;
     if (!this.mp || !r.victory || !this.assets || !pl || (!pk && !lv && !w) || (this.pool && !lv)) return false;
-    const stage: Stage = pk
-      ? { scene: pk.level.scene, camera: this.camera, solid: () => false }
-      : lv
-        ? { scene: lv.scene, camera: lv.camera, solid: () => false }
-        : { scene: w!.root, camera: this.camera, solid: (x, z) => w!.solid(this.caps.hotel ? wrapX(x) : x, z) };
+    // el sitio del final: uno al azar, espacioso (no donde se acabó). Cada nivel dice dónde se puede estar de pie y cuánto mide; si no hay ninguno, donde se estaba
+    const y0 = this.liveAt.y;
+    let arena: Arena, floor = 0, yAt = (_x: number, _z: number) => y0;
+    if (pk) {
+      const fl = pk.level.map.floors;
+      floor = fl.reduce((b, f) => (Math.abs(f.y - y0) < Math.abs(fl[b].y - y0) ? f.index : b), 0);
+      const b = fl[floor].bounds;
+      arena = { x0: b.x, x1: b.x + b.w, z0: b.z, z1: b.z + b.d, ok: (x, z) => !!pk.level.fits(x, z, fl[floor].y, false) };
+      yAt = () => fl[floor].y;
+    } else if (lv) {
+      arena = { x0: 0, x1: lv.map.w * POOL_CELL, z0: 0, z1: lv.map.h * POOL_CELL, ok: (x, z) => { if (lv.solid(x, z)) return false; const f = lv.floorAt(x, z, y0); return f != null && Math.abs(f - y0) < 0.35 && !lv.liquidAt(x, z, y0); } };
+      yAt = (x, z) => lv.floorAt(x, z, y0) ?? y0;
+    } else {
+      const m = w!.maze;
+      arena = { x0: CELL, x1: (m.w - 1) * CELL, z0: CELL, z1: (m.h - 1) * CELL, ok: (x, z) => !w!.solid(this.caps.hotel ? wrapX(x) : x, z) };
+    }
+    const spot = findSpot(arena);
+    const from = spot ? new THREE.Vector3(spot.x, yAt(spot.x, spot.z), spot.z) : this.liveAt.clone();
+    const yaw = spot ? Math.random() * Math.PI * 2 : this.liveYaw;
+    const solid = spot ? (x: number, z: number) => !arena.ok(x, z) : (x: number, z: number) => (!pk && !lv ? w!.solid(this.caps.hotel ? wrapX(x) : x, z) : false);
+    const stage: Stage = { scene: pk ? pk.level.scene : lv ? lv.scene : w!.root, camera: lv ? lv.camera : this.camera, solid };
     // en el parking y las Poolrooms mi cuerpo no cuelga del mundo: me hago un clon como los de los demás
     let self: Remote | undefined;
     if (pk || lv) {
@@ -1617,8 +1633,8 @@ export class BackroomsGame {
     const kinds = [...new Set<Kind>(['partygoer', 'bacteria', ...this.entities.filter((e) => e.alive).map((e) => e.kind)])];
     for (const e of this.entities) ((e.rig.root.visible = false), e.balloon && (e.balloon.visible = false));
     pk?.enemies?.hide();
-    const ep = new Epilogue(stage, this.assets, this.liveAt, this.liveYaw, actors, kinds);
-    this.epi = { ep, self, lv, pk: !!pk };
+    const ep = new Epilogue(stage, this.assets, from, yaw, actors, kinds);
+    this.epi = { floor, ep, self, lv, pk: !!pk };
     if (lv) {
       // el mundo de las Poolrooms deja la cámara donde está el cuerpo: se lleva ahí (de pie, sin ascensor ni desmayo)
       Object.assign(lv as unknown as Record<string, unknown>, { px: ep.c.x, py: ep.c.y, pz: ep.c.z, yaw: ep.face, pitch: -0.08, vy: 0, ride: undefined, hold: undefined, faint: 0, dead: false });
@@ -1640,7 +1656,7 @@ export class BackroomsGame {
     if (e.lv) e.lv.post(dt, { ...this.input.read(), move: _none, look: _none, crouch: false, run: false }, true); // (el agua, la luz y la niebla de las Poolrooms; la cámara la pone el final)
     if (e.self) (this.player.hideHeld(), (this.player.rig.root.visible = false)); // (mi cuerpo de primera persona no pinta nada aquí: el que se ve es el clon)
     e.ep.frame(dt);
-    if (e.pk) this.parking?.render(dt, this.t, this.camera);
+    if (e.pk) this.parking?.render(dt, this.t, this.camera, { x: e.ep.c.x, y: e.ep.c.y, z: e.ep.c.z, floor: e.floor });
     this.flash.intensity = 0;
     this.vhs.uniforms.uTime.value = this.film.uniforms.uTime.value = this.t;
     this.vhs.uniforms.uAspect.value = this.camera.aspect;
