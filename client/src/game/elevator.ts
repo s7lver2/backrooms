@@ -15,6 +15,9 @@ export class ElevatorCab {
   shake = 0;
   /** Segundos de viaje (-1: parada). */
   rideT = -1;
+  /** La planta a la que va (el indicador la marca al arrancar el viaje) y si es hacia abajo. */
+  target?: number;
+  down = false;
   private closed: number;
   private want: number;
   readonly doorLeaves: THREE.Mesh[] = [];
@@ -272,7 +275,7 @@ export class ElevatorCab {
 
   /** El indicador: la planta, y la flecha en marcha. */
   private paint() {
-    const up = this.rideT > 0 && this.closed >= 1, n = this.floor + (up ? Math.min(1, Math.floor(this.rideT / 0.9)) : 0), text = (up ? '▲ ' : '') + n;
+    const up = this.rideT > 0 && this.closed >= 1, t = this.target, goingDown = t !== undefined && (t < this.floor || this.down), n = t !== undefined ? (up && this.rideT > 0.9 ? t : this.floor) : this.floor + (up ? Math.min(1, Math.floor(this.rideT / 0.9)) : 0), text = (up ? (goingDown ? '▼ ' : '▲ ') : '') + n;
     if (text === this.shown) return;
     this.shown = text;
     const c = this.led.image as HTMLCanvasElement, g = c.getContext('2d')!;

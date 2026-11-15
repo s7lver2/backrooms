@@ -427,6 +427,8 @@ export default function Backrooms({ onQuit, onWin }: { onQuit: () => void; onWin
     g.onLevelLoad = (f) => alive && setLvl(f);
     g.onLocker = (id) => (g.setLockerUi(true), setLocker(id));
     g.onWin = () => mpRef.current || winRef.current(); // en una sala la ronda la cierra el servidor (over), no subir al ascensor
+    g.onTravel = (f) => setAscend(f);
+    g.onTravelFail = () => setAscend(0);
     const free = holdStill();
     let alive = true;
     g.load((p) => alive && setLoadP(p))
@@ -614,8 +616,8 @@ export default function Backrooms({ onQuit, onWin }: { onQuit: () => void; onWin
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ascend, net.room?.phase, net.sock]);
   useEffect(() => {
-    if (ascend && net.room?.phase === 'playing') (game.current?.stop(), enterRef.current());
-  }, [ascend, net.room?.phase]);
+    if (ascend && net.room?.phase === 'playing' && net.room.floor === ascend) (game.current?.stop(), enterRef.current()); // (el servidor ya me ha pasado a esa planta: entro en su mundo)
+  }, [ascend, net.room?.phase, net.room?.floor]);
 
   // un logro concedido por el servidor: aviso en pantalla y la cuenta se vuelve a leer (progreso, cosméticos nuevos)
   useEffect(() => {

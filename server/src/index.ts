@@ -63,6 +63,8 @@ interface RoomState extends Omit<Room, 'floor' | 'caps' | 'offers' | 'leading' |
   /** Taquillas abiertas esta ronda: su contenido y qué piezas se han cogido. */
   lockers: Map<string, { items: LockerItem[]; taken: boolean[] }>;
   match?: Match;
+  /** Las Suites: en las plantas 2-5 (salas aparte, una por planta), la sala del edificio de la que cuelgan; en la sala madre (planta 1), nada. */
+  bld?: RoomState;
   startedAt?: number;
   /** Jugadores al empezar la partida y cuántos han caído en ella (para los logros de equipo). */
   size0: number;
@@ -100,6 +102,19 @@ interface RoomState extends Omit<Room, 'floor' | 'caps' | 'offers' | 'leading' |
 const rooms = new Map<string, RoomState>();
 const where = new Map<string, string>(); // socket → código de su sala
 
+/*
+ * Las Suites tienen 5 plantas, cada una con su mundo (el mismo edificio; su botín, sus Facelings y su misión). La planta 1 es la propia sala; las demás son
+ * salas "hijas" (código «ABCDE~3») que se crean al llegar alguien y que comparten con la madre lo que es del edificio (banco, contrato, ajustes). Cada jugador
+ * está en la sala de su planta: todo lo que ya hacía una sala (estados, entidades, botín, misión) vale tal cual. Una planta sin nadie queda congelada.
+ */
+const SHARED = new Set(['bank', 'quota', 'jobs', 'bonus', 'earned', 'difficulty', 'name', 'public', 'max', 'ownerId', 'ownerUid', 'members', 'fixedSeed', 'tape', 'round', 'seed', 'nextSeed', 'levelId', 'size0', 'deaths', 'boardAt', 'startedAt']);
+const rootOf = (r: RoomState): RoomState => r.bld ?? r;
+/** La sala madre y sus plantas (las que existen). */
+const bldRooms = (r: RoomState): RoomState[] => {
+  const b = rootOf(r);
+  return [b, ...[...rooms.values()].filter((x) => x.bld === b)];
+};
+
 let tapeNo = 30;
 const LETTERS = 'ABCDEFGHJKLMNPQRSTUVWXYZ'; // sin la I ni la O (se confunden con 1 y 0)
 function newCode() {
@@ -121,7 +136,7 @@ const active = (r: RoomState): ActiveMission | null => (r.chosen ? { ...r.chosen
 const view = (r: RoomState): RoomView => {
   const lobby = r.phase === 'lobby', boarded = [...r.players.values()].filter((p) => p.boarded).map((p) => p.id);
   return {
-    code: r.code, tape: r.tape, name: r.name, public: r.public, ownerId: r.ownerId, max: r.max, difficulty: r.difficulty, fixedSeed: r.fixedSeed, phase: r.phase, seed: r.seed,
+    code: rootOf(r).code, tape: r.tape, name: r.name, public: r.public, ownerId: r.ownerId, max: r.max, difficulty: r.difficulty, fixedSeed: r.fixedSeed, phase: r.phase, seed: r.seed,
     bank: r.bank, round: r.round, levelId: r.levelId, openLevels: [...openOf(r)], floor: r.floor, quota: r.quota ?? 0, jobs: r.jobs, caps: levelCaps(r.levelId), ...(r.phase === 'starting' ? offers(r) : { offers: [], leading: '' }), mission: lobby ? null : active(r),
     startIn: r.phase === 'lobby' && r.startAt ? Math.max(0, r.startAt - Date.now()) : 0,
     vote: r.phase === 'starting' && r.voteEnd ? { left: r.chosen ? 0 : Math.max(0, r.voteEnd - Date.now()), loaded: [...r.loaded].filter((s) => r.players.has(s)) } : null,
@@ -143,7 +158,7 @@ const openOf = (r: RoomState) => {
 function save(r: RoomState) {
   if (!r.ownerUid) return;
   for (const p of r.players.values()) if (p.uid) r.members.set(p.uid, { ups: p.ups, inv: p.inv });
-  writeSave(r.code, r.ownerUid, { name: r.name, public: r.public, max: r.max, difficulty: r.difficulty, fixedSeed: r.fixedSeed, bank: r.bank, round: r.round, members: Object.fromEntries(r.members) });
+  writeSave(rootOf(r).code, r.ownerUid, { name: r.name, public: r.public, max: r.max, difficulty: r.difficulty, fixedSeed: r.fixedSeed, bank: r.bank, round: r.round, members: Object.fromEntries(r.members) });
 }
 /** La calidad de lo que lleva y su botín, a su cliente (en partida). */
 const bag = (p: Player) => io.to(p.id).emit('bag', { q: p.cap.q ?? {}, loot: p.cap.loot ?? [] });
@@ -207,7 +222,12 @@ function leave(id: string) {
   autoStart(r);
   for (const k of r.strips.filter((k) => k.owner === id)) io.to(code!).emit('unstrip', k.id);
   r.strips = r.strips.filter((k) => k.owner !== id);
-  if (!r.players.size) return void rooms.delete(code!);
+  if (!r.players.size) {
+    const all = bldRooms(r), rest = all.flatMap((x) => [...x.players.keys()]);
+    if (!rest.length) return void all.forEach((x) => rooms.delete(x.code));
+    if (rootOf(r).ownerId === id) rootOf(r).ownerId = rest[0]; // (quedan jugadores en otras plantas: esta queda congelada)
+    return;
+  }
   if (r.ownerId === id) r.ownerId = r.players.keys().next().value!; // el siguiente pasa a ser el propietario
   push(r);
   if (r.phase === 'playing') checkOver(r);
@@ -220,8 +240,8 @@ function leave(id: string) {
 function checkOver(r: RoomState) {
   if (r.phase !== 'playing') return;
   const grace = !!r.boardAt && Date.now() - r.boardAt >= ASCENT_GRACE * 1000;
-  if (!grace && [...r.players.values()].some((p) => (!p.dead && !p.boarded) || p.reviving || p.ball)) return; // (quien corre «Run for your life» aún puede volver)
-  finish(r);
+  if (!grace && bldRooms(r).some((x) => [...x.players.values()].some((p) => (!p.dead && !p.boarded) || p.reviving || p.ball))) return; // (quien corre «Run for your life» aún puede volver; y en las Suites cuentan todas las plantas)
+  finish(rootOf(r));
 }
 
 /** Prepara la ronda que viene (en el lobby): su semilla, el nivel y las tres misiones de la pizarra, sin votos. */
@@ -237,6 +257,9 @@ function prepare(r: RoomState, seed = 0, level?: string) {
 
 /** La sala vuelve al lobby (fin de ronda o admin): el propietario puede empezar otra. */
 function backToLobby(r: RoomState, ps: Player[]) {
+  const before = new Set(r.players.keys());
+  mergeFloors(r); // (un corte de ronda del admin con gente en otras plantas)
+  for (const p of r.players.values()) if (!before.has(p.id)) ps.push(p);
   // la sala vuelve al lobby: el propietario puede empezar otra
   r.phase = 'lobby';
   r.seed = 0;
@@ -259,18 +282,80 @@ function backToLobby(r: RoomState, ps: Player[]) {
   for (const p of ps) io.to(p.id).emit('inv', p.inv);
 }
 
+/** Cierra las plantas 2-5 de `root`: sus jugadores pasan a la sala madre. */
+function mergeFloors(root: RoomState) {
+  for (const s of bldRooms(root).slice(1)) {
+    for (const p of s.players.values()) {
+      root.players.set(p.id, p);
+      where.set(p.id, root.code);
+      const sk = io.sockets.sockets.get(p.id);
+      sk?.leave(s.code);
+      sk?.join(root.code);
+    }
+    rooms.delete(s.code);
+  }
+}
+
+/** La planta `g` del edificio de `root` (se crea la primera vez que alguien llega: su misión y su mundo). */
+function floorRoom(root: RoomState, g: number): RoomState {
+  if (g === 1) return root;
+  const code = `${root.code}~${g}`;
+  const had = rooms.get(code);
+  if (had) return had;
+  const t = { ...root, code, bld: root, players: new Map(), floor: g, match: undefined, phase: 'playing', pool: [], votes: new Map(), loaded: new Set(), chosen: undefined, done: false, cur: false, doneIds: [], lastProgress: -1, drops: new Map(), pickups: new Map(), lockers: new Map(), strips: [], readyTimer: undefined, startAt: undefined, voteEnd: undefined, tok: undefined, toFloor: undefined } as RoomState;
+  const fr = new Proxy(t, {
+    get: (o, k) => (SHARED.has(k as string) ? (root as never)[k as never] : (o as never)[k as never]),
+    set: (o, k, v) => (((SHARED.has(k as string) ? (root as never) : (o as never))[k as never] = v as never), true),
+  });
+  rooms.set(code, fr);
+  fr.pool = suitesMissions(root.seed, root.round, g).map((m) => ({ ...m, reward: Math.round((m.reward * DIFFICULTY[root.difficulty].money) / 5) * 5 }));
+  fr.chosen = firstJob(fr);
+  fr.match = new Match(root.seed, root.difficulty, Math.max(1, bldRooms(root).reduce((n, x) => n + x.players.size, 0)), 'suites', g, root.round);
+  fr.match.setMission(fr.chosen);
+  fr.match.onSeal = () => io.to(code).emit('seal');
+  fr.match.onHeld = (p) => p.uid && (count(p.uid, 'holds'), award(p.uid, 'held_breath'));
+  fr.startedAt = Date.now();
+  return fr;
+}
+
+/** Un jugador cambia de planta (en el ascensor o la escalera): pasa a la sala de esa planta, en su cabina, con lo que lleva. */
+function travel(r: RoomState, p: Player, to: number) {
+  const y = floorRoom(rootOf(r), to);
+  if (!y.match) return;
+  r.players.delete(p.id);
+  r.votes.delete(p.id);
+  r.loaded.delete(p.id);
+  const sk = io.sockets.sockets.get(p.id);
+  sk?.leave(r.code);
+  sk?.join(y.code);
+  where.set(p.id, y.code);
+  const c = centerOf(y.match.maze.elevator);
+  p.st = { ...p.st, x: c.x, y: 0, z: c.z, hiding: false, holding: false };
+  p.seen = false;
+  y.players.set(p.id, p);
+  rlog(y, `${p.name} arrives on floor ${to}`);
+  io.to(p.id).emit('inv', p.cap);
+  push(r);
+  push(y);
+  checkOver(r);
+}
+
 /**
  * Fin de la ronda: cobro o penalización, qué se conserva (solo quienes subieron vivos) y de vuelta al lobby. Si nadie subió, la derrota
  * se retrasa 5 s para que el último termine de caer.
  */
 function finish(r: RoomState) {
+  r = rootOf(r);
   if (r.phase !== 'playing') return;
-  r.phase = 'over';
+  const floors = bldRooms(r);
+  floors.forEach((x) => (x.phase = 'over'));
   const done = () => {
     if (rooms.get(r.code) !== r) return;
+    mergeFloors(r); // (Las Suites: todos los jugadores de todas las plantas vuelven a la sala madre y las plantas se cierran)
     const ps = [...r.players.values()], back = ps.filter((p) => p.boarded && !p.dead);
+    if (r.levelId === 'suites' && back.length) r.done = true; // (salir del edificio por la planta 5 cumple el contrato)
     const won = r.done && back.length > 0;
-    const hotel = r.levelId === 'suites', exit = hotel && won && r.toFloor === SUITE_FLOORS, carry = hotel && won && !!r.toFloor && !exit;
+    const hotel = r.levelId === 'suites', exit = hotel && won, carry = false;
     const reward = won ? r.earned + (exit ? SUITE_BONUS : 0) : 0, penalty = won ? 0 : penaltyOf(r.bank);
     r.bank = Math.max(0, r.bank + reward - penalty);
     const fates: Record<string, Fate> = {};
@@ -288,7 +373,7 @@ function finish(r: RoomState) {
     backToLobby(r, ps);
     if (carry) setTimeout(() => rooms.get(r.code) === r && r.phase === 'lobby' && begin(r), 1200); // (siguiente planta del contrato: entra sola)
   };
-  if ([...r.players.values()].some((p) => p.boarded)) done();
+  if (floors.some((x) => [...x.players.values()].some((p) => p.boarded))) done();
   else setTimeout(done, 5000);
 }
 
@@ -1085,13 +1170,17 @@ io.on('connection', (sock) => {
 
   sock.on('ascend', (inv, floor) => {
     const r = roomOf(sock.id), p = r?.players.get(sock.id);
-    if (!r?.match || !p || r.phase !== 'playing' || !r.done || !r.match.canBoard(p)) return;
+    if (!r?.match || !p || r.phase !== 'playing' || !r.match.canBoard(p)) return;
     if (r.levelId === 'suites') {
-      // el ascensor y la escalera suben de una planta en una (1-5); el juego del hotel solo se completa al llegar a la 5
+      // el ascensor y la escalera llevan a otra planta (1-5): a la siguiente (con la misión cumplida) o a cualquiera de abajo; el pulsador 6, en la 5, sale del edificio
       const to = Number.isInteger(floor) ? floor! : 0;
-      if (to !== r.floor + 1 || to > SUITE_FLOORS) return;
-      r.toFloor ??= to;
-    }
+      if (to === SUITE_FLOORS + 1) {
+        if (r.floor !== SUITE_FLOORS || !r.done) return;
+      } else {
+        if (to < 1 || to > SUITE_FLOORS || to === r.floor || (to > r.floor && (to !== r.floor + 1 || !r.done))) return;
+        return travel(r, p, to);
+      }
+    } else if (!r.done) return;
     p.boarded = true;
     p.inv = cleanInv(inv, p.cap);
     r.boardAt ??= Date.now();
@@ -1484,7 +1573,7 @@ setInterval(() => {
 const DT = 1 / 20;
 setInterval(() => {
   for (const r of rooms.values()) {
-    if (r.phase !== 'playing' || !r.match) continue;
+    if (r.phase !== 'playing' || !r.match || !r.players.size) continue; // (una planta sin nadie queda congelada)
     r.match.tick(DT, [...r.players.values()], (p) => {
       r.deaths++;
       rlog(r, `${p.name} caught by an entity (hiding ${!!p.st.hiding} holding ${!!p.st.holding} air ${p.breath?.air.toFixed(2) ?? '-'} at ${p.st.x.toFixed(1)},${p.st.z.toFixed(1)})`);
@@ -1566,3 +1655,4 @@ setInterval(() => {
 }, 100);
 
 http.listen(Number(process.env.PORT) || SERVER_PORT, () => console.log(`backrooms server en :${process.env.PORT || SERVER_PORT}`));
+

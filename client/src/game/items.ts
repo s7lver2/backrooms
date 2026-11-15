@@ -286,7 +286,7 @@ export class Items extends PickupField {
     // la escalera de servicio (Las Suites): cada planta tiene su puerta en el hueco; cruzarla, con la salida abierta, lleva a esa planta (en silencio y a oscuras)
     if (!this.won) {
       const q = this.player.pos, d = w.stairDoors.find((d) => Math.hypot(q.x - d.x, q.z - d.z) < 0.9 && Math.abs(q.y - d.y) < 0.8);
-      if (d && ready && d.n === this.floorNo + 1) (this.won = true), this.onWin?.(true, d.n);
+      if (d && d.n !== this.floorNo && (d.n < this.floorNo || (ready && d.n === this.floorNo + 1))) (this.won = true), this.onWin?.(true, d.n);
       else if (d && t > this.rejectAt) (this.rejectAt = t + 1.5), this.audio?.reject();
     }
   }

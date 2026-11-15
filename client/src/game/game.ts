@@ -481,7 +481,11 @@ export class BackroomsGame {
   /** Las Suites: la planta en la que se está (el ascensor y la escalera solo suben a la siguiente) y el rayo con el que se apunta a los botones. */
   private floorNo = 1;
   private arriveFloor = 1;
-  private climbTo = 0;
+  private travelTo = 0; // (la planta a la que voy, hasta que llega su mundo)
+  private travelFrom = 0;
+  /** Las Suites: voy a otra planta (el servidor me pasa a su sala; el cliente carga su mundo y entra en la cabina). */
+  onTravel?: (f: number) => void;
+  onTravelFail?: () => void;
   private arrive = 0; // (s que quedan del viaje al llegar a una planta superior)
   private readonly aimRay = new THREE.Raycaster();
   /** Las Suites: las cámaras de seguridad, vistas desde el puesto de la sala de control (A/D o clic cambian de cámara; E o G salen). -1 = no se usan. */
@@ -620,10 +624,32 @@ export class BackroomsGame {
     return w.maze.gas.some((c) => c.x === cx && c.y === cy);
   }
   /** Se ha pulsado el botón de la planta `f` en la cabina: sube. */
+  /** Las Suites: ir a otra planta, en el ascensor (la cabina sube o baja mientras llega el mundo nuevo) o por la escalera. */
+  travel(f: number, stairs = false) {
+    const p = this.player;
+    if (!p || this.travelTo || !this.mp) return;
+    this.travelTo = f;
+    this.travelFrom = this.floorNo;
+    p.frozen = p.lookFree = true;
+    this.bagOpen = false;
+    const cab = this.world?.cab;
+    if (cab && !stairs) ((cab.target = f), cab.board());
+    this.mp.sock.emit('ascend', p.inventory, f);
+    this.onTravel?.(f);
+    setTimeout(() => this.travelTo === f && this.travelFail(), 9000);
+  }
+  /** El servidor no me ha pasado de planta: se abre la cabina y sigo donde estaba. */
+  travelFail() {
+    const p = this.player, cab = this.world?.cab;
+    this.travelTo = 0;
+    if (p) p.frozen = p.lookFree = false;
+    if (this.items) this.items.won = false;
+    if (cab) ((cab.target = undefined), (cab.rideT = -1), cab.open());
+    this.onTravelFail?.();
+  }
   pickFloor(f: number) {
     if (!this.items) return;
     this.items.won = true;
-    this.climbTo = f; // (subiendo por el hotel no se corta a negro: la cabina sigue subiendo mientras se carga la planta)
     this.win(false, f);
   }
   /** El diálogo con un Faceling para otra misión: habla con glifos sin sentido y se elige a ciegas entre `n` opciones. */
@@ -1128,16 +1154,19 @@ export class BackroomsGame {
     if (mp) (at0.x += sx), (at0.z += sz);
     p.spawn(at0, Math.atan2(-side[0], -side[1]));
     this.arrive = 0;
-    if (this.caps.hotel && (mp?.floor ?? 1) > 1) {
+    if (this.caps.hotel && ((mp?.floor ?? 1) > 1 || this.travelTo)) {
       // llegando en el ascensor desde la planta de abajo: dentro de la cabina, con las puertas cerradas, el rumor del viaje y el indicador subiendo; al llegar se abren
       const hr = w.elevator.rotation.y, ox = Math.sin(hr), oz = Math.cos(hr), cc = center(m.elevator);
       p.spawn(new THREE.Vector3(cc.x + (mp?.index ?? 0) * 0.0, 0, cc.z), Math.atan2(-ox, -oz));
       p.frozen = p.lookFree = true;
-      w.cab.floor = (mp?.floor ?? 2) - 1;
+      w.cab.floor = mp?.floor ?? 2;
+      w.cab.target = mp?.floor ?? 2;
+      w.cab.down = this.travelFrom > (mp?.floor ?? 2);
       w.cab.resetClosed();
       w.cab.rideT = 0.95; // (el indicador ya marca la planta nueva: el viaje sigue donde lo dejó la cabina anterior)
       this.arrive = 1.7;
       this.arriveFloor = mp?.floor ?? 2;
+      this.travelTo = 0;
     }
     if (!mp && DEV_LOCAL && new URLSearchParams(location.search).has('totem')) m.totem = { x: s.x + side[0], y: s.y + side[1] }; // desarrollo: &totem pone el tótem junto al inicio
     p.onFall = () => {
@@ -1148,7 +1177,7 @@ export class BackroomsGame {
     // la misión: la del servidor o, solo, una al azar (las cintas solo se colocan si la misión es encontrarlas)
     this.mission = mp ? (mp.mission ?? null) : this.soloMission(m);
     const it = (this.items = new Items(w, this.assets!, p, this.camera, this.audio, this.mission?.kind === 'tapes'));
-    it.onWin = (stairs, floor) => this.win(stairs, floor);
+    it.onWin = (stairs, floor) => (this.caps.hotel && stairs && floor && floor <= SUITE_FLOORS ? this.travel(floor, true) : this.win(stairs, floor));
     if (this.caps.hotel) it.onCab = () => {}; // (dentro de la cabina no pasa nada solo: se pulsa el botón de la planta)
     it.onLocker = (id) => this.onLocker?.(id);
     it.ready = !!this.mission?.exit;
@@ -1231,7 +1260,7 @@ export class BackroomsGame {
       this.arrive -= dt;
       if (this.arrive <= 0) {
         const cab = this.world.cab;
-        (cab.floor = this.arriveFloor), (cab.rideT = -1), cab.open();
+        (cab.floor = this.arriveFloor), (cab.target = undefined), (cab.rideT = -1), cab.open();
         if (this.items) this.items.open = this.world.elevatorOpen = true; // (la puerta deja de ser pared: se puede salir)
         this.player.frozen = this.player.lookFree = false;
         this.audio?.click();
@@ -1322,13 +1351,16 @@ export class BackroomsGame {
         if (it.wasCab) {
           // dentro de la cabina: se pulsa el botón de la planta (la siguiente; el juego del hotel se completa en la 5)
           key = cab.pickKey(this.aimRay);
-          const n = key && /^[1-5]$/.test(key) ? Number(key) : 0;
+          const n = key && /^[1-6]$/.test(key) ? Number(key) : 0, fl = this.floorNo;
           if (n) {
-            this.doorAct = n === this.floorNo ? `FLOOR ${n} · YOU ARE HERE` : n === this.floorNo + 1 ? `PRESS ${n}` : `FLOOR ${n} · ONE FLOOR AT A TIME`;
+            const exit = n === SUITE_FLOORS + 1, ok = exit ? fl === SUITE_FLOORS && it.ready : n < fl || (n === fl + 1 && it.ready);
+            this.doorAct = n === fl ? `FLOOR ${n} · YOU ARE HERE` : exit ? (fl === SUITE_FLOORS ? (it.ready ? 'LEAVE THE BUILDING' : 'FINISH THE MISSION TO LEAVE') : 'THE EXIT IS ON FLOOR 5') : n < fl ? `GO DOWN TO FLOOR ${n}` : n === fl + 1 ? (it.ready ? `GO UP TO FLOOR ${n}` : 'LOCKED · FINISH THE MISSION') : 'ONE FLOOR UP AT A TIME';
             if (cc.grab) {
               cc = { ...cc, grab: false };
-              if (n === this.floorNo + 1 && it.ready) this.pickFloor(n);
-              else this.audio?.reject();
+              if (n === fl) this.audio?.reject();
+              else if (!ok) this.audio?.reject();
+              else if (exit) this.pickFloor(n);
+              else this.travel(n);
             }
           }
         } else if (!it.open && cab.callBtn && this.aimRay.intersectObject(cab.callBtn, false).length) {
@@ -1345,7 +1377,7 @@ export class BackroomsGame {
         cab.setCall(it.ready && it.powered);
         if (this.doorAct) {
           // (ya hay aviso: botón de la cabina o de llamada)
-        } else if (sd) this.doorAct = it.ready ? (sd.n === this.floorNo + 1 ? `FLOOR ${sd.n}` : 'ONE FLOOR AT A TIME') : 'FLOOR DOOR LOCKED · FINISH THE MISSION';
+        } else if (sd) this.doorAct = sd.n === this.floorNo ? `FLOOR ${sd.n} · YOU ARE HERE` : sd.n < this.floorNo || (it.ready && sd.n === this.floorNo + 1) ? `FLOOR ${sd.n}` : it.ready ? 'ONE FLOOR UP AT A TIME' : 'FLOOR DOOR LOCKED · FINISH THE MISSION';
         else if (e && Math.hypot(q.x - (e.x + 0.5) * CELL, q.z - (e.y + 0.5) * CELL) < 3) {
           if (!it.powered) this.doorAct = `ELEVATOR HAS NO POWER · SWITCH ON THE PANELS ${gs.on}/${gs.n}`;
           else if (!it.ready) this.doorAct = 'ELEVATOR OFFLINE · FINISH THE MISSION';
@@ -1399,7 +1431,7 @@ export class BackroomsGame {
     // en el ascensor: puertas, arranque y un rato de viaje (la cámara tiembla con la cabina); luego la grabación se corta a negro
     const cab = this.world?.cab;
     if (this.winning && cab && !this.viaStairs) this.camera.position.y += cab.shake;
-    if (this.winning && !(this.caps.hotel && !this.viaStairs && this.climbTo > 0 && this.climbTo < SUITE_FLOORS) && (!cab || this.viaStairs || cab.rideT > RIDE)) this.black = Math.min(1, this.black + dt / 1.5);
+    if (this.winning && (!cab || this.viaStairs || cab.rideT > RIDE)) this.black = Math.min(1, this.black + dt / 1.5);
     u.uBlack.value = Math.max(this.black, this.fadeIn / 0.9);
     u.uAspect.value = this.fadeIn > 0 && !p?.aiming && this.dying < 0 && !this.winning ? 1 : this.camera.aspect;
     // la foto: se pinta el fotograma del flash y se queda congelado un instante
