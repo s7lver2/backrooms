@@ -41,10 +41,10 @@ export function AchievementsScreen({ acct, onSignIn, onBack }: { acct: Account; 
             </>
           )}
           {me && local.length > 0 && <button type="button" className="br-opt" onClick={importLocal}>IMPORT {local.length} FROM THIS BROWSER</button>}
-          <span className="br-lobby__dim">CLICK A NODE</span>
+          <span className="br-lobby__dim">DRAG TO MOVE · CLICK A NODE</span>
         </p>
         {err && <p className="br-lobby__err" role="alert">{err}</p>}
-        <MindMap name={me?.username ?? 'YOU'} center={<span className="mm__who">☺</span>} have={me?.achievements ?? {}} stats={me?.stats} rarity={me?.rarity} dim={tab} />
+        <MindMap name={me?.username ?? 'YOU'} center={<span className="mm__who">☺</span>} have={me?.achievements ?? {}} stats={me?.stats} rarity={me?.rarity} dim={tab} panel />
       </div>
     </Frame>
   );

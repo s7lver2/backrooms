@@ -114,25 +114,35 @@ export function FriendsScreen({ acct, assets, onSignIn, onBack }: { acct: Accoun
           </header>
           {prof && (
             <div className="mm-pop__body">
-              <aside className="mm-pop__side">
+              <section className="mm-pop__hero">
                 {assets && (
                   <div className="ach__model">
                     <InvAvatar assets={assets} look={prof.loadout} worn={WORN} reduced={false} active />
                   </div>
                 )}
-                <p className="ach__stat">☺ COSMETICS</p>
-                <p>{(['color', 'head', 'back'] as const).map((s) => `${slot[s]}: ${prof.loadout[s] ? cosmetic(s, prof.loadout[s])?.name ?? prof.loadout[s] : '—'}`).join(' · ')}</p>
-                <p className="ach__stat">★ ACHIEVEMENTS {Object.keys(have).length}/{ACHIEVEMENTS.length}</p>
-                <dl className="ach__facts">
-                  {(Object.keys(STAT_LABEL) as StatKey[]).filter((k) => prof.stats[k]).map((k) => (
-                    <span key={k} style={{ display: 'contents' }}>
-                      <dt>{STAT_ICON[k] ?? '✦'} {STAT_LABEL[k]}</dt>
-                      <dd>{prof.stats[k]}</dd>
-                    </span>
+                <div className="mm-pop__worn">
+                  {(['color', 'head', 'back'] as const).map((k) => (
+                    <div key={k}>
+                      <small>{slot[k]}</small>
+                      {prof.loadout[k] ? cosmetic(k, prof.loadout[k])?.name ?? prof.loadout[k] : '—'}
+                    </div>
                   ))}
-                </dl>
-              </aside>
-              <MindMap name={prof.username} center={<Avatar src={avatarUrl(prof.avatar)} name={prof.username} />} have={have} stats={prof.stats} />
+                </div>
+              </section>
+              <section className="mm-pop__info">
+                <div className="mm-pop__stats">
+                  <div><b>{Object.keys(have).length}/{ACHIEVEMENTS.length}</b><small>★ ACHIEVEMENTS</small></div>
+                  {(Object.keys(STAT_LABEL) as StatKey[]).filter((k) => prof.stats[k]).map((k) => (
+                    <div key={k}>
+                      <b>{prof.stats[k]}</b>
+                      <small>{STAT_ICON[k] ?? '✦'} {STAT_LABEL[k]}</small>
+                    </div>
+                  ))}
+                </div>
+                <div className="mm-pop__map">
+                  <MindMap name={prof.username} center={<Avatar src={avatarUrl(prof.avatar)} name={prof.username} />} have={have} stats={prof.stats} />
+                </div>
+              </section>
             </div>
           )}
         </div>
