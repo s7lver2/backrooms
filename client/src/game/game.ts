@@ -767,6 +767,7 @@ export class BackroomsGame {
 
   /** Resolución dinámica: si el equipo no llega a ~50 fps baja la resolución de dibujo de 0,1 en 0,1 (hasta 0,6) y la sube si le sobra de largo (>90 fps). Un paso cada 4 s, con la media de ese rato. */
   private drs = 1;
+  private renderMs = 0;
   private drsAcc = { n: 0, ms: 0, t: 0 };
   private relayout?: () => void;
   private adapt(dt: number) {
@@ -776,7 +777,9 @@ export class BackroomsGame {
     if (now - a.t < 4000 || a.n < 60) return;
     const avg = a.ms / a.n;
     (a.n = a.ms = 0), (a.t = now);
-    const next = avg > 20 ? Math.max(0.6, this.drs - 0.1) : avg < 11 ? Math.min(1, this.drs + 0.1) : this.drs;
+    // si el fotograma lo come la CPU (mandar los dibujos), bajar píxeles no ayuda: se deja la resolución entera
+    const cpuBound = this.renderMs > avg * 0.6;
+    const next = cpuBound ? Math.min(1, this.drs + 0.1) : avg > 20 ? Math.max(0.6, this.drs - 0.1) : avg < 11 ? Math.min(1, this.drs + 0.1) : this.drs;
     if (Math.abs(next - this.drs) > 1e-3) ((this.drs = next), this.relayout?.());
   }
 
@@ -896,11 +899,13 @@ export class BackroomsGame {
     const paintScene = this.composer.render.bind(this.composer), gl = this.renderer;
     this.composer.render = (dt?: number) => {
       if (gl.getContext().isContextLost()) return;
+      const t0 = performance.now();
       try {
         paintScene(dt);
       } catch (e) {
         if (!gl.getContext().isContextLost()) throw e;
       }
+      this.renderMs += (performance.now() - t0 - this.renderMs) * 0.05; // (lo que tarda la CPU en mandar el fotograma: la resolución dinámica lo mira)
     };
     this.composer.addPass(new RenderPass(this.scene, this.camera));
     if (!opts.low) {

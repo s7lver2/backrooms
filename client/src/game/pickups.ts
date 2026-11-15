@@ -3,6 +3,7 @@ import { clone as skClone } from 'three/examples/jsm/utils/SkeletonUtils.js';
 import { AMMO_PACK, RIFLE_MAG, ITEMS } from '@backrooms/shared';
 import { CELL, type Cell } from './maze';
 import { fit } from './player';
+import { fuse } from './fuse';
 import type { Player } from './player';
 import { canHold, hasRoom, spotRarity, type Drop, type ItemId } from '@backrooms/shared';
 import { glow, pulse } from './rarityFx';
@@ -110,6 +111,7 @@ export class PickupField {
     return { x: (c.x + 0.5) * CELL + (Math.sin(c.x * 7.1 + c.y) * CELL) / 5, z: (c.y + 0.5) * CELL + (Math.cos(c.y * 5.3 + c.x) * CELL) / 5 };
   }
 
+  private ownMats = new Map<string, THREE.MeshStandardMaterial>();
   /** Pone un objeto en el suelo (los del mapa y los soltados). */
   put(id: string, kind: Pickup['kind'], c: Cell, src: THREE.Object3D, size: number, rot = 0, at?: { x: number; z: number; y?: number }, drop?: boolean, rar = spotRarity(id, c), ownSource = false) {
     if (this.disposed) return;
@@ -122,12 +124,18 @@ export class PickupField {
     });
     const g = this.shape(kind, src, size);
     // que se vea con la linterna: un brillo propio leve, del color de cada material (con su textura), no un gris plano
+    // (una copia por material y tipo de objeto, no por objeto: así se pueden fundir las mallas de cada uno, y hay muchos repartidos por el mapa)
+    const owned = new Set<THREE.Material>();
     g.traverse((o) => {
       const mesh = o as THREE.Mesh;
       if (!mesh.material) return;
       const clone = (mat: THREE.Material) => {
         if (!(mat as THREE.MeshStandardMaterial).isMeshStandardMaterial) return mat;
+        const ck = `${kind}:${mat.uuid}`, had = this.ownMats.get(ck);
+        if (had) return owned.add(had), had;
         const own = mat.clone() as THREE.MeshStandardMaterial;
+        this.ownMats.set(ck, own);
+        owned.add(own);
         resources.add(own);
         // la lata es casi blanca: con el brillo de los demás se quema; se queda mate y casi sin brillo propio
         const gl = kind === 'water' ? 0.04 : 0.22;
@@ -138,6 +146,7 @@ export class PickupField {
       };
       mesh.material = Array.isArray(mesh.material) ? mesh.material.map(clone) : clone(mesh.material);
     });
+    if (kind !== 'locker') for (const m of fuse(g, g, owned)) resources.add(m.geometry); // (la taquilla tiene la puerta aparte)
     const holder = new THREE.Group();
     holder.add(g);
     const p = at ?? this.spot(c);
