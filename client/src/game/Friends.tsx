@@ -10,6 +10,8 @@ import { MindMap } from './MindMap';
 import type { Assets } from './game';
 import Frame from './Frame';
 import './achievements.css';
+import { Gamepad2, DoorOpen, Disc, Camera, Hand, Skull, ArrowDownToLine, Lock, Spade, Sun, User, Heart, Mail, Send, Star, type LucideIcon } from 'lucide-react';
+import { ic } from './ic';
 
 /*
  * FRIENDS: la lista (tú, tus amigos y las solicitudes) con una caja para buscar a cualquiera por su nombre. Un clic en alguien abre su perfil a
@@ -19,7 +21,7 @@ import './achievements.css';
 
 const TABS = ['FRIENDS', 'REQUESTS'] as const;
 const slot = { color: 'COLOR', head: 'HEAD', back: 'BACK' } as const;
-const STAT_ICON: Record<string, string> = { games: '♣', escapes: '▲', tapes: '▣', photos: '◉', holds: '○', kills: '◆', falls: '▼', lockers: '✦', unos: '♠', monsters: '☼' };
+const STAT_ICON: Record<string, LucideIcon> = { games: Gamepad2, escapes: DoorOpen, tapes: Disc, photos: Camera, holds: Hand, kills: Skull, falls: ArrowDownToLine, lockers: Lock, unos: Spade, monsters: Sun };
 /** Una pieza que lleva puesta, girando en 3D (el color es un tinte: una muestra). */
 function Worn3D({ assets, slotKey, id }: { assets?: Assets; slotKey: 'color' | 'head' | 'back'; id: string }) {
   const [obj, setObj] = useState<THREE.Object3D>();
@@ -76,7 +78,7 @@ export function FriendsScreen({ acct, assets, onSignIn, onBack }: { acct: Accoun
     return (
       <Frame title="FRIENDS" onBack={onBack}>
         <p className="ach__sum">
-          SIGN IN TO HAVE A PROFILE AND FRIENDS ♥
+          SIGN IN TO HAVE A PROFILE AND FRIENDS <Heart {...ic} />
           <button type="button" className="br-opt" onClick={onSignIn}>SIGN IN</button>
         </p>
       </Frame>
@@ -93,8 +95,8 @@ export function FriendsScreen({ acct, assets, onSignIn, onBack }: { acct: Accoun
     </li>
   );
   const list = tab === 'FRIENDS'
-    ? [['☺ YOU', [row(me.username, me.avatar, 'YOU')]], [`♥ FRIENDS ${fr.friends.length}`, fr.friends.map((f) => row(f.username, f.avatar))]]
-    : [[`✉ RECEIVED ${fr.incoming.length}`, fr.incoming.map((f) => row(f.username, f.avatar, 'WANTS TO BE FRIENDS'))], [`➤ SENT ${fr.outgoing.length}`, fr.outgoing.map((f) => row(f.username, f.avatar, 'PENDING'))]];
+    ? [['YOU', <User {...ic} />, [row(me.username, me.avatar, 'YOU')]], ['FRIENDS ' + fr.friends.length, <Heart {...ic} />, fr.friends.map((f) => row(f.username, f.avatar))]]
+    : [['RECEIVED ' + fr.incoming.length, <Mail {...ic} />, fr.incoming.map((f) => row(f.username, f.avatar, 'WANTS TO BE FRIENDS'))], ['SENT ' + fr.outgoing.length, <Send {...ic} />, fr.outgoing.map((f) => row(f.username, f.avatar, 'PENDING'))]];
   const have = prof?.achievements ?? {};
 
   return (
@@ -106,9 +108,9 @@ export function FriendsScreen({ acct, assets, onSignIn, onBack }: { acct: Accoun
           {err && <span className="br-lobby__err" role="alert">{err}</span>}
         </form>
         <ul className="ach__list">
-          {list.map(([h, rows]) => (
+          {list.map(([h, icon, rows]) => (
             <li key={h as string} className="ach__grp">
-              <p className="ach__gh"><span>{h as string}</span></p>
+              <p className="ach__gh"><span>{icon as JSX.Element} {h as string}</span></p>
               <ul>{(rows as JSX.Element[]).length ? rows as JSX.Element[] : <li className="br-lobby__dim ach__row">NOBODY YET</li>}</ul>
             </li>
           ))}
@@ -121,11 +123,11 @@ export function FriendsScreen({ acct, assets, onSignIn, onBack }: { acct: Accoun
               <Avatar src={avatarUrl(prof?.avatar)} name={open} />
               <span>
                 <p className="ach__dn">{open}</p>
-                {prof && <p className="br-lobby__dim">JOINED {new Date(prof.joined).toLocaleDateString()}{prof.rel === 'friend' ? ' · ♥ FRIEND' : ''}</p>}
+                {prof && <p className="br-lobby__dim">JOINED {new Date(prof.joined).toLocaleDateString()}{prof.rel === 'friend' ? <> · <Heart {...ic} /> FRIEND</> : ''}</p>}
               </span>
             </span>
             <span>
-              {prof?.rel === 'none' && <button type="button" className="br-opt" onClick={() => act('add', prof.username)}>♥ ADD FRIEND</button>}
+              {prof?.rel === 'none' && <button type="button" className="br-opt" onClick={() => act('add', prof.username)}><Heart {...ic} /> ADD FRIEND</button>}
               {prof?.rel === 'incoming' && (
                 <>
                   <button type="button" className="br-opt" onClick={() => act('accept', prof.username)}>ACCEPT</button>{' '}
@@ -151,13 +153,13 @@ export function FriendsScreen({ acct, assets, onSignIn, onBack }: { acct: Accoun
               </section>
               <section className="mm-pop__info">
                 <div className="mm-pop__sum">
-                  <span><b>{Object.keys(have).length}</b>/{ACHIEVEMENTS.length} <small>★ ACHIEVEMENTS</small></span>
+                  <span><b>{Object.keys(have).length}</b>/{ACHIEVEMENTS.length} <small><Star {...ic} /> ACHIEVEMENTS</small></span>
                   <span className="ach__bar" aria-hidden="true">{'▮'.repeat(Math.round((Object.keys(have).length / ACHIEVEMENTS.length) * 20))}<span className="off">{'▮'.repeat(20 - Math.round((Object.keys(have).length / ACHIEVEMENTS.length) * 20))}</span></span>
                 </div>
                 <div className="mm-pop__stats">
                   {SHOWN.map((k) => (
                     <div key={k} data-zero={!prof.stats[k] || undefined}>
-                      <span className="mm-pop__ic" aria-hidden="true">{STAT_ICON[k]}</span>
+                      <span className="mm-pop__ic" aria-hidden="true">{(() => { const I = STAT_ICON[k]; return <I {...ic} size="1.3em" />; })()}</span>
                       <b>{prof.stats[k] ?? 0}</b>
                       <small>{STAT_LABEL[k]}</small>
                     </div>

@@ -69,9 +69,9 @@ function release() {
 export type IconKey = typeof inventoryModels[number] | 'flashlight' | 'camera' | 'gun' | 'tape' | 'spare' | 'ammo' | 'water' | 'caution' | 'radar' | 'totem' | 'watergun' | 'tank';
 
 const tries = new Map<string, number>();
-/** Guarda la captura de `k`; si falla (contexto perdido, modelo sin llegar) no se guarda y se reintenta en la próxima llamada (hasta 3 veces). */
+/** Guarda la captura de `k`; si falla (contexto perdido, modelo sin llegar) no se guarda y se reintenta en la próxima llamada (hasta 20 veces). */
 function snap(k: string, src: THREE.Object3D | undefined, spin: number, tilt: number) {
-  if (cache.has(k) || !src || (tries.get(k) ?? 0) >= 3) return;
+  if (cache.has(k) || !src || (tries.get(k) ?? 0) >= 20) return;
   try {
     cache.set(k, shoot(src, spin, tilt));
   } catch {

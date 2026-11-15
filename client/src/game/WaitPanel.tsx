@@ -4,6 +4,8 @@ import type { Sock } from '../net';
 import { avatarUrl } from '../account';
 import { Avatar } from './Account';
 import './lobby.css';
+import { CircleCheck, Circle } from 'lucide-react';
+import { ic } from './ic';
 
 /*
  * La sala de espera, encima de la sala 3D: a la derecha las plazas, cada una con su foto, su nombre y si está lista; las libres
@@ -56,10 +58,10 @@ export default function WaitPanel({ room, me, sock }: { room: RoomView; me: stri
               <span className="br-roster__role">{p.id === room.ownerId ? 'OWNER' : p.id === me ? 'YOU' : ''}</span>
               {p.id === me ? (
                 <button type="button" className="br-opt br-roster__st" onClick={toggle} aria-pressed={p.ready}>
-                  {p.ready ? '▮ READY' : '▯ NOT READY'} [R]
+                  {p.ready ? <><CircleCheck {...ic} /> READY</> : <><Circle {...ic} /> NOT READY</>} [R]
                 </button>
               ) : (
-                <span className="br-roster__st">{p.ready ? '▮ READY' : '▯ NOT READY'}</span>
+                <span className="br-roster__st">{p.ready ? <><CircleCheck {...ic} /> READY</> : <><Circle {...ic} /> NOT READY</>}</span>
               )}
             </li>
           ) : (

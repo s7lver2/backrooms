@@ -861,3 +861,4 @@
 .br-fx[data-kind="bad"] { animation: br-fx-bad 1.2s ease-in-out infinite; }
 @keyframes br-fx-bad { 50% { box-shadow: inset 0 0 14px #ff6b5e99, 0 0 10px #ff6b5e55; } }
 @media (prefers-reduced-motion: reduce) { .br-fx[data-kind="bad"] { animation: none; } }
+.ic { vertical-align: -0.14em; flex: none; }

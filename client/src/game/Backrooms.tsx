@@ -40,6 +40,8 @@ import LockerGame from './LockerGame';
 import Dialogue from './Dialogue';
 import EmoteWheel from './EmoteWheel';
 import { emoteGate, refreshEmotes } from './emotes';
+import { Circle, Pause } from 'lucide-react';
+import { ic } from './ic';
 
 /*
  * El caparazón del juego de las backrooms: la carga de los 90 (letra blanca, barra de bloques), el
@@ -159,7 +161,7 @@ function Osd({ hud }: { hud: Hud }) {
   return (
     <div className="br-osd" aria-live="off">
       <p className="br-osd__tl">
-        <span className="br-osd__rec">● REC</span> {two(t / 3600)}:{two((t / 60) % 60)}:{two(t % 60)}
+        <span className="br-osd__rec"><Circle {...ic} fill="currentColor" /> REC</span> {two(t / 3600)}:{two((t / 60) % 60)}:{two(t % 60)}
       </p>
       <p className="br-osd__tr" aria-label={`battery ${Math.round(hud.battery * 100)}%`}>
         {'▮'.repeat(bars)}
@@ -846,7 +848,7 @@ export default function Backrooms({ onQuit, onWin }: { onQuit: () => void; onWin
           <ServerNotice server={server} />
           {acct.expired && (
             <p className="br-notice" role="alert" data-bad>
-              ● SESSION EXPIRED · SIGN IN AGAIN
+              <Circle {...ic} fill="currentColor" /> SESSION EXPIRED · SIGN IN AGAIN
             </p>
           )}
           <ul>
@@ -992,7 +994,7 @@ export default function Backrooms({ onQuit, onWin }: { onQuit: () => void; onWin
       {screen === 'waitpause' && (
         <div className="br-pause" role="dialog" aria-labelledby="br-pause-t">
           <p className="br-pause__head" id="br-pause-t">
-            PAUSE <span aria-hidden="true">❚❚</span>
+            PAUSE <Pause {...ic} fill="currentColor" />
           </p>
           <ul>
             <li>
@@ -1030,7 +1032,7 @@ export default function Backrooms({ onQuit, onWin }: { onQuit: () => void; onWin
       {screen === 'play' && hud?.spectating != null && (
         <div className="br-spectate" role="status">
           <p className="br-spectate__rec">
-            <span aria-hidden="true">●</span> SPECTATING · {hud.specView === 'chase' ? 'CHASE CAM' : hud.specView === 'free' ? 'FREE CAM' : 'POV'}
+            <Circle {...ic} fill="currentColor" /> SPECTATING · {hud.specView === 'chase' ? 'CHASE CAM' : hud.specView === 'free' ? 'FREE CAM' : 'POV'}
           </p>
           <ul className="br-spectate__list">
             {hud.watchList?.map((w, i) => (
@@ -1167,7 +1169,7 @@ export default function Backrooms({ onQuit, onWin }: { onQuit: () => void; onWin
       {screen === 'pause' && (
         <div className="br-pause" role="dialog" aria-labelledby="br-pause-t">
           <p className="br-pause__head" id="br-pause-t">
-            PAUSE <span aria-hidden="true">❚❚</span>
+            PAUSE <Pause {...ic} fill="currentColor" />
           </p>
           <ul>
             <li>

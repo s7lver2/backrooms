@@ -2,6 +2,8 @@ import { useEffect, useState, type ReactNode } from 'react';
 import Frame from './Frame';
 import { Crosshair } from './Crosshair';
 import { DEFAULTS, FPS_CAPS, PRESETS, applyPreset, presetOf, setSetting, useSettings, type Settings } from '../settings';
+import { Circle } from 'lucide-react';
+import { ic } from './ic';
 
 /*
  * SETTINGS: una pestaña por bloque (audio, controles, imagen, accesibilidad) a todo el ancho y en dos columnas: a la izquierda
@@ -131,7 +133,7 @@ function Monitor({ s, id }: { s: Settings; id: string }) {
         {s.crosshair && <circle cx="120" cy="90" r="2.4" fill="#f2f1ea" stroke="#000" />}
       </svg>
       <div className="br-mon__osd">
-        <span className="br-mon__rec">● REC</span>
+        <span className="br-mon__rec"><Circle {...ic} fill="currentColor" /> REC</span>
         {s.fps && <span>{cap || 60} FPS</span>}
       </div>
       {id === 'warmup' && <p className="br-mon__foot">LOAD {'▮'.repeat(s.warmup + 1)}<span className="br-lobby__dim">{'▮'.repeat(2 - s.warmup)}</span> · HITCH {'▮'.repeat(2 - s.warmup)}<span className="br-lobby__dim">{'▮'.repeat(s.warmup + 1)}</span></p>}

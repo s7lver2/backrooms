@@ -1,4 +1,6 @@
 import { useEffect, useState } from 'react';
+import { Square, Play } from 'lucide-react';
+import { ic } from './ic';
 
 /*
  * La pantalla de carga entre pantallas (menú → salas, salas → sala de espera): el OSD de un vídeo que acaba de
@@ -42,7 +44,7 @@ export default function Loading({ title, steps }: { title: string; steps: Step[]
     <div className="br-ld" role="progressbar" aria-label={title} aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(f * 100)}>
       <i className="br-ld__track" aria-hidden="true" />
       <p className="br-ld__tl" aria-hidden="true">
-        {sec < 1 ? '◼ INSERTING' : '▶ PLAY'}
+        {sec < 1 ? <><Square {...ic} fill="currentColor" /> INSERTING</> : <><Play {...ic} fill="currentColor" /> PLAY</>}
       </p>
       <p className="br-ld__tr" aria-hidden="true">
         SP {clock(sec)}

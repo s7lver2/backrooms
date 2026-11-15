@@ -1,6 +1,8 @@
 import { useEffect, useState } from 'react';
 import { ACHIEVEMENTS, EMOTE_DEFS, EMOTE_SLOTS, emoteOpen } from '@backrooms/shared';
 import { emoteGate, onEmotes, previewEmote, setVictory, toggleEmote } from './emotes';
+import { Star } from 'lucide-react';
+import { ic } from './ic';
 
 /*
  * El armario, parte de los bailes: de todos los emotes solo se llevan EMOTE_SLOTS equipados (los de la rueda B y las teclas 1–5) y uno de ellos es la
@@ -17,7 +19,7 @@ export default function EmoteLoadout() {
     <div className="br-ward__row">
       <p className="br-ward__h">
         <span>EMOTES · CLICK TO PREVIEW</span>
-        <span className="br-lobby__dim">{eq.length}/{EMOTE_SLOTS} EQUIPPED · ★ = VICTORY POSE</span>
+        <span className="br-lobby__dim">{eq.length}/{EMOTE_SLOTS} EQUIPPED · <Star {...ic} /> = VICTORY POSE</span>
       </p>
       <div className="br-boxes br-emotes" role="group" aria-label="Emotes">
         {EMOTE_DEFS.map((d, i) => {
@@ -37,7 +39,7 @@ export default function EmoteLoadout() {
               </button>
               {on && (
                 <button type="button" className="br-emo__s" aria-pressed={win} aria-label={`Victory pose: ${d.name}`} title="Victory pose" onClick={() => setVictory(n)}>
-                  {win ? '★' : '☆'}
+                  <Star {...ic} fill={win ? 'currentColor' : 'none'} />
                 </button>
               )}
             </span>

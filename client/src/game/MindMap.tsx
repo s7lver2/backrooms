@@ -1,5 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type PointerEvent as RPE, type ReactNode, type WheelEvent as RWE } from 'react';
 import { ACHIEVEMENTS, BRANCHES, COSMETICS, EMOTE_DEFS, STAT_LABEL, type AchievementDef, type StatKey } from '@backrooms/shared';
+import { DoorOpen, Package, Heart, Swords, Waves, type LucideIcon } from 'lucide-react';
+import { ic } from './ic';
 
 /*
  * Los logros como mapa mental: en el centro, el jugador; de él salen las ramas (ESCAPE, COLLECT…) y de cada rama, sus logros encadenados
@@ -8,7 +10,8 @@ import { ACHIEVEMENTS, BRANCHES, COSMETICS, EMOTE_DEFS, STAT_LABEL, type Achieve
  * propio o de un amigo) los nodos solo se ven.
  */
 
-const GLYPH: Record<string, string> = { ESCAPE: '▲', COLLECT: '▣', SURVIVE: '♥', COMBAT: '◆', DEPTHS: '≋' };
+const GLYPH: Record<string, LucideIcon> = { ESCAPE: DoorOpen, COLLECT: Package, SURVIVE: Heart, COMBAT: Swords, DEPTHS: Waves };
+const Glyph = ({ b }: { b: string }) => { const I = GLYPH[b] ?? Package; return <I {...ic} />; };
 const R = [0.12, 0.23, 0.33, 0.42]; // radio (0–1 del mapa) de la etiqueta de la rama y de cada nivel de logros
 const slot = { color: 'COLOR', head: 'HEAD', back: 'BACK' } as const;
 
@@ -120,7 +123,7 @@ export function MindMap({ name, center, have, stats, rarity, dim, panel }: { nam
           </div>
           {BRANCHES.map((b) => (
             <span key={b} className="mm__branch" data-off={off(b) || undefined} style={{ left: `${L.lab[b].x}%`, top: `${L.lab[b].y}%` }}>
-              {GLYPH[b]} {b}
+              <Glyph b={b} /> {b}
               <small>{ACHIEVEMENTS.filter((a) => a.branch === b && a.key in have).length}/{ACHIEVEMENTS.filter((a) => a.branch === b).length}</small>
             </span>
           ))}
@@ -137,7 +140,7 @@ export function MindMap({ name, center, have, stats, rarity, dim, panel }: { nam
               style={{ left: `${L.pos[a.key].x}%`, top: `${L.pos[a.key].y}%` }}
               onClick={() => panel && setSel(a.key)}
             >
-              <b aria-hidden="true">{GLYPH[a.branch]}</b>
+              <b aria-hidden="true"><Glyph b={a.branch} /></b>
               <span>{a.name}</span>
             </button>
           ))}

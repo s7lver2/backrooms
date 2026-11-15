@@ -6,6 +6,8 @@ import { netStats } from '../net';
 import { copyText, errClear, errList, errReport, errSubscribe, errTotal, errVersion } from '../errlog';
 import { dlogClear, dlogLines, dlogSubscribe, dlogVersion } from '../dlog';
 import './admin.css';
+import { Circle, Star } from 'lucide-react';
+import { ic } from './ic';
 
 /*
  * Consola de admin (tecla ` o F9). OJO: que se vea es solo cosmético (Me.admin de /api/me); el servidor vuelve a comprobar la cuenta en
@@ -224,7 +226,7 @@ export default function AdminConsole({ game, sock, room, me, onVictory }: Props)
   return (
     <div ref={box} className="br-adm" role="dialog" aria-label="Admin console" style={at ? { left: at.x, top: at.y, right: 'auto' } : undefined} onContextMenu={(e) => e.stopPropagation()}>
       <header className="br-adm__h" onPointerDown={drag} title="Drag to move">
-        <span>● ADMIN{nErr > 0 && <b className="br-adm__err"> · {nErr} RENDER ERR</b>}</span>
+        <span><Circle {...ic} fill="currentColor" /> ADMIN{nErr > 0 && <b className="br-adm__err"> · {nErr} RENDER ERR</b>}</span>
         <span className="br-adm__dim">{inRoom ? `ROOM ${room!.code}` : 'SOLO'} · DRAG HERE · ` / F9 / ESC CLOSE</span>
       </header>
       <div className="br-adm__row">
@@ -260,7 +262,7 @@ export default function AdminConsole({ game, sock, room, me, onVictory }: Props)
           <section>
             <h3>STATE</h3>
             <div className="br-adm__row">
-              <B wide on={godMode} run={flipGodMode}>★ GOD MODE</B>
+              <B wide on={godMode} run={flipGodMode}><Star {...ic} /> GOD MODE</B>
               <B run={() => (inRoom ? send({ a: 'heal', t }) : solo1('heal'))}>FULL HEAL</B>
               <B run={() => (inRoom ? send({ a: 'kill', t }) : solo1('kill'))}>KILL</B>
               {inRoom && <B run={() => send({ a: 'revive', t })}>REVIVE</B>}

@@ -2,6 +2,8 @@ import { useEffect, useState, type ReactNode } from 'react';
 import { unlocks } from '../account';
 import { DIFFICULTY, MAX_PLAYERS, ROOM_NAME_MAX, type Difficulty, type RoomSettings, type RoomView } from '@backrooms/shared';
 import type { Sock } from '../net';
+import { ChevronLeft, ChevronRight } from 'lucide-react';
+import { ic } from './ic';
 
 /*
  * Los ajustes de una sala (nombre, visibilidad, jugadores, semilla y dificultad), como filas de etiqueta y
@@ -36,14 +38,14 @@ export default function RoomSettingsPanel({ room, me, sock }: { room: RoomView; 
       <Setting label="VISIBILITY">
         {owner ? (
           <button type="button" className="br-opt" onClick={() => set({ public: !room.public })}>
-            ◀ {room.public ? 'PUBLIC' : 'PRIVATE'} ▶
+            <ChevronLeft {...ic} /> {room.public ? 'PUBLIC' : 'PRIVATE'} <ChevronRight {...ic} />
           </button>
         ) : room.public ? 'PUBLIC' : 'PRIVATE'}
       </Setting>
       <Setting label="PLAYERS">
         {owner ? (
           <button type="button" className="br-opt" onClick={() => set({ max: room.max >= MAX_PLAYERS ? Math.max(2, room.players.length) : room.max + 1 })}>
-            ◀ {room.max} ▶
+            <ChevronLeft {...ic} /> {room.max} <ChevronRight {...ic} />
           </button>
         ) : room.max}
       </Setting>
@@ -66,7 +68,7 @@ export default function RoomSettingsPanel({ room, me, sock }: { room: RoomView; 
       <Setting label="DIFFICULTY">
         {owner ? (
           <button type="button" className="br-opt" onClick={() => set({ difficulty: diffs[(diffs.indexOf(room.difficulty) + 1) % diffs.length] })}>
-            ◀ {DIFF[room.difficulty]} ▶
+            <ChevronLeft {...ic} /> {DIFF[room.difficulty]} <ChevronRight {...ic} />
           </button>
         ) : DIFF[room.difficulty]}
         <small className="br-lobby__dim"> MONEY x{DIFFICULTY[room.difficulty].money} · LOOT {Math.round(DIFFICULTY[room.difficulty].loot * 100)}% · {DIFFICULTY[room.difficulty].ents} ENT</small>

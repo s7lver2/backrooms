@@ -3,6 +3,8 @@ import { DIFFICULTY, NAME_MAX, type Difficulty, type Joined, type RoomInfo, type
 import type { Net, Link, Server } from '../net';
 import { DIFF } from './RoomSettings';
 import { getFriends } from '../account';
+import { CircleAlert, Star } from 'lucide-react';
+import { ic } from './ic';
 
 /*
  * La lista de salas, como cintas de vídeo: cada sala es una cinta (TAPE 031). Mismo OSD de los 90 que el
@@ -27,19 +29,19 @@ export function ServerNotice({ server }: { server: Server }) {
   if (server.state === 'maintenance')
     return (
       <p className="br-notice" role="status" data-bad>
-        ● SERVERS UNDER MAINTENANCE{msg}
+        <CircleAlert {...ic} /> SERVERS UNDER MAINTENANCE{msg}
       </p>
     );
   if (server.state === 'down')
     return (
       <p className="br-notice" role="status" data-bad>
-        ● SERVER NOT RESPONDING · YOU CAN PLAY SOLO
+        <CircleAlert {...ic} /> SERVER NOT RESPONDING · YOU CAN PLAY SOLO
       </p>
     );
   if (server.at)
     return (
       <p className="br-notice" role="status">
-        ● SCHEDULED MAINTENANCE · {when}
+        <CircleAlert {...ic} /> SCHEDULED MAINTENANCE · {when}
         {msg}
       </p>
     );
@@ -190,7 +192,7 @@ export default function Lobby({ net, onSolo, server, error, account, nightmare }
                 <button type="button" className="br-rooms__row" data-i={i} aria-selected={i === sel} disabled={!ok} onMouseEnter={() => setSel(i)} onFocus={() => setSel(i)} onClick={() => join(r.code)}>
                   <span>{tape(r.tape)}</span>
                   <span className="br-tape__name">{r.name}</span>
-                  <span className="br-rooms__dim">{r.owner || '—'}{withFriends(r).length > 0 && <b title={withFriends(r).join(', ')}> ★ {withFriends(r).join(', ')}</b>}</span>
+                  <span className="br-rooms__dim">{r.owner || '—'}{withFriends(r).length > 0 && <b title={withFriends(r).join(', ')}> <Star {...ic} /> {withFriends(r).join(', ')}</b>}</span>
                   <span>
                     {DIFF[r.difficulty]}
                     {r.seeded && ' ·S'}
