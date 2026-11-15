@@ -49,7 +49,7 @@ const SECTIONS = {
     { id: 'invertY', label: 'INVERT Y', desc: 'Mouse up looks down', long: 'Flips the vertical look: pushing the mouse forward looks down, like a flight stick.', flag: 'invertY' },
   ],
   VIDEO: [
-    { id: 'preset', label: 'PRESET', desc: 'One switch for the graphics', long: 'Sets every graphics option at once, from POTATO (anything to make it run) to HIGH. Touch one by hand and it reads CUSTOM.', preset: true },
+    { id: 'preset', label: 'PRESET', desc: 'One switch for the graphics', long: 'Sets every graphics option at once, from POTATO (anything to make it run) to HIGH, including the overall profile that drops shadows and glow on weak machines. Touch one by hand and it reads CUSTOM.', preset: true },
     { id: 'fullscreen', label: 'FULLSCREEN', desc: 'Fill the whole screen', long: 'Esc leaves fullscreen and pauses the game.', flag: 'fullscreen' },
     { id: 'brightness', label: 'BRIGHTNESS', desc: 'Lift or darken the picture', long: 'The Backrooms are meant to be dim: raise it only if you cannot see.', num: { k: 'brightness', min: 0.6, max: 1.6, step: 0.05, unit: '%', scale: 100 } },
     { id: 'ui', label: 'UI SIZE', desc: 'Size of menus and HUD', long: 'Scales the whole interface, independent of the browser zoom.', num: { k: 'ui', min: 0.7, max: 1.5, step: 0.05, unit: '%', scale: 100 } },
@@ -57,7 +57,6 @@ const SECTIONS = {
     { id: 'vhs', label: 'VHS EFFECT', desc: 'Tape noise, bleed and tracking', long: 'How much tape shows in the picture. A corrupted tape always shows.', num: pct('vhs') },
     { id: 'crosshair', label: 'CROSSHAIR', desc: 'A dot at the centre', long: 'Shows where you are looking. It hides when you aim.', flag: 'crosshair' },
     { id: 'fps', label: 'SHOW FPS', desc: 'A frame counter, top right', long: 'Frames per second, on every screen.', flag: 'fps' },
-    { id: 'quality', label: 'GRAPHICS', desc: 'The overall profile', long: 'LOW drops shadows, glow and effects and draws at 60% resolution. AUTO picks LOW on phones and tablets.', num: { k: 'quality', min: 0, max: 2, step: 1, unit: '', scale: 1, labels: lab('quality') } },
     { id: 'resScale', label: 'RESOLUTION SCALE', desc: 'Lower is faster', long: 'Fewer pixels, softer picture, more frames. The best single fix for a weak graphics card.', num: { k: 'resScale', min: 0.35, max: 1, step: 0.05, unit: '%', scale: 100 } },
     { id: 'fpsLimit', label: 'FPS LIMIT', desc: 'Cap the frame rate', long: 'A lower cap keeps a slow computer steady and a laptop cool.', num: { k: 'fpsLimit', min: 0, max: 3, step: 1, unit: '', scale: 1, labels: lab('fpsLimit') } },
     { id: 'shadows', label: 'SHADOWS', desc: 'Flashlight and sun shadows', long: 'OFF is the biggest saving on a slow graphics card.', num: { k: 'shadows', min: 0, max: 2, step: 1, unit: '', scale: 1, labels: lab('shadows') } },
@@ -177,7 +176,6 @@ function Caption({ row, s, muted }: { row: Row; s: Settings; muted: boolean }): 
     case 'ui':
     case 'brightness':
       return <p className="br-big">{Math.round(s[row.id] * 100)}%</p>;
-    case 'quality':
     case 'shadows':
     case 'texFilter':
     case 'fpsLimit':
@@ -236,7 +234,7 @@ export default function SettingsPane({ muted, toggleSound, onBack }: { muted: bo
   const rows: Row[] = SECTIONS[tab];
   const row = rows.find((r) => r.id === pick[tab]) ?? rows[0];
   const pi = presetOf(s), pv = pi < 0 ? PRESETS.length : pi; // (el último paso de la barra es CUSTOM)
-  const keys = rows.flatMap((r) => (r.num ? [r.num.k] : r.flag && r.flag !== 'mute' && r.flag !== 'fullscreen' ? [r.flag] : []));
+  const keys = (tab === 'VIDEO' ? ['quality' as keyof Settings] : []).concat(rows.flatMap((r) => (r.num ? [r.num.k] : r.flag && r.flag !== 'mute' && r.flag !== 'fullscreen' ? [r.flag] : [])));
   const reset = (ks: (keyof Settings)[]) => ks.forEach((k) => setSetting(k, DEFAULTS[k] as never));
 
   return (

@@ -263,7 +263,7 @@ export default function Lobby({ net, onSolo, server, error, account, nightmare }
             <button type="button" className="br-opt" autoFocus onClick={() => setPick(null)}>CANCEL</button>
           </p>
           <p className="br-lobby__dim br-board__sub">HARDER = MORE MONEY, LESS LOOT, MORE ENTITIES. THE OWNER CAN CHANGE IT LATER.</p>
-          <ul className="br-board__grid">
+          <ul className="br-board__grid br-board__grid--diff">
             {(Object.keys(DIFFICULTY) as Difficulty[]).map((d, i) => {
               const D = DIFFICULTY[d], locked = d === 'nightmare' && !nightmare;
               return (
@@ -273,6 +273,12 @@ export default function Lobby({ net, onSolo, server, error, account, nightmare }
                       <span className="br-lobby__dim">{String(i + 1).padStart(2, '0')}</span>
                       <span className="br-tile__tag">{d === 'normal' ? 'DEFAULT' : ''}</span>
                     </span>
+                    {locked && (
+                      <span className="br-chain" aria-hidden="true">
+                        <i /><i />
+                        <svg viewBox="0 0 24 24"><path d="M7 11V8a5 5 0 0 1 10 0v3" /><rect x="4.5" y="11" width="15" height="10" rx="1.5" /><circle cx="12" cy="16" r="1.4" /></svg>
+                      </span>
+                    )}
                     <b className="br-tile__t">{DIFF[d]}</b>
                     <span className="br-tile__pay"><span className="br-lobby__dim">MONEY</span> x{D.money}</span>
                     <span className="br-tile__votes" style={{ flexDirection: 'column', alignItems: 'flex-start' }}>
