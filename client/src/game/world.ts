@@ -1179,6 +1179,7 @@ export class World implements Terrain {
           m.receiveShadow = true;
           m.castShadow = mat === rail;
           this.root.add(m);
+          this.farObjs.push({ o: m, x: c.x, z: 6 }); // (el hueco de la escalera, de un lado a otro del hotel: solo se dibuja cerca)
         }
         this.stairs.push({ xl: c.x - HW, xm0: c.x - 0.75, xm1: c.x + 0.75, xr: c.x + HW, z0: 1.5, z1: 10.5, ZT, Z0, RISE, H1, TOP, y0, LV });
       }
@@ -1371,13 +1372,13 @@ export class World implements Terrain {
         f(g);
         this.root.add(g);
       };
+      const sconces: THREE.Matrix4[] = [];
       for (let x = 0; x < cw; x++) {
-        if (x % 8 === 4) for (const row of [8, 9]) wallAt(x, row, (g) => {
-          const plate = new THREE.Mesh(plateG, brass), arm = new THREE.Mesh(armG, brass), shade = new THREE.Mesh(shadeG, glow);
-          shade.material.side = THREE.DoubleSide;
-          g.add(plate, arm, shade);
-          g.children.forEach((o) => (o.position.y += 1.85));
-        });
+        if (x % 8 === 4) for (const row of [8, 9]) {
+          // (el aplique: placa, brazo y pantalla; las tres piezas de todos, instanciadas: un dibujo por pieza en todo el pasillo)
+          const south = row === 9, c = center({ x, y: row });
+          sconces.push(new THREE.Matrix4().compose(new THREE.Vector3(c.x, 1.85, c.z + (south ? CELL / 2 - 0.03 : -(CELL / 2 - 0.03))), new THREE.Quaternion().setFromAxisAngle(UP, south ? Math.PI : 0), new THREE.Vector3(1, 1, 1)));
+        }
         if (x % SUITE_L === 8) wallAt(x, 8, (g) => {
           const sign = assets.gltf.exit.scene.clone(true);
           sign.scale.setScalar(2.2);
@@ -1386,6 +1387,10 @@ export class World implements Terrain {
           g.add(sign);
         });
       }
+      glow.side = THREE.DoubleSide;
+      inst(plateG, brass, sconces);
+      inst(armG, brass, sconces);
+      inst(shadeG, glow, sconces);
     }
 
     // el aire del hotel: el resplandor de cada aplique (un halo y la luz que sube por la pared) y motas de polvo a la luz
@@ -1400,11 +1405,14 @@ export class World implements Terrain {
       const glowMat = (map: THREE.Texture) => new THREE.MeshBasicMaterial({ map, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, opacity: 0.8 });
       const halo = glowMat(rad([[0, 'rgba(255,214,140,0.9)'], [0.25, 'rgba(255,190,110,0.35)'], [1, 'rgba(255,170,90,0)']])), wash = glowMat(rad([[0, 'rgba(255,200,120,0.55)'], [1, 'rgba(255,160,80,0)']]));
       const haloG = new THREE.PlaneGeometry(0.7, 0.7), washG = new THREE.PlaneGeometry(1.5, 2.4).translate(0, 0.9, 0);
+      const haloMs: THREE.Matrix4[] = [], washMs: THREE.Matrix4[] = [], one = new THREE.Vector3(1, 1, 1);
       for (let x = 4; x < cw; x += 8)
         for (const row of [8, 9]) {
-          const south = row === 9, c = center({ x, y: row }), z = c.z + (south ? CELL / 2 - 0.012 : -(CELL / 2 - 0.012)), hh = new THREE.Mesh(haloG, halo), ww = new THREE.Mesh(washG, wash);
-          for (const o of [hh, ww]) (o.position.set(c.x, o === hh ? 1.9 : 1.35, z), (o.rotation.y = south ? Math.PI : 0), (o.renderOrder = 3), this.root.add(o));
+          const south = row === 9, c = center({ x, y: row }), z = c.z + (south ? CELL / 2 - 0.012 : -(CELL / 2 - 0.012)), q = new THREE.Quaternion().setFromAxisAngle(UP, south ? Math.PI : 0);
+          haloMs.push(new THREE.Matrix4().compose(new THREE.Vector3(c.x, 1.9, z), q, one));
+          washMs.push(new THREE.Matrix4().compose(new THREE.Vector3(c.x, 1.35, z), q, one));
         }
+      for (const im of [inst(haloG, halo, haloMs), inst(washG, wash, washMs)]) im.renderOrder = 3; // (instanciados: dos dibujos para todos los halos del pasillo)
       // la luz del techo, de cornisa: dos tiras cálidas continuas en las esquinas del techo, que bañan el techo y la parte alta de las paredes
       const ramp = (a: number) => {
         const c = Object.assign(document.createElement('canvas'), { width: 4, height: 128 }), x = c.getContext('2d')!, gr = x.createLinearGradient(0, 0, 0, 128);
@@ -1713,6 +1721,7 @@ export class World implements Terrain {
   /** Objetos sueltos de una habitación (el botín): se ocultan con su puerta cerrada, como las mallas instanciadas de la habitación. */
   private roomObjs: { o: THREE.Object3D; r: number[]; x: number; z: number }[] = [];
   /** Lo que cuelga de otro nivel de la escalera (las puertas de cada planta): solo se dibuja si estás a su altura. */
+  private farObjs: { o: THREE.Object3D; x: number; z: number }[] = [];
   private levelObjs: { o: THREE.Object3D; y: number; x: number; z: number }[] = [];
   /** Registra un objeto que está dentro de una habitación del hotel (por su sitio) para que no se dibuje con la puerta cerrada. */
   cullRoom(o: THREE.Object3D, x: number, z: number) {
@@ -1745,6 +1754,7 @@ export class World implements Terrain {
         const d = Math.hypot(q.x - v.x, q.z - v.z), inside = v.x > q.r[0] * 6 + 1.3 && v.x < q.r[0] * 6 + 6.2 && (q.r[1] ? v.z < 12.2 : v.z > 14.8);
         q.o.visible = d < PROP_FAR && (inside || ((this.roomDoor?.get((q.r[1] ? 7 : 10) * this.maze.w + q.r[0] * 4 + 2)?.cur ?? 0) > 0.02 && d < 14));
       }
+      for (const q of this.farObjs) q.o.visible = Math.hypot(q.x - v.x, q.z - v.z) < 36;
       for (const q of this.levelObjs) q.o.visible = Math.abs(v.y - q.y) < 4.6 && Math.hypot(q.x - v.x, q.z - v.z) < 30;
     }
     this.cab.update(dt);

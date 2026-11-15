@@ -165,6 +165,7 @@ export class Vents {
   /** Dibuja lo de abajo solo si el jugador está allí (o si se mira por una cámara, que puede ver los conductos). */
   gate(z: number, force: boolean, at: THREE.Vector3) {
     this.near(at);
+    if (!force) for (const h of this.heads) h.visible = Math.hypot(h.position.x - at.x, h.position.z - at.z) < 26; // (las cámaras de más allá, no se dibujan)
     const on = force || z > DEEP_Z - 3;
     if (on === this.deepOn) return;
     this.deepOn = on;
