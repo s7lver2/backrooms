@@ -1304,7 +1304,9 @@ export class BackroomsGame {
     const pc = this.camUse >= 0 ? { ...c, move: _none, look: _none, run: false, jump: false, crouch: true, fire: false, grab: false, flash: false, swap: false, slot: -1, wheel: 0, use: false, aim: false, zoom: 0 } : duct ? { ...c, crouch: true, run: false, jump: false } : c;
     if (pp) (pp.duckMin = duct ? 0.9 : 0), (pp.maxEye = Infinity), (pp.camFwd = duct ? 0.22 : 0);
     const nr = duct ? 0.025 : 0.05; // (pegado a la pared del conducto, la cámara quedaba a 2 cm del muro: se veía a su través)
-    if (this.camera.near !== nr) (this.camera.near = nr), this.camera.updateProjectionMatrix(); // (en el conducto, agachado casi al paso de andar y con la vista adelantada: el pecho no se mete en la cámara)
+    // (la niebla lo borra todo pasados 19 m: en el pasillo del hotel no se dibuja lo de más allá de 32; en el vestíbulo, con la cúpula, ni en las cámaras, todo)
+    const far = this.caps.hotel && pp && this.camUse < 0 && pp.pos.x < 3 * SUITE_L * CELL - 3 ? 32 : 60;
+    if (this.camera.near !== nr || this.camera.far !== far) (this.camera.near = nr), (this.camera.far = far), this.camera.updateProjectionMatrix(); // (en el conducto, agachado casi al paso de andar y con la vista adelantada: el pecho no se mete en la cámara)
     if (!this.spectating || this.player?.dead) this.player?.update(dt, pc);
     this.camPlace(dt);
     if (this.player) this.world?.vents?.gate(this.player.pos.z, this.camUse >= 0, this.camera.position);

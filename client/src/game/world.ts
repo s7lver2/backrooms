@@ -583,8 +583,20 @@ export class World implements Terrain {
       // el reflejo (22 % de opacidad) repinta todo el mundo: cada tercer fotograma basta (la textura y su matriz se quedan juntas, así que no «nada» al girar)
       const paint = this.rf.onBeforeRender;
       let tick = 0;
+      const root = this.root, keep = new Set<THREE.Material>([wallMat, ceilMat, panelMat, floorMat]);
       this.rf.onBeforeRender = function (this: THREE.Object3D, ...a: Parameters<typeof paint>) {
-        if (tick++ % 3 === 0) paint.apply(this, a);
+        if (tick++ % 3) return;
+        // el reflejo, solo de lo cercano (a 22 % de opacidad, lo lejano no se nota): el plano lejano de la cámara baja a 14 m mientras se pinta
+        // y solo de lo que da forma al pasillo (paredes, techo, paneles): puertas, muebles y gente fuera de la pasada del reflejo
+        const cam = a[2] as THREE.PerspectiveCamera, far = cam.far, hid: THREE.Object3D[] = [];
+        root.traverse((o) => {
+          const m = (o as THREE.Mesh).material as THREE.Material | undefined;
+          if (o.visible && (o as THREE.Mesh).isMesh && !keep.has(m as THREE.Material) && o !== this) (o.visible = false), hid.push(o);
+        });
+        (cam.far = 14), cam.updateProjectionMatrix();
+        paint.apply(this, a);
+        (cam.far = far), cam.updateProjectionMatrix();
+        for (const o of hid) o.visible = true;
       };
       const rmat = this.rf.material as THREE.ShaderMaterial;
       rmat.transparent = true;
