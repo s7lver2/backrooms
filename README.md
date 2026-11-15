@@ -13,6 +13,53 @@ python tools/build.py --check    # typecheck
 python tools/build.py --build    # production client build
 ```
 
+## Working here (read this first, agents and humans)
+
+**Owner rules (they override defaults).** Simplest solution that works (no new dependency unless it clearly pays for itself). **No tests** unless asked. **One commit per finished feature**, no intermediate commits, **never push** unless told. Code comments in Spanish, in-game text English UPPERCASE, UI replies to the owner in Spanish. Design tasks: propose 2-3 directions before building; no generic "AI slop" UI. At most 2 subagents at once. Do not open the browser for routine checks, only to reproduce or verify something visual. Commit trailer: `Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>`. Never `git checkout`/`reset` files you did not change: the owner or another agent may be editing at the same time.
+
+**Stack.** TypeScript everywhere. Client: Vite 7, React 18 (UI only; the game itself is plain three.js 0.160 with `WebGLRenderer` + `EffectComposer`: bloom, film, VHS), gsap, socket.io-client. Server: Node 22 + Express + Socket.IO + better-sqlite3 + JWT. `shared/`: pure, seeded logic (maps, missions, entity sim `EntitySim`) that runs identically on client and server. Windows 11 is the dev machine (use PowerShell/Git Bash syntax accordingly).
+
+**Commands.**
+
+```
+python tools/build.py --check    # typecheck client + server (= npm run typecheck); must pass before any commit
+npm run lint                     # Biome linter (formatter is OFF on purpose; ~140 old warnings, do not "fix them all")
+npm run check:glb                # audit every .glb (materials, bones, textures, height); informative, never blocks
+python tools/pack_glb.py --max 512   # compress a model before adding it (credit it in client/public/models/CREDITS.md)
+```
+
+**Git hooks.** `npm install` runs `lefthook install`: pre-commit runs `tools/check_staged_files.py` (rejects ignored files and plain blobs > 5 MiB), `biome lint --staged` and the typecheck. Never use `--no-verify`; fix what blocks. Do not also set `core.hooksPath` (it would bypass lefthook). Models and textures are Git LFS: `git lfs install && git lfs pull`.
+
+**Dev routes (only on `localhost` with the Vite dev server, see `client/src/devGate.ts`; they vanish in production builds).** `window.__game` is the live game in the console.
+
+| URL | What it does |
+|---|---|
+| `/?suites&god&seed=944362207` | straight into Las Suites (level -20), solo, god mode, fixed seed (the usual perf/test route) |
+| `/?pool` , `/?poolmap` , `/?parking` , `/?runlevel` | Poolrooms, its map, Habitable Zone preview, "Run for your life" |
+| `/?seed=N` | fixed maze seed (solo) |
+| `/?debug` | live tuning panel (lil-gui): hemisphere/flashlight light, fog, bloom, VHS, "copy JSON" (`client/src/game/debugPanel.ts`) |
+| `/?mapviewer&seed=N&level=level0\|suites\|poolrooms[&floor=N]` | 2D view of the generated map (`client/src/dev/MapViewer`) |
+| `/?anim` | animation/IK studio (see [ANIMATION.md](docs/ANIMATION.md)) |
+| `/?terms` | shows the terms-of-service screen (skipped in local dev otherwise) |
+| `&low` | force low quality |
+
+In the in-app browser: give the pane a viewport first (a hidden/0-size canvas makes the game fail to load), and the game pauses on focus loss (`__game.paused = false`). Console helpers: `__game.adminDiag()` (GPU, canvas, counters), `__game.stateHash()` (map/entity hashes), `__game.adminInfo()`.
+
+**Terms and error reports.** `client/src/Terms.tsx` shows the terms of service before the game; acceptance is stored in `localStorage` (`br-consent`, versioned by `TERMS_VERSION` in `consent.ts`: bump it when the text changes). Error reports are a separate optional checkbox. `client/src/telemetry.ts` sends them to GlitchTip (Sentry-compatible) **only** if `VITE_SENTRY_DSN` is set in `client/.env` and the player opted in; no PII, no breadcrumbs, context = level/floor/seed/position (`Game.crashContext()`). The legal text is a base draft: have it reviewed before publishing.
+
+**Performance: what you must know.** The game is **CPU-bound by draw-call submission** (~26 us per draw, ~6 GL calls each), not by GPU or resolution. Level -20 (Las Suites) is the hardest case; the target is 120-180 fps and ~150-200 draw calls (it was ~876 in the lobby, now ~330). Measure draw calls (`renderer.info.render.calls`) before and after any render change. Techniques already in place and **not to be undone** are listed with reasons in [DECISIONES.md](docs/DECISIONES.md): mesh fusing per material (`fuse.ts`), `InstancedMesh` for repeated decor, room/distance culling (`cullRoom`, `PROP_FAR`, `farObjs`, `levelObjs`), reflector at 256 px every 3rd frame, baked lightmaps (`lightmap.ts`, patch handles only `USE_INSTANCING`, not `BatchedMesh`), capped dynamic lights (pool of 3 point lights in `vents.ts`), `shadowMap.autoUpdate` tied to the flashlight, CPU-aware dynamic resolution. Do **not** toggle `shadowMap.enabled`/`castShadow` at runtime (triggers multi-second shader recompiles). Remaining work: skinned Faceling meshes (~20 draws each), exit signs, door leaf + plates (unique canvas materials), cameras, handrails; `BatchedMesh` needs three >= r187. Studies: [CPU/performance tools report](docs/Backrooms%20herramientas%20y%20paquetes%20para%20bajar%20la%20CPU%20del%20nivel%20-20.md) and [dev tools report](docs/Backrooms_herramientas_desarrollo_informe.md). Known environment issue: some machines cap at ~85 fps because the OS refresh rate is not 180 Hz (check with an empty `requestAnimationFrame` loop before blaming the game).
+
+**Las Suites (level -20) specifics.** Hotel with a repeating hallway, suites with doors, Facelings (staff). Rules implemented: caution tape item disabled there (`Player.noCaution`, not sold by the Faceling); power switches ("power switch" pickups, `gens`) need holding **G** for 1.5 s (`GEN_HOLD` in `pickups.ts`); a Faceling that is shot and survives becomes enraged, and killing one enrages all (`EntitySim.hit/rage` in `shared/src/sim.ts`). Design: [suites.md](docs/suites.md).
+
+**Determinism.** `shared/` must not use `Math.random`/`Date.now` for anything that has to match across client and server (a Biome GritQL rule warns in `shared/src`). Known violations: `EntitySim` AI (11 sites) and `parking-smiler-ai.ts`; entities are server-driven and sent as snapshots, so only the **map** hash is compared (`ready(true, hash)` -> server logs `[desync]`). A real entity desync check would need a seeded RNG in `EntitySim`.
+
+**Gotchas collected the hard way.**
+- Fused meshes: only static models go through `fuse`/`fuseAll`; never skinned or animated ones.
+- Anything placed in a Las Suites room must be registered with `world.cullRoom(obj, x, z)` (or it renders through closed doors); dropped items already do it via `Pickups.onPut`.
+- Vite HMR: editing `game.ts` or what it imports reloads the whole page on purpose (`main.tsx` unmounts React in `hot.dispose`); do not "fix" it.
+- Test credentials/seeds: use the dev routes above, never real accounts.
+- Docs and repo language: docs in English/Spanish mixed; keep new docs in the language of the file you edit.
+
 Documentation index: [docs/README.md](docs/README.md) (architecture, spec/protocol, glossary, contributor guide for LLMs).
 
 | Doc | Content |
