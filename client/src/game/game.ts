@@ -480,6 +480,8 @@ export class BackroomsGame {
   }
   /** Las Suites: la planta en la que se está (el ascensor y la escalera solo suben a la siguiente) y el rayo con el que se apunta a los botones. */
   private floorNo = 1;
+  private arriveFloor = 1;
+  private arrive = 0; // (s que quedan del viaje al llegar a una planta superior)
   private readonly aimRay = new THREE.Raycaster();
   /** Las Suites: las cámaras de seguridad, vistas desde el puesto de la sala de control (A/D o clic cambian de cámara; E o G salen). -1 = no se usan. */
   private eehTyping = false;
@@ -1123,6 +1125,18 @@ export class BackroomsGame {
     const at0 = center(s), [sx, sz] = startOffset(mp?.index ?? 0);
     if (mp) (at0.x += sx), (at0.z += sz);
     p.spawn(at0, Math.atan2(-side[0], -side[1]));
+    this.arrive = 0;
+    if (this.caps.hotel && (mp?.floor ?? 1) > 1) {
+      // llegando en el ascensor desde la planta de abajo: dentro de la cabina, con las puertas cerradas, el rumor del viaje y el indicador subiendo; al llegar se abren
+      const hr = w.elevator.rotation.y, ox = Math.sin(hr), oz = Math.cos(hr), cc = center(m.elevator);
+      p.spawn(new THREE.Vector3(cc.x + (mp?.index ?? 0) * 0.0, 0, cc.z), Math.atan2(-ox, -oz));
+      p.frozen = p.lookFree = true;
+      w.cab.floor = (mp?.floor ?? 2) - 1;
+      w.cab.resetClosed();
+      w.cab.rideT = 0;
+      this.arrive = 1.7;
+      this.arriveFloor = mp?.floor ?? 2;
+    }
     if (!mp && DEV_LOCAL && new URLSearchParams(location.search).has('totem')) m.totem = { x: s.x + side[0], y: s.y + side[1] }; // desarrollo: &totem pone el tótem junto al inicio
     p.onFall = () => {
       if (this.mp && this.caps.fall) (this.sendState(), this.mp.sock.emit('fell'));
@@ -1211,6 +1225,15 @@ export class BackroomsGame {
       if (!quit) c.bag = c.grab = c.jump = false;
     }
     if (this.totemOpen && c.bag) (c.bag = false), this.closeTotem(); // Esc o E cierran el selector del Tótem
+    if (this.arrive > 0 && this.player && this.world) {
+      this.arrive -= dt;
+      if (this.arrive <= 0) {
+        const cab = this.world.cab;
+        (cab.floor = this.arriveFloor), (cab.rideT = -1), cab.open();
+        this.player.frozen = this.player.lookFree = false;
+        this.audio?.click();
+      }
+    }
     if (this.shopOpen && c.grab) (c.grab = false), (c.bag = true); // con la tienda abierta, G también la cierra
     // el inventario: E lo abre y lo cierra (Escape también lo cierra, sin pausar)
     if (this.dying < 0 && !this.winning && c.bag) {

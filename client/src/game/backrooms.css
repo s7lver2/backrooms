@@ -866,3 +866,5 @@
 .br-ascend { position: fixed; inset: 0; z-index: 30; background: #000; color: var(--br-ink); display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 1em; font-family: var(--br-font); }
 .br-ascend b { font-size: clamp(28px, 5vw, 64px); letter-spacing: 0.2em; }
 .br-ascend span { color: var(--br-dim); animation: br-rec 1.2s steps(1) infinite; }
+.br-ascend { transition: opacity 1.5s; pointer-events: none; }
+.br-ascend[data-out] { opacity: 0; }

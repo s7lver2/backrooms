@@ -334,7 +334,7 @@ export function suitesMaze(seed: number, floor = 1): Maze {
   for (let y = control.y; y < control.y + control.h; y++) for (let x = control.x; x < control.x + control.w; x++) litMap[at(x, y)] = 1;
   return {
     floor, span: [SUITE_L, 2 * SUITE_L], w: W, h: H, open, lit: litMap, zone: new Uint8Array(W * H), voids: [],
-    start: cell(CW + 10, 12), stairs: cell(SUITE_L + 1, 1), gens, elevator, camera, pistol, extraGuns: [],
+    start: floor > 1 ? elevator /* de la segunda planta en adelante se llega en el ascensor */ : cell(CW + 10, 12), stairs: cell(SUITE_L + 1, 1), gens, elevator, camera, pistol, extraGuns: [],
     tapes: take(8), flashlights: take(4), spawns: [cell(SUITE_L + 4, 8), cell(SUITE_L + 5, 9), cell(SUITE_L + 15, 9)],
     lamps, props, hides, rooms, vents, gas, control, cams, fans, duct: { x0: VX, y0: VY, x1: VX + 14, y1: RY + 1 },
   };

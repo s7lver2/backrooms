@@ -24,7 +24,7 @@ export class ElevatorCab {
   private shown = '';
   private owned: { dispose(): void }[] = [];
 
-  constructor(w = 1.46, d = 1.46, h = 2.5, private floor = 0, closed = false, openingWidth = 1.1) {
+  constructor(w = 1.46, d = 1.46, h = 2.5, public floor = 0, closed = false, openingWidth = 1.1) {
     this.closed = this.want = closed ? 1 : 0;
     const own = <T extends { dispose(): void }>(o: T) => (this.owned.push(o), o), T = 0.04;
     /** Una textura pintada a mano (lienzo). */

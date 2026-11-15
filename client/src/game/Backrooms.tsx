@@ -597,9 +597,24 @@ export default function Backrooms({ onQuit, onWin }: { onQuit: () => void; onWin
   const inWait = screen === 'wait' || screen === 'waitpause';
   const loadingRoom = useHold(inWait && !waitReady, 2400); // la carga de la sala, que dure lo bastante para verse
   useEffect(() => {
-    if (screen === 'lobby' && net.room) setScreen('wait');
+    if (screen === 'lobby' && net.room && !ascend) setScreen('wait');
     else if (inWait && !net.room) setScreen('lobby');
-  }, [screen, inWait, net.room]);
+  }, [screen, inWait, net.room, ascend]);
+
+  // subiendo de planta: sin sala de espera. Se prepara el nivel con el telón puesto y, al empezar la ronda, se entra directo (llegando en la cabina)
+  useEffect(() => {
+    const room = roomRef.current, sock = net.sock;
+    const ph = net.room?.phase;
+    if (!ascend || !room || !sock || ph !== 'starting') return;
+    let alive = true;
+    const done = () => alive && sock.emit('ready', true);
+    game.current!.warmLevel(room.seed, room.players.length, room.levelId, room.floor).then(done, done);
+    return () => void (alive = false);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ascend, net.room?.phase, net.sock]);
+  useEffect(() => {
+    if (ascend && net.room?.phase === 'playing' && screenRef.current !== 'play') enterRef.current();
+  }, [ascend, net.room?.phase]);
 
   // un logro concedido por el servidor: aviso en pantalla y la cuenta se vuelve a leer (progreso, cosméticos nuevos)
   useEffect(() => {
@@ -657,7 +672,7 @@ export default function Backrooms({ onQuit, onWin }: { onQuit: () => void; onWin
     game.current!.start(room.seed, { sock, id: sock.id!, life: DIFFICULTY[room.difficulty].life, players: room.players.length, index: Math.max(0, room.players.findIndex((p) => p.id === sock.id)), inv: invRef.current ?? undefined, mission: room.mission, level: room.levelId, floor: room.floor, caps: room.caps });
     setNotice('');
     setComputer(false);
-    setAscend(0);
+    setTimeout(() => setAscend(0), 1800); // (el telón de la planta se funde al empezar)
     setScreen('play');
   }, [net.sock, enter]);
   const enterRef = useRef(enterMatch);
@@ -1028,8 +1043,8 @@ export default function Backrooms({ onQuit, onWin }: { onQuit: () => void; onWin
           </p>
         </aside>
       )}
-      {!!ascend && screen !== 'play' && screen !== 'pause' && (
-        <div className="br-ascend" role="status">
+      {!!ascend && (
+        <div className="br-ascend" role="status" data-out={screen === 'play' || undefined}>
           <b>FLOOR {ascend} / 5</b>
           <span>THE ELEVATOR IS CLIMBING…</span>
         </div>

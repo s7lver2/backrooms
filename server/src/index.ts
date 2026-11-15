@@ -286,7 +286,7 @@ function finish(r: RoomState) {
     const result: RoundResult = { won, completed: r.done, mission: r.chosen ?? null, reward, penalty, bank: r.bank, fates, victory: Object.fromEntries(back.map((p) => [p.id, p.st.victory ?? 0])), ...(hotel && { floor: r.floor, fell, climb: carry }) };
     io.to(r.code).emit('over', result);
     backToLobby(r, ps);
-    if (carry) setTimeout(() => rooms.get(r.code) === r && r.phase === 'lobby' && begin(r), 4000); // (siguiente planta del contrato: entra sola)
+    if (carry) setTimeout(() => rooms.get(r.code) === r && r.phase === 'lobby' && begin(r), 1200); // (siguiente planta del contrato: entra sola)
   };
   if ([...r.players.values()].some((p) => p.boarded)) done();
   else setTimeout(done, 5000);
