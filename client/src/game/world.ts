@@ -82,6 +82,45 @@ function instanced(src: THREE.Object3D, mats: THREE.Matrix4[], fix?: (m: THREE.M
   });
 }
 
+/**
+ * Funde las mallas de `from` (las de materiales de `ok`, salvo lo que cuelgue de `skip`) en una por material, en el espacio de `into`, y las cuelga de `into`:
+ * cada malla suelta es un dibujo, y una puerta de las suites eran unas veinte.
+ */
+function fuse(from: THREE.Object3D, into: THREE.Object3D, ok: Set<THREE.Material>, skip?: THREE.Object3D) {
+  into.updateMatrixWorld(true);
+  const inv = into.matrixWorld.clone().invert(), byMat = new Map<THREE.Material, THREE.BufferGeometry[]>(), old: THREE.Mesh[] = [];
+  const walk = (o: THREE.Object3D) => {
+    if (o === skip) return;
+    const mesh = o as THREE.Mesh;
+    if (mesh.isMesh && ok.has(mesh.material as THREE.Material)) {
+      const g = mesh.geometry.clone();
+      for (const k of Object.keys(g.attributes)) if (!['position', 'normal', 'uv'].includes(k)) g.deleteAttribute(k);
+      if (!g.attributes.normal) g.computeVertexNormals();
+      for (const [k, a] of Object.entries(g.attributes) as [string, THREE.BufferAttribute][]) {
+        if (a.array instanceof Float32Array && !a.normalized && !(a as unknown as THREE.InterleavedBufferAttribute).isInterleavedBufferAttribute) continue;
+        const f = new Float32Array(a.count * a.itemSize), get = [a.getX, a.getY, a.getZ, a.getW];
+        for (let i = 0; i < a.count; i++) for (let c = 0; c < a.itemSize; c++) f[i * a.itemSize + c] = get[c].call(a, i);
+        g.setAttribute(k, new THREE.BufferAttribute(f, a.itemSize));
+      }
+      if (!g.attributes.uv) g.setAttribute('uv', new THREE.BufferAttribute(new Float32Array(g.attributes.position.count * 2), 2));
+      g.applyMatrix4(new THREE.Matrix4().multiplyMatrices(inv, mesh.matrixWorld));
+      const mat = mesh.material as THREE.Material;
+      byMat.set(mat, [...(byMat.get(mat) ?? []), g.index ? g.toNonIndexed() : g]);
+      old.push(mesh);
+    }
+    for (const c of o.children) walk(c);
+  };
+  walk(from);
+  for (const m of old) m.removeFromParent();
+  for (const [mat, gs] of byMat) {
+    const geo = mergeGeometries(gs);
+    if (!geo) continue;
+    const m = new THREE.Mesh(geo, mat);
+    m.receiveShadow = true;
+    into.add(m);
+  }
+}
+
 const UP = new THREE.Vector3(0, 1, 0);
 
 // la suciedad, pintada a mano en un lienzo: regueros de agua que bajan desde el techo
@@ -1228,6 +1267,7 @@ export class World implements Terrain {
       const white = new THREE.MeshStandardMaterial({ color: 0xf2ece0, roughness: 0.6 }), brassM = new THREE.MeshStandardMaterial({ color: 0x3a2a1c, roughness: 0.5, metalness: 0.5 });
       const steelM = new THREE.MeshStandardMaterial({ color: 0x6c7278, metalness: 0.75, roughness: 0.4 }); // las puertas de servicio: de acero
       lightmapped(white), lightmapped(steelM);
+      const doorMats = new Map<string, THREE.MeshStandardMaterial>(), fusable = new Set<THREE.Material>([white, brassM, steelM]);
       const jw = (CELL - dw) / 2; // lo que llena la jamba a cada lado del hueco de la puerta
       for (const p of suiteDoors) {
         const steel = p.kind === 'steeldoor', open = p.kind !== 'suitedoor', frameM = steel ? steelM : white, d = src.clone(true), c = center(p.cell), [dx, dy] = DIRS[p.rot] ?? DIRS[0], g = new THREE.Group();
@@ -1236,10 +1276,18 @@ export class World implements Terrain {
         d.traverse((o) => {
           const mesh = o as THREE.Mesh;
           if (mesh.isMesh) {
-            const dm = (mesh.material = (mesh.material as THREE.MeshStandardMaterial).clone()) as THREE.MeshStandardMaterial; // (propio: la de acero no tiñe las blancas)
-            dm.color.set(steel ? 0x7d858b : 0xfaf6ee);
-            if (steel) Object.assign(dm, { metalness: 0.7, roughness: 0.38 });
-            lightmapped(dm);
+            // (una por material y tipo de puerta, no por puerta: la de acero no tiñe las blancas, y las piezas de todas las puertas comparten programa y se pueden fundir)
+            const ck = `${steel}:${(mesh.material as THREE.Material).uuid}`;
+            let dm = doorMats.get(ck);
+            if (!dm) {
+              dm = (mesh.material as THREE.MeshStandardMaterial).clone();
+              dm.color.set(steel ? 0x7d858b : 0xfaf6ee);
+              if (steel) Object.assign(dm, { metalness: 0.7, roughness: 0.38 });
+              lightmapped(dm);
+              doorMats.set(ck, dm);
+              fusable.add(dm);
+            }
+            mesh.material = dm;
             mesh.receiveShadow = true;
           }
         });
@@ -1319,6 +1367,11 @@ export class World implements Terrain {
           g.position.set(c.x + dx * (CELL / 2 - 0.05), 0, c.z + dy * (CELL / 2 - 0.05));
           g.rotation.y = Math.atan2(-dx, -dy);
         }
+        // las piezas de la puerta, fundidas por material: la hoja (gira) por un lado y el marco y la moldura (quietos) por otro
+        const lf = open ? d.getObjectByName('Plane001') ?? d.getObjectByName('Plane.001') : undefined;
+        g.updateMatrixWorld(true);
+        if (lf) fuse(lf, lf, fusable);
+        fuse(g, g, fusable, lf ?? undefined);
         if (p.cell.x < SUITE_L * 3) this.doorGroups.push(g); // (las del hotel se ocultan lejos de la vista)
         this.root.add(g);
         if (open) {
