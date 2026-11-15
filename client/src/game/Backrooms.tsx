@@ -422,6 +422,7 @@ export default function Backrooms({ onQuit, onWin }: { onQuit: () => void; onWin
     onSetting('ui', ui);
     // desarrollo local (no por túnel ni en producción, ver devGate.ts): __game y __maze(semilla) en la consola
     if (dev) Object.assign(window, { __game: g, __maze: (seed: number) => console.info(asciiMaze(seed)) });
+    if (dev?.has('debug')) void import('./debugPanel').then((m) => m.openDebugPanel(g));
     g.onPause = () => alive && setScreen(g.waiting ? 'waitpause' : 'pause');
     g.onDeath = () => alive && setScreen('crash');
     g.onLevelLoad = (f) => alive && setLvl(f);

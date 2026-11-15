@@ -758,6 +758,7 @@ export class BackroomsGame {
   get inParking() { return !!this.parking; }
   private fx?: { ao: GTAOPass; smaa: SMAAPass };
   private bloom?: UnrealBloomPass;
+  get bloomPass() { return this.bloom; }
   private nextDraw = 0;
 
   /** El halo de los fluorescentes, en vivo (en calidad baja no hay: nada que hacer). */
