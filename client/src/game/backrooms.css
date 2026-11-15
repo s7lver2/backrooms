@@ -870,3 +870,12 @@
 .br-ascend[data-out] { opacity: 0; }
 .br-ascend { animation: br-veil 0.9s ease-out forwards; }
 @keyframes br-veil { from { opacity: 1; } to { opacity: 0; } }
+
+/* las condiciones de servicio (Terms.tsx): el texto como el OSD, apagado, con las opciones de siempre debajo */
+.br-terms { justify-content: flex-start; padding-top: clamp(24px, 7vh, 64px); padding-bottom: 40px; touch-action: pan-y; user-select: text; }
+.br-terms .br-menu__title { font-size: clamp(40px, 8vw, 96px); }
+.br-terms dl { max-width: 62ch; margin: 0 0 clamp(16px, 3vh, 28px); font-size: clamp(12px, 1.2vw, 16px); line-height: 1.5; }
+.br-terms dt { margin-top: 1em; }
+.br-terms dd { margin: 0; color: var(--br-dim); }
+.br-terms ul { font-size: clamp(14px, 1.6vw, 22px) !important; }
+.br-terms .br-opt { text-align: left; align-items: flex-start; }
