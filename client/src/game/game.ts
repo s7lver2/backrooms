@@ -1638,6 +1638,7 @@ export class BackroomsGame {
     if (!this.player) return;
     this.world?.update(this.t, dt);
     if (e.lv) e.lv.post(dt, { ...this.input.read(), move: _none, look: _none, crouch: false, run: false }, true); // (el agua, la luz y la niebla de las Poolrooms; la cámara la pone el final)
+    if (e.self) (this.player.hideHeld(), (this.player.rig.root.visible = false)); // (mi cuerpo de primera persona no pinta nada aquí: el que se ve es el clon)
     e.ep.frame(dt);
     if (e.pk) this.parking?.render(dt, this.t, this.camera);
     this.flash.intensity = 0;

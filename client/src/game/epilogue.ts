@@ -62,12 +62,14 @@ export class Epilogue {
       a.place(at, face + Math.PI);
     });
     this.g.copy(this.c).addScaledVector(f, 2.4 + (actors.length - 1) * 0.6);
+    // las entidades, a los lados de la fila (alternando izquierda y derecha); donde hay pared, más cerca del centro o detrás
+    const side = new THREE.Vector3(-f.z, 0, f.x);
     kinds.slice(0, 4).forEach((kind, i) => {
-      const at = this.c.clone().addScaledVector(f, 2.4 + actors.length * ROW + 0.8 + i * 1.1);
+      const sg = i % 2 ? 1 : -1, depth = 2.4 + ((i >> 1) + 0.5) * ROW;
+      const tries = [[sg, 1.5], [sg, 1.0], [-sg, 1.5], [-sg, 1.0], [0, 0]].map(([s, o]) => this.c.clone().addScaledVector(f, depth).addScaledVector(side, s * o));
+      const at = tries.find((p) => !stage.solid(p.x, p.z)) ?? tries[0];
       const { rig, balloon } = entityBody(kind, assets);
       const clips = CLIPS[kind].dances;
-      rig.root.visible = !stage.solid(at.x, at.z);
-      if (balloon) balloon.visible = rig.root.visible;
       rig.root.position.copy(at);
       rig.root.rotation.y = Math.atan2(this.g.x - at.x, this.g.z - at.z);
       rig.play(clips[i % clips.length], 0.3);
