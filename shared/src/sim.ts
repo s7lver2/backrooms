@@ -670,7 +670,7 @@ export class EntitySim {
   /** Un tiro; true si muere. */
   hit() {
     if (!this.alive) return false;
-    if (--this.hp > 0) return false;
+    if (--this.hp > 0) return (this.kind === 'faceling' && this.rage(), false); // (herido, el personal del hotel va a por ti)
     if (this.insp) (this.insp.h.by = null), (this.insp = undefined);
     this.alive = false;
     this.state = 'dead';
