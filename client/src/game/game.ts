@@ -210,7 +210,7 @@ export interface Hud {
   totem: { pick: { id: string; name: string }[] | null; phone?: boolean; run: RunHud | null; notes: string[]; immune: number };
 }
 
-const _spec = new THREE.Vector3(), _want = new THREE.Vector3(), _none = new THREE.Vector2(), _feet = new THREE.Vector3(), _head = new THREE.Vector3(), _dir = new THREE.Vector3();
+const _aim = new THREE.Vector2(0, 0), _spec = new THREE.Vector3(), _want = new THREE.Vector3(), _none = new THREE.Vector2(), _feet = new THREE.Vector3(), _head = new THREE.Vector3(), _dir = new THREE.Vector3();
 
 /*
  * Las backrooms: el juego de juegos/backrooms.exe. Sin React; el caparazón (Backrooms.tsx) lo carga,
@@ -478,24 +478,12 @@ export class BackroomsGame {
   emote(n: number) {
     this.waiting?.doEmote(n);
   }
-  /** El panel del ascensor de Las Suites (dentro de la cabina): a qué planta; el 0 es el -1, salir del nivel. */
-  private liftOpen = false;
-  private openLift() {
-    if (this.liftOpen || !this.mp) return;
-    this.liftOpen = true;
-    this.input.clear();
-    this.input.suspend = true;
-    this.input.unlock();
-  }
-  closeLift() {
-    if (!this.liftOpen) return;
-    this.liftOpen = false;
-    this.input.suspend = false;
-    this.input.lock();
-  }
+  /** Las Suites: la planta en la que se está (el ascensor y la escalera solo suben a la siguiente) y el rayo con el que se apunta a los botones. */
+  private floorNo = 1;
+  private readonly aimRay = new THREE.Raycaster();
+  /** Se ha pulsado el botón de la planta `f` en la cabina: sube. */
   pickFloor(f: number) {
-    if (!this.liftOpen || !this.items) return;
-    this.closeLift();
+    if (!this.items) return;
     this.items.won = true;
     this.win(false, f);
   }
@@ -1010,7 +998,7 @@ export class BackroomsGame {
     this.mission = mp ? (mp.mission ?? null) : this.soloMission(m);
     const it = (this.items = new Items(w, this.assets!, p, this.camera, this.audio, this.mission?.kind === 'tapes'));
     it.onWin = (stairs, floor) => this.win(stairs, floor);
-    if (this.caps.hotel) it.onCab = (inside) => (inside ? this.openLift() : this.closeLift());
+    if (this.caps.hotel) it.onCab = () => {}; // (dentro de la cabina no pasa nada solo: se pulsa el botón de la planta)
     it.onLocker = (id) => this.onLocker?.(id);
     it.ready = !!this.mission?.exit;
     if (this.mission?.kind === 'tvs') {
@@ -1089,7 +1077,6 @@ export class BackroomsGame {
     }
     if (c.pause && this.dying < 0 && !this.winning) {
       if (this.talkN) this.closeTalk();
-      if (this.liftOpen) this.closeLift();
       if (this.bagOpen) (this.bagOpen = false), (this.input.suspend = false); // una pausa de verdad también lo cierra
       return this.pause();
     }
@@ -1143,10 +1130,38 @@ export class BackroomsGame {
       if (this.world && this.caps.hotel && this.player && !this.doorAct && this.items && !this.items.hint) {
         const it = this.items, e = this.world.maze.elevator, q = this.player.pos, gs = it.gens;
         const sd = this.world.stairDoors.find((d) => Math.hypot(q.x - d.x, q.z - d.z) < 1.6 && Math.abs(q.y - d.y) < 0.8);
-        if (it.wasCab && !this.liftOpen) {
-          this.doorAct = 'ELEVATOR PANEL';
-          if (cc.grab) (this.openLift(), (cc = { ...cc, grab: false }));
-        } else if (sd) this.doorAct = it.ready ? `FLOOR ${sd.n}` : 'FLOOR DOOR LOCKED · FINISH THE MISSION';
+        const cab = this.world.cab;
+        it.floorNo = this.floorNo;
+        this.aimRay.setFromCamera(_aim, this.camera);
+        this.aimRay.far = 2.6;
+        let key: string | null = null;
+        if (it.wasCab) {
+          // dentro de la cabina: se pulsa el botón de la planta (la siguiente; el juego del hotel se completa en la 5)
+          key = cab.pickKey(this.aimRay);
+          const n = key && /^[1-5]$/.test(key) ? Number(key) : 0;
+          if (n) {
+            this.doorAct = n === this.floorNo ? `FLOOR ${n} · YOU ARE HERE` : n === this.floorNo + 1 ? `PRESS ${n}` : `FLOOR ${n} · ONE FLOOR AT A TIME`;
+            if (cc.grab) {
+              cc = { ...cc, grab: false };
+              if (n === this.floorNo + 1) this.pickFloor(n);
+              else this.audio?.reject();
+            }
+          }
+        } else if (!it.open && cab.callBtn && this.aimRay.intersectObject(cab.callBtn, false).length) {
+          // fuera: el botón de llamada del ascensor
+          const ok = it.ready && it.powered;
+          this.doorAct = !it.powered ? `ELEVATOR HAS NO POWER · SWITCH ON THE PANELS ${gs.on}/${gs.n}` : !it.ready ? 'ELEVATOR OFFLINE · FINISH THE MISSION' : it.called ? 'ELEVATOR ON ITS WAY' : 'CALL THE ELEVATOR';
+          if (cc.grab) {
+            cc = { ...cc, grab: false };
+            if (ok && !it.called) ((it.called = true), this.audio?.click());
+            else if (!ok) this.audio?.reject();
+          }
+        }
+        cab.setKeys(key ?? '', String(this.floorNo));
+        cab.setCall(it.ready && it.powered);
+        if (this.doorAct) {
+          // (ya hay aviso: botón de la cabina o de llamada)
+        } else if (sd) this.doorAct = it.ready ? (sd.n === this.floorNo + 1 ? `FLOOR ${sd.n}` : 'ONE FLOOR AT A TIME') : 'FLOOR DOOR LOCKED · FINISH THE MISSION';
         else if (e && Math.hypot(q.x - (e.x + 0.5) * CELL, q.z - (e.y + 0.5) * CELL) < 3) {
           if (!it.powered) this.doorAct = `ELEVATOR HAS NO POWER · SWITCH ON THE PANELS ${gs.on}/${gs.n}`;
           else if (!it.ready) this.doorAct = 'ELEVATOR OFFLINE · FINISH THE MISSION';
@@ -1243,7 +1258,7 @@ export class BackroomsGame {
     const pr = this.parking;
     if (pr) inv.tapes = pr.level.tapesCollected;
     const parking = pr ? { floor: pr.floorLabel, pendingFloors: pr.pendingFloors, prompt: pr.prompt, repair: pr.level.repair.active ? pr.level.repair.progress : null, open: pr.level.elevatorOpen } : undefined;
-    return { warden: p?.glassesOn ? this.wardenSerial : undefined, liftOpen: this.items?.open, power: this.items && !this.items.powered ? this.items.gens : undefined, parking, parkingItemHeld: p && PARKING_ITEM_IDS.includes(p.prop as ParkingItemId) ? p.prop as ParkingItemId : undefined, steelRoll: this.steelRoll && this.steelRoll.until > performance.now() ? this.steelRoll : undefined, effects: this.effects(), talk: this.talkN, lift: this.liftOpen, mission: ms ? { kind: ms.kind, text: ms.text, line: missionLine(ms), progress: ms.progress, goal: ms.goal, done: ms.done, exit: ms.exit } : null, ascent: up ? { boarded: !!this.mp && up.boarded.includes(this.mp.id), left: Math.max(0, up.left - (performance.now() - up.at) / 1000) } : null, act: hidden || this.run ? null : this.tvs?.hint ?? this.doorAct ?? (pl ? p?.refillAct : null) ?? null, totem: this.totemHud(), needClick: this.input.needClick, bag: this.bagOpen && !this.shopOpen, shop: this.bagOpen && this.shopOpen, note: this.gadgets?.note ?? null, hint: hidden || this.run || this.tvs?.hint ? null : this.gadgets?.hint ?? this.items?.hint ?? pl?.pickups.hint ?? this.parkPick?.hint ?? null, hide: this.dying >= 0 || this.winning || this.spectating ? null : hidden ? (p!.hideState === 'hidden' ? 'leave' : null) : this.hideNear() ? 'hide' : null, breath: p?.concealed ? { air: this.breath.air, warn: this.inspected, held: this.holding } : null, drink: p?.dead ? 0 : p?.drinking || p?.drinkingMonster || p?.drinkingUno || 0, drinkName: p?.prop === 'monster' ? 'MONSTER' : p?.prop === 'uno' ? 'UNO REVERSE' : 'ALMOND WATER', refill: p?.fill ?? 0, inv, aiming: !!p?.aiming, scoped: !!p?.scoped && !this.spectating, zoom: p?.zoom ?? 1, focus: !!this.items?.focus, tapes: this.items?.tapes ?? 0, photos: this.items?.photos ?? 0, ammo: p?.has.gun ? p.ammo : null, spare: p?.spare ?? 0, battery, time: this.t, hp: p?.hp ?? HP_MAX, hps: this.hps, spectating: this.spectating && !this.run ? (this.remotes.get(this.watching)?.name ?? '') : null, watchList: this.spectating && !this.run ? [...this.remotes.values()].map((r) => ({ name: r.name, on: r.id === this.watching && this.specView !== 'free', dead: r.dead })) : undefined, specView: this.spectating && !this.run ? this.specView : undefined };
+    return { warden: p?.glassesOn ? this.wardenSerial : undefined, liftOpen: this.items?.open, power: this.items && !this.items.powered ? this.items.gens : undefined, parking, parkingItemHeld: p && PARKING_ITEM_IDS.includes(p.prop as ParkingItemId) ? p.prop as ParkingItemId : undefined, steelRoll: this.steelRoll && this.steelRoll.until > performance.now() ? this.steelRoll : undefined, effects: this.effects(), talk: this.talkN, lift: false, mission: ms ? { kind: ms.kind, text: ms.text, line: missionLine(ms), progress: ms.progress, goal: ms.goal, done: ms.done, exit: ms.exit } : null, ascent: up ? { boarded: !!this.mp && up.boarded.includes(this.mp.id), left: Math.max(0, up.left - (performance.now() - up.at) / 1000) } : null, act: hidden || this.run ? null : this.tvs?.hint ?? this.doorAct ?? (pl ? p?.refillAct : null) ?? null, totem: this.totemHud(), needClick: this.input.needClick, bag: this.bagOpen && !this.shopOpen, shop: this.bagOpen && this.shopOpen, note: this.gadgets?.note ?? null, hint: hidden || this.run || this.tvs?.hint ? null : this.gadgets?.hint ?? this.items?.hint ?? pl?.pickups.hint ?? this.parkPick?.hint ?? null, hide: this.dying >= 0 || this.winning || this.spectating ? null : hidden ? (p!.hideState === 'hidden' ? 'leave' : null) : this.hideNear() ? 'hide' : null, breath: p?.concealed ? { air: this.breath.air, warn: this.inspected, held: this.holding } : null, drink: p?.dead ? 0 : p?.drinking || p?.drinkingMonster || p?.drinkingUno || 0, drinkName: p?.prop === 'monster' ? 'MONSTER' : p?.prop === 'uno' ? 'UNO REVERSE' : 'ALMOND WATER', refill: p?.fill ?? 0, inv, aiming: !!p?.aiming, scoped: !!p?.scoped && !this.spectating, zoom: p?.zoom ?? 1, focus: !!this.items?.focus, tapes: this.items?.tapes ?? 0, photos: this.items?.photos ?? 0, ammo: p?.has.gun ? p.ammo : null, spare: p?.spare ?? 0, battery, time: this.t, hp: p?.hp ?? HP_MAX, hps: this.hps, spectating: this.spectating && !this.run ? (this.remotes.get(this.watching)?.name ?? '') : null, watchList: this.spectating && !this.run ? [...this.remotes.values()].map((r) => ({ name: r.name, on: r.id === this.watching && this.specView !== 'free', dead: r.dead })) : undefined, specView: this.spectating && !this.run ? this.specView : undefined };
   }
 
   /** Los efectos que tiene ahora el personaje, para el HUD (Effects.tsx). */
@@ -1535,6 +1550,7 @@ export class BackroomsGame {
 
   /** En una sala: la misión y el ascensor según el servidor. */
   private roomUpdate(r: RoomView) {
+    this.floorNo = r.floor ?? 1;
     const was = !!this.mission?.exit, wasDone = !!this.mission?.done && this.mission.id === r.mission?.id;
     this.mission = r.mission;
     this.ascent = r.ascent ? { left: r.ascent.left, at: performance.now(), boarded: r.ascent.boarded } : null;
@@ -2391,11 +2407,12 @@ export class BackroomsGame {
         else e.dispose();
       }
     // el personal del hotel (Facelings): si uno cae, todos van a por ti
+    this.eehSnap = !!w.eeh;
     const fs = w.ents.filter((s) => s.kind === 'faceling'), mad = fs.some((s) => s.state === 'chase' || s.state === 'attack');
     if (!fs.length) this.staffMad = false;
     else if (mad && !this.staffMad) {
       this.staffMad = true;
-      const why = w.vengeance ? 'SOMEONE KILLED ONE OF THEM' : this.mission?.kind === 'eeh' ? 'THE EVAPORATOR FAILED' : 'THE STAFF SPOTTED YOU';
+      const why = w.vengeance ? 'SOMEONE KILLED ONE OF THEM' : w.eeh || this.mission?.kind === 'eeh' ? 'THE EVAPORATOR FAILED' : 'THE STAFF SPOTTED YOU';
       this.note = { text: `${why} · THE STAFF IS HUNTING YOU · HIDE IN A WARDROBE (E) AND HOLD YOUR BREATH`, until: performance.now() + 6000 };
       this.audio?.cue('hurt');
     }
@@ -3350,13 +3367,14 @@ fps ${(1 / Math.max(dt, 1e-3)).toFixed(0)}`;
   }
 
   /** Misión EEH: al cumplirse el tiempo de fallo, un aviso (el servidor suelta las entidades). */
+  private eehSnap = false;
   private eehFor = '';
   private eehRed = false;
   private staffMad = false;
   private eehVeil?: HTMLElement;
   private eehCheck() {
     const m = this.mission, fail = m?.kind === 'eeh' && m.progress >= m.goal - EEH_HOLD;
-    const on = fail && !m!.done;
+    const on = this.eehSnap || (fail && !m!.done);
     if (on !== this.eehRed) {
       (this.eehRed = on), this.audio?.alarm(on); // la sirena suena mientras dure el fallo
       // las luces rojas: un velo rojo que late sobre toda la pantalla

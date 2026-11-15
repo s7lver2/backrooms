@@ -52,7 +52,7 @@ export default function Board({ room, me, sock }: { room: RoomView; me: string; 
   const who = (id: string) => room.players.find((p) => p.id === id);
   const voters = room.players.length, cast = room.offers.reduce((n, o) => n + o.votes.length, 0);
   const loaded = room.vote?.loaded.length ?? 0;
-  const auto = closed && cast === 0 && (room.quota ?? 0) > 0; // el hotel con contrato en marcha: el encargo lo asigna el servidor, no hay nada que votar
+  const auto = closed && cast === 0 && room.levelId === 'suites' && (room.floor ?? 1) > 1; // el hotel, de la 2.ª planta en adelante: el encargo lo asigna el servidor, no hay nada que votar
   const shown = auto ? room.offers.filter((o) => o.id === winner) : room.offers;
   return (
     <aside className="br-board" role="dialog" aria-label="Mission vote">

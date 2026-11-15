@@ -145,7 +145,7 @@ export class ElevatorCab {
     this.light.position.set(0, h - 0.4, -d / 2);
     this.group.add(this.light);
     // la botonera (a la derecha según se entra): placa de acero con el visor, los botones numerados, puertas, alarma y parada
-    const keys = cv(96, 256, (g) => {
+    const drawKeys = (g: CanvasRenderingContext2D, hover = '', cur = '') => {
       (g.fillStyle = '#a9adab'), g.fillRect(0, 0, 96, 256);
       (g.strokeStyle = '#5f6362'), (g.lineWidth = 2), g.strokeRect(3, 3, 90, 250);
       g.fillStyle = '#6a6e6c';
@@ -154,18 +154,28 @@ export class ElevatorCab {
       (g.textAlign = 'center'), (g.textBaseline = 'middle');
       (g.fillStyle = '#ff3b1f'), (g.font = 'bold 20px monospace'), g.fillText('▲', 48, 30);
       const btn = (x: number, y: number, label: string, ring: string, fill: string, ink = '#1b1d1c') => {
+        if (label === cur) fill = '#8dff9d'; // (la planta en la que se está)
+        else if (label === hover) fill = '#fff3c4'; // (el botón al que se apunta)
         g.beginPath(), g.arc(x, y, 11, 0, 7), (g.fillStyle = fill), g.fill(), (g.lineWidth = 2.5), (g.strokeStyle = ring), g.stroke();
         (g.fillStyle = ink), (g.font = 'bold 10px monospace'), g.fillText(label, x, y + 1);
       };
       ['5', '6', '3', '4', '1', '2', '-1', '0'].forEach((l, i) => btn(30 + (i % 2) * 36, 64 + Math.floor(i / 2) * 30, l, l === '0' ? '#ffb43a' : '#4c504e', l === '0' ? '#ffe7b0' : '#d9dcda'));
       btn(30, 192, '<|>', '#4c504e', '#d9dcda'), btn(66, 192, '>|<', '#4c504e', '#d9dcda');
       btn(30, 226, '!', '#8a6a00', '#ffcf3a'), btn(66, 226, 'STOP', '#7a1410', '#e2362c', '#fff');
-    });
+    };
+    const keys = cv(96, 256, (g) => drawKeys(g));
+    this.setKeys = (hover, cur) => {
+      if (hover === this.kh && cur === this.kc) return;
+      (this.kh = hover), (this.kc = cur);
+      drawKeys((keys.image as HTMLCanvasElement).getContext('2d')!, hover, cur);
+      keys.needsUpdate = true;
+    };
     box(0.018, 0.62, 0.24, steel, sx - 0.009, 1.22, -0.36);
     const kp = new THREE.Mesh(own(new THREE.PlaneGeometry(0.22, 0.6)), own(new THREE.MeshStandardMaterial({ map: keys, roughness: 0.45, metalness: 0.5, emissiveMap: keys, emissive: 0xffffff, emissiveIntensity: 0.05 })));
     kp.rotation.y = -Math.PI / 2;
     kp.position.set(sx - 0.019, 1.22, -0.36);
     this.group.add(kp);
+    this.keypad = kp;
     // la placa de carga, en la pared de enfrente
     const plate = new THREE.Mesh(
       own(new THREE.PlaneGeometry(0.2, 0.12)),
@@ -202,6 +212,40 @@ export class ElevatorCab {
     }
     this.paint();
     this.update(0);
+  }
+
+  /** La botonera de dentro: se repinta con el botón al que se apunta y la planta actual. */
+  setKeys: (hover: string, cur: string) => void = () => {};
+  private kh = '';
+  private kc = '';
+  private keypad?: THREE.Mesh;
+  private static KEYS = ['5', '6', '3', '4', '1', '2', '-1', '0'];
+  /** El botón de la botonera al que apunta el rayo (su etiqueta), o null. */
+  pickKey(ray: THREE.Raycaster): string | null {
+    const hit = this.keypad && ray.intersectObject(this.keypad, false)[0];
+    if (!hit?.uv) return null;
+    const x = hit.uv.x * 96, y = (1 - hit.uv.y) * 256;
+    const i = ElevatorCab.KEYS.findIndex((_, i) => Math.hypot(x - (30 + (i % 2) * 36), y - (64 + Math.floor(i / 2) * 30)) < 14);
+    return i < 0 ? null : ElevatorCab.KEYS[i];
+  }
+  /** El botón de llamada, en la jamba de fuera (solo donde se pide: Las Suites). Verde: el ascensor responde; rojo: todavía no. */
+  callBtn?: THREE.Mesh;
+  private callMat?: THREE.MeshBasicMaterial;
+  addCallButton() {
+    const own = <T extends { dispose(): void }>(o: T) => (this.owned.push(o), o);
+    const plate = new THREE.Mesh(own(new THREE.BoxGeometry(0.1, 0.22, 0.02)), own(new THREE.MeshStandardMaterial({ color: 0x9a9e9c, metalness: 0.6, roughness: 0.4 })));
+    plate.position.set(-0.66, 1.2, 0.012);
+    this.callMat = own(new THREE.MeshBasicMaterial({ color: 0xff3322 }));
+    for (const y of [0.045, -0.045]) {
+      const b = new THREE.Mesh(own(new THREE.CircleGeometry(0.026, 14)), this.callMat);
+      b.position.set(0, y, 0.0105);
+      plate.add(b);
+    }
+    this.group.add(plate);
+    this.callBtn = plate;
+  }
+  setCall(on: boolean) {
+    this.callMat?.color.setHex(on ? 0x33ff66 : 0xff3322);
   }
 
   /** Abrir las puertas (se puede entrar). */

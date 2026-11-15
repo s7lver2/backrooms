@@ -1421,6 +1421,7 @@ export class World implements Terrain {
     holder.rotation.y = Math.atan2(ox, oy); // +z local hacia el lado abierto
     this.root.add(holder);
     this.cab = new ElevatorCab(CELL, CELL - 0.04, HEIGHT - 0.04, 0, true);
+    if (hotel) this.cab.addCallButton(); // (Las Suites: el ascensor se llama con su botón)
     holder.add(this.cab.group);
     this.elevator = holder;
     const sign = assets.gltf.exit.scene.clone(true);

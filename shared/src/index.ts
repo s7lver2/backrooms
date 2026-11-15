@@ -244,6 +244,8 @@ export interface WorldSnapshot {
   insp?: string[];
   /** Alguien del equipo mató a uno del personal (Las Suites): todos van a por vosotros. */
   vengeance?: boolean;
+  /** Las Suites: el EEH ha fallado (por la misión o al azar, más probable cuanto más arriba). */
+  eeh?: boolean;
   /** Objetos soltados que hay ahora en el suelo (ids `d…`); los pickups del cliente se sincronizan con esta lista. */
   drops?: Drop[];
   /** Índices (de tvSites) de las televisiones ya apagadas; solo con la misión «TURN OFF THE TVS». */

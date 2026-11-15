@@ -156,6 +156,8 @@ export class Match {
   private base = 0;
   private readonly hotel: boolean;
   private eehOn = false;
+  /** Las Suites: a qué segundo falla el EEH en esta ronda aunque la misión no sea la suya (0: no falla). Cuanto más arriba, más probable. */
+  private eehAt = 0;
   /** Admin: las entidades se quedan quietas. */
   frozen = false;
 
@@ -180,6 +182,12 @@ export class Match {
     this.grace = DIFFICULTY[difficulty].grace + (first ? 8 : 0);
     const caps = levelCaps(levelId);
     this.noEnts = !caps.ents;
+    if (caps.hotel) {
+      // cada planta, el personal es algo más rápido y el EEH falla con más probabilidad (10 % en la 1, 82 % en la 5), en un momento fijado por la semilla
+      this.speed *= 1 + 0.07 * (floor - 1);
+      const u = (n: number) => (Math.imul(seed ^ n, 0x9e3779b1) >>> 8) / 2 ** 24;
+      if (u(floor * 7919) < 0.1 + 0.18 * (floor - 1)) this.eehAt = 90 + u(floor * 104729) * 210;
+    }
     this.hotel = !!caps.hotel;
     this.maze = caps.hotel ? suitesMaze(seed, floor) : caps.pool ? poolMaze(seed) : generateMaze(seed, players);
     this.maze.totem = this.noEnts ? null : totemSpot(this.maze, seed, players);
@@ -345,7 +353,7 @@ export class Match {
       if (b.patrol) w.patrol = b.patrol;
     }
     // misión EEH: el evaporador falla a su hora y entran las entidades (partygoers y una bacteria, por los arranques más lejanos)
-    if (this.mission?.kind === 'eeh' && !this.eehOn && this.age - this.base >= this.mission.goal - EEH_HOLD) {
+    if (!this.eehOn && ((this.mission?.kind === 'eeh' && this.age - this.base >= this.mission.goal - EEH_HOLD) || (this.eehAt > 0 && this.age >= this.eehAt))) {
       this.eehOn = true;
       for (const q of this.ents) q.sim.kind === 'faceling' && q.sim.rage(); // el evaporador falla: el personal, que estaba en paz, va a por todos
     }
@@ -450,6 +458,7 @@ export class Match {
       taken: [...this.taken],
       tapes: this.tapes,
       ...(this.vengeance ? { vengeance: true } : {}),
+      ...(this.eehOn ? { eeh: true } : {}),
       insp: this.hides.filter((h) => h.by && h.occ).map((h) => h.occ!.id),
       ...(this.tvs.length ? { tvOff: [...this.tvOff] } : {}),
     };

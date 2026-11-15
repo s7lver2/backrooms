@@ -517,4 +517,6 @@ export interface RoundResult {
   /** Las Suites: la planta de la ronda que viene, y si el ascensor falló y cayó a la 1. */
   floor?: number;
   fell?: boolean;
+  /** Las Suites: se sube a la planta siguiente (la ronda no acaba: ni pantalla de fin ni final). */
+  climb?: boolean;
 }

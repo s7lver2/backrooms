@@ -73,6 +73,10 @@ export class Items extends PickupField {
   targets: Target[] = [];
   /** Las puertas del ascensor se han abierto. */
   open = false;
+  /** Las Suites: alguien ha pulsado el botón de llamada (el ascensor solo se abre entonces). */
+  called = false;
+  /** Las Suites: la planta en la que se está (la escalera y el ascensor solo suben a la siguiente). */
+  floorNo = 1;
   /** La misión está cumplida: el ascensor se abre al acercarse. */
   ready = false;
   onWin?: (stairs?: boolean, floor?: number) => void;
@@ -260,7 +264,7 @@ export class Items extends PickupField {
     const w = this.world, door = w.elevator.position, d = Math.hypot(this.player.pos.x - door.x, this.player.pos.z - door.z);
     const ready = this.ready;
     this.world.genLeds.forEach((m, i) => m.color.setHex(this.pickups.find((p) => p.id === 'e' + i)?.taken ? 0x33ff66 : 0xff3322));
-    if (ready && this.powered && !this.open && d < 3) {
+    if (ready && this.powered && !this.open && d < 3 && (!w.cab.callBtn || this.called)) {
       this.open = w.elevatorOpen = true;
       dlog('elevator', `opening d ${d.toFixed(2)}`);
       this.audio?.elevator();
@@ -282,7 +286,7 @@ export class Items extends PickupField {
     // la escalera de servicio (Las Suites): cada planta tiene su puerta en el hueco; cruzarla, con la salida abierta, lleva a esa planta (en silencio y a oscuras)
     if (!this.won) {
       const q = this.player.pos, d = w.stairDoors.find((d) => Math.hypot(q.x - d.x, q.z - d.z) < 0.9 && Math.abs(q.y - d.y) < 0.8);
-      if (d && ready) (this.won = true), this.onWin?.(true, d.n);
+      if (d && ready && d.n === this.floorNo + 1) (this.won = true), this.onWin?.(true, d.n);
       else if (d && t > this.rejectAt) (this.rejectAt = t + 1.5), this.audio?.reject();
     }
   }

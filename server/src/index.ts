@@ -113,7 +113,7 @@ const sockets = new Map<number, Set<string>>(); // cuenta → sus sockets conect
 const guestColor = new Map<string, string>(); // socket de invitado → su color (uno gratis)
 /** Las misiones de la pizarra con sus votos (solo los de quienes siguen en la sala) y la que va ganando (la más votada; sin votos, la primera). */
 function offers(r: RoomState): { offers: MissionOffer[]; leading: string } {
-  const out = (r.levelId === 'suites' && !r.quota ? contractOffers() : r.pool).map((m) => ({ ...m, votes: [...r.votes].filter(([s, id]) => id === m.id && r.players.has(s)).map(([s]) => s) }));
+  const out = r.pool.map((m) => ({ ...m, votes: [...r.votes].filter(([s, id]) => id === m.id && r.players.has(s)).map(([s]) => s) }));
   const top = out.reduce((a, o) => (o.votes.length > a.votes.length ? o : a), out[0]);
   return { offers: out, leading: top?.id ?? '' };
 }
@@ -227,7 +227,7 @@ function checkOver(r: RoomState) {
 /** Prepara la ronda que viene (en el lobby): su semilla, el nivel y las tres misiones de la pizarra, sin votos. */
 function prepare(r: RoomState, seed = 0, level?: string) {
   r.nextSeed = seed || r.fixedSeed || 1 + ((Math.random() * 2 ** 31) | 0);
-  r.levelId = level ?? (r.floor > 1 || r.quota ? 'suites' : pickLevel(r.nextSeed, openOf(r))); // (a medio hotel, la ronda es la planta siguiente)
+  r.levelId = level ?? (r.floor > 1 ? 'suites' : pickLevel(r.nextSeed, openOf(r))); // (a medio hotel, la ronda es la planta siguiente)
   const lc = levelCaps(r.levelId);
   const pool = r.levelId === 'parking' ? parkingMissions(r.nextSeed, r.round) : lc.hotel ? suitesMissions(r.nextSeed, r.round, r.floor) : lc.pool ? poolMissions(r.nextSeed, r.round) : offerMissions(r.nextSeed, r.round, tvCount(generateMaze(r.nextSeed))); // (el mapa dice cuántas televisiones hay)
   r.pool = pool.map((m) => ({ ...m, reward: Math.round((m.reward * DIFFICULTY[r.difficulty].money) / 5) * 5 })); // la dificultad escala el dinero que da cada misión
@@ -269,8 +269,8 @@ function finish(r: RoomState) {
     if (rooms.get(r.code) !== r) return;
     const ps = [...r.players.values()], back = ps.filter((p) => p.boarded && !p.dead);
     const won = r.done && back.length > 0;
-    const hotel = r.levelId === 'suites', exit = hotel && won && !r.toFloor, carry = hotel && won && !!r.toFloor;
-    const reward = won ? r.earned + (exit ? r.bonus : 0) : 0, penalty = won ? 0 : penaltyOf(r.bank);
+    const hotel = r.levelId === 'suites', exit = hotel && won && r.toFloor === SUITE_FLOORS, carry = hotel && won && !!r.toFloor && !exit;
+    const reward = won ? r.earned + (exit ? SUITE_BONUS : 0) : 0, penalty = won ? 0 : penaltyOf(r.bank);
     r.bank = Math.max(0, r.bank + reward - penalty);
     const fates: Record<string, Fate> = {};
     for (const p of ps) fates[p.id] = back.includes(p) ? 'back' : p.dead ? 'dead' : 'stranded';
@@ -282,7 +282,7 @@ function finish(r: RoomState) {
     if (hotel) r.floor = carry ? r.toFloor! : 1;
     if (hotel && !carry) (r.quota = undefined), (r.jobs = 0), (r.bonus = 0);
     r.toFloor = undefined;
-    const result: RoundResult = { won, completed: r.done, mission: r.chosen ?? null, reward, penalty, bank: r.bank, fates, victory: Object.fromEntries(back.map((p) => [p.id, p.st.victory ?? 0])), ...(hotel && { floor: r.floor, fell }) };
+    const result: RoundResult = { won, completed: r.done, mission: r.chosen ?? null, reward, penalty, bank: r.bank, fates, victory: Object.fromEntries(back.map((p) => [p.id, p.st.victory ?? 0])), ...(hotel && { floor: r.floor, fell, climb: carry }) };
     io.to(r.code).emit('over', result);
     backToLobby(r, ps);
     if (carry) setTimeout(() => rooms.get(r.code) === r && r.phase === 'lobby' && begin(r), 4000); // (siguiente planta del contrato: entra sola)
@@ -322,6 +322,8 @@ function takeDrop(r: RoomState, p: Player, id: string) {
   return true;
 }
 let dropNo = 0;
+/** Las Suites: lo que se cobra de más al llegar a la planta 5 (el final del nivel). */
+const SUITE_BONUS = 600;
 
 /** La misión actual se cumple: su pago se suma, la salida se abre. */
 /** Una línea del registro de la sala: la ven todos los jugadores (popup de registro del cliente, tecla F8). */
@@ -384,7 +386,7 @@ function begin(r: RoomState) {
   r.doneIds = [];
   r.boardAt = undefined;
   r.lastProgress = -1;
-  if (r.quota) r.chosen = firstJob(r); // contrato en marcha (otra planta): sin votación
+  if (r.levelId === 'suites' && r.floor > 1) r.chosen = firstJob(r); // subiendo por el hotel (otra planta): el encargo lo asigna el servidor, sin votación
   for (const d of r.drops.values()) {
     const o = r.players.get(d.by); // lo soltado en la sala de espera vuelve a quien lo soltó (si cabe)
     if (o && fitsDrop(o.inv, d, o)) o.inv = withDrop(o.inv, d);
@@ -410,8 +412,7 @@ function begin(r: RoomState) {
         if (!fast && ids.every((id) => r.votes.has(id))) (fast = true), (r.voteEnd = Math.min(r.voteEnd!, now + 1500)), push(r);
         if (now >= r.voteEnd!) {
           const v = closeVote(r);
-          if (v.kind === 'contract') (r.quota = v.goal), (r.bonus = v.reward), (r.jobs = 0); // el hotel: lo votado es el contrato; el primer encargo, al azar
-          r.chosen = v.kind === 'contract' ? firstJob(r) : v;
+          r.chosen = v;
           push(r);
         }
       } else if (ids.every((id) => r.loaded.has(id)) || now >= r.voteEnd! + LOAD_GRACE) (clearInterval(iv), play(r));
@@ -1074,10 +1075,10 @@ io.on('connection', (sock) => {
     const r = roomOf(sock.id), p = r?.players.get(sock.id);
     if (!r?.match || !p || r.phase !== 'playing' || !r.done || !r.match.canBoard(p)) return;
     if (r.levelId === 'suites') {
-      // el ascensor y la escalera llevan a una planta (1-5); el 0 es el -1: salir del nivel, solo con el contrato cumplido
+      // el ascensor y la escalera suben de una planta en una (1-5); el juego del hotel solo se completa al llegar a la 5
       const to = Number.isInteger(floor) ? floor! : 0;
-      if (to === 0 ? (r.quota ?? 0) > r.jobs : !(to >= 1 && to <= SUITE_FLOORS && to !== r.floor)) return;
-      if (to) r.toFloor ??= to;
+      if (to !== r.floor + 1 || to > SUITE_FLOORS) return;
+      r.toFloor ??= to;
     }
     p.boarded = true;
     p.inv = cleanInv(inv, p.cap);
@@ -1091,7 +1092,7 @@ io.on('connection', (sock) => {
     const r = roomOf(sock.id);
     if (!r || r.phase !== 'starting' || !r.voteEnd || r.chosen) return;
     if (id === '') r.votes.delete(sock.id);
-    else if (typeof id === 'string' && (r.levelId === 'suites' && !r.quota ? contractOffers() : r.pool).some((m) => m.id === id)) r.votes.set(sock.id, id);
+    else if (typeof id === 'string' && r.pool.some((m) => m.id === id)) r.votes.set(sock.id, id);
     else return;
     push(r);
   });

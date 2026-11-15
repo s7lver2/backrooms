@@ -38,7 +38,6 @@ import VoiceHud from './VoiceHud';
 import { useVoice } from '../voice';
 import LockerGame from './LockerGame';
 import Dialogue from './Dialogue';
-import ElevatorPanel from './ElevatorPanel';
 import EmoteWheel from './EmoteWheel';
 import { emoteGate, refreshEmotes } from './emotes';
 
@@ -561,6 +560,12 @@ export default function Backrooms({ onQuit, onWin }: { onQuit: () => void; onWin
   // el final de una partida de sala: se para el juego y sale la pantalla de siempre; INSERT TAPE vuelve al lobby de la sala
   endRef.current = (r: RoundResult) => {
     // ronda ganada en el laberinto: volvemos a aparecer en el nivel con la pose de victoria; la pantalla de siempre queda para el resto
+    if (r.climb) {
+      // subiendo a la planta siguiente del hotel: la ronda no acaba, ni pantalla de fin ni final
+      game.current?.stop();
+      setChat(false);
+      return void setScreen('lobby');
+    }
     if (r.won && game.current?.epilogue(r, net.me)) {
       setChat(false);
       setWon(true);
@@ -882,7 +887,6 @@ export default function Backrooms({ onQuit, onWin }: { onQuit: () => void; onWin
       {screen === 'settings' && <SettingsPane muted={muted} toggleSound={toggleSound} onBack={() => setScreen('menu')} />}
       {wheel && <EmoteWheel have={haveAch} onPick={pickEmote} />}
       {screen === 'play' && !!hud?.talk && <Dialogue n={hud.talk} onPick={(i) => game.current?.pickMission(i)} onClose={() => game.current?.closeTalk()} />}
-      {screen === 'play' && !!hud?.lift && net.room && <ElevatorPanel floor={net.room.floor ?? 1} quota={net.room.quota ?? 0} jobs={net.room.jobs ?? 0} onPick={(f) => game.current?.pickFloor(f)} onClose={() => game.current?.closeLift()} />}
       {locker && (
         <LockerGame
           id={locker}
