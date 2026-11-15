@@ -82,6 +82,8 @@ export class Player {
   radar = false;
   /** Tiene cinta de acordonar (se tiene o no; se usa sin gastarse). En una sala la da la tienda o el suelo; solo, se empieza con ella. */
   caution = true;
+  /** Las Suites: la cinta de precaución no se usa en ese nivel (aunque se lleve en el inventario). */
+  noCaution = false;
   /** Correr lo gasta y a cero no se corre hasta recuperar un cuarto; la cordura la lleva game.ts. */
   stamina = 1;
   sanity = 1;
@@ -1215,7 +1217,7 @@ export class Player {
     if (!inv.monster && this.prop === 'monster') this.prop = 'none';
     if (!inv.uno && this.prop === 'uno') this.prop = 'none';
     this.radar = inv.radar;
-    this.caution = inv.caution;
+    this.caution = inv.caution && !this.noCaution;
     this.has.camera = inv.camera;
     this.has.gun = inv.gun;
     const d = inv.ammo - had.ammo; // balas: lo que sobra va a la reserva; lo que falta sale primero de ella
@@ -1231,10 +1233,10 @@ export class Player {
         if (this.belt === g) this.belt = 'none';
       }
     if (!inv.radar && this.gadget === 'radar') this.gadget = 'none';
-    if (!inv.caution && this.gadget === 'caution') this.gadget = 'none';
+    if (!this.caution && this.gadget === 'caution') this.gadget = 'none';
     if (!inv.totem && this.gadget === 'totem') this.gadget = 'none';
     for (const g of ['camera', 'gun'] as const) if (inv[g] && !had[g]) (this.stow(g), this.autoSlot(g));
-    for (const k of ['water', 'totem', 'radar', 'caution', 'watergun', 'uno', 'monster', 'pokeball', 'grenade', 'nokia', 'bat'] as const) if (inv[k] && !had[k]) this.autoSlot(k);
+    for (const k of ['water', 'totem', 'radar', 'caution', 'watergun', 'uno', 'monster', 'pokeball', 'grenade', 'nokia', 'bat'] as const) if ((k === 'caution' ? this.caution : inv[k]) && !had[k]) this.autoSlot(k);
   }
 
   /** Empezar la ronda con este inventario (el del servidor): nada de lo anterior, el cargador lleno. */

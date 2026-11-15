@@ -294,7 +294,7 @@ export interface ShopItem {
 export const SHOP: ShopItem[] = (Object.keys(ITEMS) as ItemId[]).map((id) => ({ id, name: ITEMS[id].name, price: ITEMS[id].price, info: ITEMS[id].info }));
 /** Lo que vende un Faceling: pocas cosas y un 20 % más caras (4 o 5 al azar según la semilla y la planta: iguales para todos los Facelings y jugadores de la ronda). */
 export function facelingStock(seed: number, floor = 1, open?: ReadonlySet<string>): ShopItem[] {
-  const pool = SHOP.filter((s) => !open || itemOpen(s.id, open));
+  const pool = SHOP.filter((s) => s.id !== 'caution' && (!open || itemOpen(s.id, open))); // (la cinta de precaución no se vende ni se usa en Las Suites)
   let a = (seed ^ Math.imul(floor, 0x9e3779b1)) >>> 0;
   const rnd = () => (a = (Math.imul(a, 1664525) + 1013904223) >>> 0) / 4294967296;
   rnd();

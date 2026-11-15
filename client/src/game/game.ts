@@ -1164,6 +1164,7 @@ export class BackroomsGame {
     const m = w.maze, s = m.start;
     this.hides = hideStates(m);
     const p = (this.player = new Player(w, this.assets!, this.camera, this.flash, this.opts.reduced));
+    p.noCaution = this.caps.hotel === true;
     p.setLook(this.lookOf(mp?.id)); // (mi skin sobre mi cuerpo en primera persona)
     if (mp?.life) p.life = mp.life;
     p.onDrink = () => (this.audio?.drink(), this.mp?.sock.emit('drink'));
