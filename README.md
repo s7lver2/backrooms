@@ -4,7 +4,7 @@ Co-op (2-4 players) multiplayer Backrooms horror game. Monorepo (npm workspaces)
 
 Install Git LFS before cloning or building the Habitable Zone. In an existing clone, run `git lfs install` and `git lfs pull` to download the models and textures. Build and deployment checkouts need LFS assets too.
 
-Run `git config --local core.hooksPath .githooks` once per clone to enable the staged-file guard and the LFS upload hook. The guard rejects ignored files and ordinary Git blobs larger than 5 MiB. Keep local screenshots and raw asset sources in ignored folders. For new required binaries outside the existing LFS patterns, run `git lfs track` for the asset path before staging it, and stage `.gitattributes` with it.
+The staged-file guard and the LFS upload hook are installed by lefthook on `npm install` (see "Git hooks" below); the legacy `.githooks/` folder is only needed if you do not use lefthook, and `core.hooksPath` must then stay unset. The guard rejects ignored files and ordinary Git blobs larger than 5 MiB. Keep local screenshots and raw asset sources in ignored folders. For new required binaries outside the existing LFS patterns, run `git lfs track` for the asset path before staging it, and stage `.gitattributes` with it.
 
 ```
 npm install
