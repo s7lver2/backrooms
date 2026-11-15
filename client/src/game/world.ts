@@ -1076,6 +1076,7 @@ export class World implements Terrain {
       const _u = new THREE.Vector3(0, 1, 0);
       const LV = 5, base = (k: number) => -(FL - 1) * TOP + k * TOP; // el suelo del nivel k (0-4: las plantas 1-5; el 5, la azotea): la planta de ahora queda a y = 0
       const y0 = base(0), SHT = base(LV) + TOP + 0.3, WH = SHT - y0; // el hueco va del suelo de la planta 1 al techo de la azotea
+      const sdMats = new Map<string, THREE.MeshStandardMaterial>();
       for (const c of stairsAt) {
         // todo el hueco se funde por material al final (eran ~1000 mallas por escalera: un dibujo cada una)
         const bucket = new Map<THREE.Material, THREE.BufferGeometry[]>();
@@ -1126,12 +1127,22 @@ export class World implements Terrain {
             dd.traverse((o) => {
               const mesh = o as THREE.Mesh;
               if (!mesh.isMesh) return;
-              const dm = (mesh.material = (mesh.material as THREE.MeshStandardMaterial).clone()) as THREE.MeshStandardMaterial;
-              dm.color.set(0x7d858b);
-              Object.assign(dm, { metalness: 0.7, roughness: 0.38 });
-              lightmapped(dm);
+              const sk = (mesh.material as THREE.Material).uuid;
+              let dm = sdMats.get(sk);
+              if (!dm) {
+                dm = (mesh.material as THREE.MeshStandardMaterial).clone();
+                dm.color.set(0x7d858b);
+                Object.assign(dm, { metalness: 0.7, roughness: 0.38 });
+                lightmapped(dm);
+                sdMats.set(sk, dm);
+              }
+              mesh.material = dm;
             });
             dg.add(dd);
+            const sdLeaf = dd.getObjectByName('Plane001') ?? dd.getObjectByName('Plane.001'); // (las piezas de la puerta, fundidas por material: la hoja gira, el resto no)
+            dg.updateMatrixWorld(true);
+            if (sdLeaf) fuse(sdLeaf, sdLeaf, new Set(sdMats.values()));
+            fuse(dg, dg, new Set(sdMats.values()), sdLeaf ?? undefined);
             dg.position.set(xr, b, 10.5);
             this.root.add(dg);
             this.doors.push({ x: xr, z: 10.5, nx: 0, nz: -1, leaf: (dd.getObjectByName('Plane001') ?? dd.getObjectByName('Plane.001')) ?? undefined, cell: -1, cur: 0, tgt: 0, y: b, stair: k + 1 });
@@ -1488,6 +1499,7 @@ export class World implements Terrain {
       const lights: THREE.Object3D[] = [];
       g.traverse((o) => (o as THREE.Light).isLight && lights.push(o));
       lights.forEach((o) => o.removeFromParent()); // (aparte: quitarlas dentro del recorrido lo rompe)
+      fuseAll(g); // (quieto: la cabina falsa son ~40 mallas, tres veces por pasillo)
       g.position.set(dc.x + dx * (CELL / 2), 0, dc.z + dy * (CELL / 2));
       this.root.add(g);
       this.decoys.add(d.cell.y * w + d.cell.x);
