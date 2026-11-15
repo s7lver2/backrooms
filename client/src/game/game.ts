@@ -1048,7 +1048,12 @@ export class BackroomsGame {
     const dt = Math.min(realDt, 0.05) * (this.mp ? 1 : this.cheats.slow); // (cámara lenta: solo en solitario)
     this.lastFrame = performance.now();
     if (this.epi) return this.epiFrame(dt);
-    if (this.player && !this.winning && this.dying < 0) (this.liveAt.copy(this.player.pos), (this.liveYaw = this.player.yaw));
+    if (this.player && !this.winning && this.dying < 0) {
+      // dónde estaba y hacia dónde miraba por última vez (el final de ronda empieza ahí): en el parking y las Poolrooms, por la cámara
+      const cam = this.parking ? this.camera : this.pool instanceof PoolLevel ? this.pool.camera : undefined;
+      if (cam) (this.liveAt.copy(cam.position), (this.liveAt.y -= EYE), (this.liveYaw = Math.atan2(-cam.getWorldDirection(_dir).x, -_dir.z)));
+      else (this.liveAt.copy(this.player.pos), (this.liveYaw = this.player.yaw));
+    }
     // en una sala la pausa no detiene el mundo (los demás siguen jugando): solo se sueltan los mandos
     if (this.paused && (!this.mp || this.run)) return;
     const c = this.input.read();
@@ -1577,14 +1582,23 @@ export class BackroomsGame {
   }
 
   /** El final de una ronda ganada: seguimos en el nivel, de pie en fila con la pose de victoria de cada uno y las entidades bailando. */
-  private epi?: { c: THREE.Vector3; face: number; g: THREE.Vector3; order: string[]; victory: Record<string, number>; me: string; ents: Entity[] };
+  private epi?: { self?: Remote; lv?: PoolLevel; pk?: boolean; c: THREE.Vector3; face: number; g: THREE.Vector3; order: string[]; victory: Record<string, number>; me: string; ents: Entity[] };
   private liveAt = new THREE.Vector3();
   private liveYaw = 0;
   /** Monta el final (false: este nivel no lo admite, se sigue con la pantalla de siempre). Solo en el laberinto (nivel 0 y Las Suites). */
   epilogue(r: RoundResult, me: string): boolean {
-    const w = this.world, pl = this.player;
-    if (!w || !pl || !this.mp || this.parking || this.pool || !r.victory) return false;
-    const solid = (x: number, z: number) => w.solid(this.caps.hotel ? wrapX(x) : x, z);
+    const w = this.world, pl = this.player, pk = this.parking, lv = this.pool instanceof PoolLevel ? this.pool : undefined;
+    if (!this.mp || !r.victory || !this.assets || !pl || (!pk && !lv && !w) || (this.pool && !lv)) return false;
+    const solid = (x: number, z: number) => (w && !pk && !lv ? w.solid(this.caps.hotel ? wrapX(x) : x, z) : false);
+    // en el parking y las Poolrooms mi cuerpo no cuelga del mundo: me hago un clon como los de los demás
+    let self: Remote | undefined;
+    if (pk || lv) {
+      self = new Remote(this.assets);
+      self.reset(me, '');
+      self.setLook(this.lookOf(me));
+      (pk ? pk.level.scene : lv!.scene).add(self.root);
+    }
+    const remote = (id: string) => (id === me ? self : this.remotes.get(id));
     const c = this.liveAt.clone().setY(0);
     // hacia donde hay sitio: una hilera (los pasillos son estrechos) por delante de donde se estaba, de la cámara hacia dentro
     let face = this.liveYaw;
@@ -1603,7 +1617,7 @@ export class BackroomsGame {
     // los jugadores en fila delante de la cámara; las entidades, detrás de ellos, donde no haya pared
     order.forEach((id, i) => {
       const at = c.clone().addScaledVector(f, 2.4 + i * 1.25);
-      const rem = this.remotes.get(id);
+      const rem = remote(id);
       if (rem) {
         rem.root.visible = true;
         rem.set({ x: at.x, y: 0, z: at.z, yaw: face + Math.PI, pitch: 0, anim: 'Neutral Idle', light: false, held: 'none', emote: r.victory![id] || 1 } as PlayerState);
@@ -1617,7 +1631,11 @@ export class BackroomsGame {
       e.pos.copy(at);
       e.dance(g);
     });
-    this.epi = { c, face, g, order, victory: r.victory, me, ents };
+    this.epi = { self, lv, pk: !!pk, c, face, g, order, victory: r.victory, me, ents };
+    if (lv) {
+      // el mundo de las Poolrooms deja la cámara donde está el cuerpo: se lleva ahí (de pie, sin ascensor ni desmayo)
+      Object.assign(lv as unknown as Record<string, unknown>, { px: c.x, py: c.y, pz: c.z, yaw: face, pitch: -0.08, vy: 0, ride: undefined, hold: undefined, faint: 0, dead: false });
+    }
     this.winning = true;
     this.black = 0;
     this.vhs.uniforms.uBlack.value = 0;
@@ -1630,21 +1648,24 @@ export class BackroomsGame {
   private epiFrame(dt: number) {
     const e = this.epi!, w = this.world, pl = this.player;
     this.t += dt;
-    if (!w || !pl) return;
-    w.update(this.t, dt);
+    if (!pl) return;
+    w?.update(this.t, dt);
     const f = new THREE.Vector3(-Math.sin(e.face), 0, -Math.cos(e.face));
     // yo: mi cuerpo con mi pose de victoria (la de los demás la hacen sus clones)
-    const mine = EMOTE_DEFS[(e.victory[e.me] || 1) - 1].clip;
-    pl.showEmote(mine, _feet.copy(e.c).addScaledVector(f, 2.4), e.face + Math.PI, dt);
-    for (const id of e.order) this.remotes.get(id)?.update(dt);
+    if (!e.self) pl.showEmote(EMOTE_DEFS[(e.victory[e.me] || 1) - 1].clip, _feet.copy(e.c).addScaledVector(f, 2.4), e.face + Math.PI, dt);
+    for (const id of e.order) (id === e.me ? e.self : this.remotes.get(id))?.update(dt);
     for (const en of e.ents) en.update(dt, e.g, e.g, null, false, true);
     // la cámara, donde se acabó, mirando a la fila y moviéndose despacio de lado a lado
     const side = new THREE.Vector3(-f.z, 0, f.x), sway = Math.sin(this.t * 0.35) * 0.35;
-    this.camera.position.copy(e.c).setY(1.45).addScaledVector(side, sway);
-    this.camera.lookAt(e.g.x, 1.05, e.g.z);
-    this.camera.updateMatrixWorld(true);
+    const cam = e.lv ? e.lv.camera : this.camera;
+    if (e.lv) e.lv.post(dt, { ...this.input.read(), move: _none, look: _none, crouch: false, run: false }, true); // (el agua, la luz y la niebla de las Poolrooms; la cámara la pone en el cuerpo)
+    cam.position.copy(e.c).setY(e.c.y + 1.45).addScaledVector(side, sway);
+    cam.lookAt(e.g.x, e.c.y + 1.05, e.g.z);
+    cam.updateMatrixWorld(true);
+    if (e.pk) this.parking?.render(dt, this.t, this.camera);
     this.flash.intensity = 0;
     this.vhs.uniforms.uTime.value = this.film.uniforms.uTime.value = this.t;
+    this.vhs.uniforms.uAspect.value = this.camera.aspect;
     this.composer.render(dt);
   }
 
@@ -3526,6 +3547,7 @@ server-synced inv ${JSON.stringify(this.mp.inv)}` : ''}`);
 
   /** Saca al jugador de la partida (la sala vuelve al lobby): se para todo y queda el lienzo en negro. */
   stop() {
+    this.epi?.self?.dispose();
     this.epi = undefined;
     this.clearXray();
     this.xray.removeFromParent();
