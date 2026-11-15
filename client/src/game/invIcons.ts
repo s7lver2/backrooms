@@ -54,6 +54,7 @@ function shoot(src: THREE.Object3D, spin = -0.7, tilt = 0.4) {
   cam.lookAt(c);
   r.render(scene, cam);
   scene.remove(pivot);
+  if (r.getContext().isContextLost()) throw new Error('icon context lost');
   return r.domElement.toDataURL('image/png');
 }
 
@@ -67,34 +68,36 @@ function release() {
 
 export type IconKey = typeof inventoryModels[number] | 'flashlight' | 'camera' | 'gun' | 'tape' | 'spare' | 'ammo' | 'water' | 'caution' | 'radar' | 'totem' | 'watergun' | 'tank';
 
-/** Los iconos del equipo y de los bolsillos; se hacen la primera vez y se guardan. */
+const tries = new Map<string, number>();
+/** Guarda la captura de `k`; si falla (contexto perdido, modelo sin llegar) no se guarda y se reintenta en la próxima llamada (hasta 3 veces). */
+function snap(k: string, src: THREE.Object3D | undefined, spin: number, tilt: number) {
+  if (cache.has(k) || !src || (tries.get(k) ?? 0) >= 3) return;
+  try {
+    cache.set(k, shoot(src, spin, tilt));
+  } catch {
+    tries.set(k, (tries.get(k) ?? 0) + 1);
+    release(); // (un contexto nuevo en el siguiente intento)
+  }
+}
+
+/** Los iconos del equipo y de los bolsillos; se hacen la primera vez y se guardan (con un solo renderer para todos). */
 export function gearIcons(assets: Assets): Record<IconKey, string> {
+  const g = assets.gltf;
   // lo de las Poolrooms llega cuando se baja su kit
-  for (const [k, spin] of [['watergun', -0.5], ['tank', -0.6]] as const) {
-    const o = poolPart(k);
-    if (o && !cache.has(k)) (cache.set(k, shoot(o, spin, 0.3)), release());
-  }
-  if (!cache.has('flashlight')) {
-    const g = assets.gltf;
-    const flash = shoot(g.flashlight.scene, -0.9, 0.3);
-    cache.set('flashlight', flash);
-    cache.set('spare', flash);
-    cache.set('camera', shoot(g.camcorder.scene, -0.6, 0.35));
-    const gun = shoot(g.gun.scene, -0.5, 0.25);
-    cache.set('gun', gun);
-    cache.set('ammo', gun);
-    cache.set('tape', shoot(g.vhs.scene, -0.55, 0.5));
-    cache.set('water', shoot(g.water.scene, -0.5, 0.2));
-    release();
-    cache.set('caution', shoot(g.duct.scene, -0.6, 0.5));
-    cache.set('radar', shoot(g.radar.scene, -0.4, 0.5));
-    cache.set('totem', shoot(g.totem.scene, -0.5, 0.2));
-  }
+  for (const [k, spin] of [['watergun', -0.5], ['tank', -0.6]] as const) snap(k, poolPart(k), spin, 0.3);
+  snap('flashlight', g.flashlight.scene, -0.9, 0.3);
+  if (cache.has('flashlight')) cache.set('spare', cache.get('flashlight')!);
+  snap('camera', g.camcorder.scene, -0.6, 0.35);
+  snap('gun', g.gun.scene, -0.5, 0.25);
+  if (cache.has('gun')) cache.set('ammo', cache.get('gun')!);
+  snap('tape', g.vhs.scene, -0.55, 0.5);
+  snap('water', g.water.scene, -0.5, 0.2);
+  snap('caution', g.duct.scene, -0.6, 0.5);
+  snap('radar', g.radar.scene, -0.4, 0.5);
+  snap('totem', g.totem.scene, -0.5, 0.2);
   // los modelos nuevos llegan con los demás al cargar
-  for (const k of inventoryModels) {
-    const o = itemModel(k);
-    if (o && !cache.has(k)) (cache.set(k, shoot(o, -0.5, k === 'monster' || k === 'glasses' || k === 'pills' || k === 'beer' ? 0.15 : 0.3)), release());
-  }
+  for (const k of inventoryModels) snap(k, itemModel(k), -0.5, k === 'monster' || k === 'glasses' || k === 'pills' || k === 'beer' ? 0.15 : 0.3);
+  release();
   return Object.fromEntries([...inventoryModels, 'flashlight', 'camera', 'gun', 'tape', 'spare', 'ammo', 'water', 'caution', 'radar', 'totem', 'watergun', 'tank'].map((k) => [k, cache.get(k) ?? ''])) as Record<IconKey, string>;
 }
 

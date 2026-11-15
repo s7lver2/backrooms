@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState, type PointerEvent as RPE } from 'react';
 import { ITEMS, ITEM_IDS, LEVELS, UPGRADES, UP_IDS, boughtBefore, upCost, upLevel, type ItemId, type UpId, type Ups } from '@backrooms/shared';
 import type { Assets } from './game';
 import { gearIcons } from './invIcons';
@@ -96,6 +96,45 @@ export default function Upgrades({ bank, ups, sock, assets }: { bank: number; up
     return { nd, d, lv, max: nd.n, cost, locked, done, poor: cost !== null && bank < cost, need: needOk ? undefined : need, any: any && !anyOk ? { have, any } : undefined };
   };
   const shown = hover ?? sel, s = state(shown);
+  // el árbol se mueve arrastrando y se acerca o aleja con la rueda o los botones (nada de barras de desplazamiento)
+  const view = useRef<HTMLDivElement>(null), world = useRef<HTMLDivElement>(null);
+  const pan = useRef({ x: 0, y: 0, z: 1, d: null as null | { px: number; py: number; x0: number; y0: number }, moved: false });
+  const [zoom, setZoom] = useState(1);
+  const setPan = (x: number, y: number, smooth = false) => {
+    const v = view.current, w = world.current;
+    if (!v || !w) return;
+    const lim = (vs: number, ws: number, p: number) => (ws <= vs ? (vs - ws) / 2 : Math.max(vs - ws, Math.min(0, p)));
+    pan.current.x = lim(v.clientWidth, w.offsetWidth * pan.current.z, x);
+    pan.current.y = lim(v.clientHeight, w.offsetHeight * pan.current.z, y);
+    w.style.transition = smooth ? 'transform 0.35s ease' : 'none';
+    w.style.transform = `translate(${pan.current.x}px, ${pan.current.y}px) scale(${pan.current.z})`;
+  };
+  const zoomTo = (z: number, cx = (view.current?.clientWidth ?? 0) / 2, cy = (view.current?.clientHeight ?? 0) / 2, smooth = false) => {
+    const p = pan.current, nz = Math.max(0.4, Math.min(1.8, z)), k = nz / p.z;
+    p.z = nz;
+    setZoom(nz);
+    setPan(cx - (cx - p.x) * k, cy - (cy - p.y) * k, smooth);
+  };
+  const fit = (smooth = false) => {
+    const v = view.current, w = world.current;
+    if (!v || !w) return;
+    pan.current.z = Math.min(1, v.clientWidth / w.offsetWidth, v.clientHeight / w.offsetHeight) || 1;
+    setZoom(pan.current.z);
+    setPan(0, 0, smooth);
+  };
+  useEffect(() => fit(), []); // eslint-disable-line react-hooks/exhaustive-deps
+  const down = (e: RPE) => (pan.current.d = { px: e.clientX, py: e.clientY, x0: pan.current.x, y0: pan.current.y });
+  const drag = (e: RPE) => {
+    const d = pan.current.d;
+    if (!d) return;
+    if (!pan.current.moved && Math.hypot(e.clientX - d.px, e.clientY - d.py) > 5) ((pan.current.moved = true), view.current?.setPointerCapture(e.pointerId));
+    if (pan.current.moved) setPan(d.x0 + e.clientX - d.px, d.y0 + e.clientY - d.py);
+  };
+  const release = () => (pan.current.d = null);
+  const wheel = (e: { clientX: number; clientY: number; deltaY: number }) => {
+    const r = view.current!.getBoundingClientRect();
+    zoomTo(pan.current.z * (e.deltaY < 0 ? 1.12 : 1 / 1.12), e.clientX - r.left, e.clientY - r.top);
+  };
   const best = NODES.filter((n) => { const t = state(n.key); return !t.locked && !t.done && !t.poor; }).sort((x, y) => (state(x.key).cost ?? 0) - (state(y.key).cost ?? 0))[0]?.key;
   return (
     <div className="br-shop">
@@ -113,8 +152,14 @@ export default function Upgrades({ bank, ups, sock, assets }: { bank: number; up
         <span className="br-lobby__dim">GREEN = BUY NOW · DIM = LOCKED · DOUBLE CLICK BUYS</span>
       </p>
       <div className="br-tree">
-        <div className="br-tree__scroll">
-          <div className="br-tree__grid" role="tree" aria-label="Upgrades" style={{ gridTemplateColumns: `4.5em ${COLS.map((c) => (c.gate ? '6.5em' : 'minmax(6.5em, 1fr)')).join(' ')}` }}>
+        <div className="br-tree__scroll" ref={view} onPointerDown={down} onPointerMove={drag} onPointerUp={release} onPointerCancel={release} onClickCapture={(e) => pan.current.moved && (e.stopPropagation(), e.preventDefault(), (pan.current.moved = false))} onWheel={wheel}>
+          <span className="br-tree__zoom">
+            <button type="button" className="br-opt" aria-label="Zoom out" onClick={() => zoomTo(pan.current.z / 1.25, undefined, undefined, true)}>−</button>
+            <small>{Math.round(zoom * 100)}%</small>
+            <button type="button" className="br-opt" aria-label="Zoom in" onClick={() => zoomTo(pan.current.z * 1.25, undefined, undefined, true)}>+</button>
+            <button type="button" className="br-opt" aria-label="Fit" onClick={() => fit(true)}>⌂</button>
+          </span>
+          <div className="br-tree__grid" ref={world} role="tree" aria-label="Upgrades" style={{ gridTemplateColumns: `4.5em ${COLS.map((c) => (c.gate ? '6.5em' : 'minmax(6.5em, 1fr)')).join(' ')}` }}>
             {COLS.map((c, i) => <p key={i} className="br-tree__lane" data-gate={c.gate ? '' : undefined} style={{ gridColumn: i + 2, gridRow: 1 }}>{c.label}</p>)}
             {LANES.map((l, r) => <p key={l} className="br-tree__ph" style={{ gridColumn: 1, gridRow: r + 2 }}>{l}</p>)}
             {LANES.map((_, r) => <i key={r} className="br-tree__rail" style={{ gridColumn: `2 / ${COLS.length + 2}`, gridRow: r + 2 }} aria-hidden="true" />)}
@@ -231,7 +276,7 @@ export default function Upgrades({ bank, ups, sock, assets }: { bank: number; up
                   </li>
                 ))}
               </ul>
-              {assets && s.d.level && <div className="br-tree__model"><ItemView assets={assets} kind={unlocks(s.nd.id)[unlocks(s.nd.id).length - 1] as 'uno'} r={2} /></div>}
+              {assets && <div className="br-tree__model"><ItemView assets={assets} kind={unlocks(s.nd.id)[unlocks(s.nd.id).length - 1] as 'uno'} r={2} /></div>}
             </>
           )}
           <button type="button" className="br-opt" data-nav disabled={s.locked || s.done || s.poor || busy} onClick={() => (setSel(shown), buy(s.nd.id))}>

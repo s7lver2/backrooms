@@ -42,16 +42,32 @@ function modelOf(assets: Assets, k: IconKey | 'loot', r: number): THREE.Object3D
   }
 }
 
+/** Unos pocos renderers que se reutilizan: abrir y cerrar contextos WebGL a cada paso (pasar el ratón por la ficha) los agota y los demás visores salen vacíos. */
+const pool: THREE.WebGLRenderer[] = [];
+function acquire() {
+  let r = pool.pop();
+  while (r && r.getContext().isContextLost()) r = pool.pop();
+  if (!r) {
+    r = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+    r.outputColorSpace = THREE.SRGBColorSpace;
+    r.toneMapping = THREE.ACESFilmicToneMapping;
+  }
+  r.setPixelRatio(Math.min(devicePixelRatio, 2));
+  return r;
+}
+function giveBack(r: THREE.WebGLRenderer) {
+  r.domElement.remove();
+  if (pool.length < 4) pool.push(r);
+  else (r.dispose(), r.forceContextLoss());
+}
+
 export default function ItemView({ assets, kind, r, object }: { assets: Assets; kind: IconKey | 'loot'; r: number; object?: THREE.Object3D }) {
   const box = useRef<HTMLDivElement>(null);
   useEffect(() => {
     const el = box.current;
     const src = object ?? modelOf(assets, kind, r);
     if (!el || !src) return;
-    const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
-    renderer.outputColorSpace = THREE.SRGBColorSpace;
-    renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+    const renderer = acquire();
     el.append(renderer.domElement);
     renderer.domElement.style.cssText = 'width:100%;height:100%;display:block';
     const col = new THREE.Color(rarity(r).color);
@@ -105,9 +121,7 @@ export default function ItemView({ assets, kind, r, object }: { assets: Assets; 
     return () => {
       cancelAnimationFrame(id);
       ro.disconnect();
-      renderer.dispose();
-      renderer.forceContextLoss();
-      renderer.domElement.remove();
+      giveBack(renderer);
     };
   }, [assets, kind, r, object]);
   return <div ref={box} className="iv-view" role="img" aria-label="The item, turning" />;
