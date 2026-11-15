@@ -1,4 +1,5 @@
 'use client';
+import { setCrashContext } from '../telemetry';
 import { DEV_LOCAL } from '../devGate';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import gsap from 'gsap';
@@ -420,6 +421,7 @@ export default function Backrooms({ onQuit, onWin }: { onQuit: () => void; onWin
     const ui = () => void root.current?.style.setProperty('--br-ui', String(settings.ui));
     ui();
     onSetting('ui', ui);
+    setCrashContext(() => g.crashContext()); // (informes de fallo: nivel, semilla, posición)
     // desarrollo local (no por túnel ni en producción, ver devGate.ts): __game y __maze(semilla) en la consola
     if (dev) Object.assign(window, { __game: g, __maze: (seed: number) => console.info(asciiMaze(seed)) });
     if (dev?.has('debug')) void import('./debugPanel').then((m) => m.openDebugPanel(g));

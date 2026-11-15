@@ -3833,6 +3833,12 @@ server-synced inv ${JSON.stringify(this.mp.inv)}` : ''}`);
     else if (canHold(p.inventory, op.item)) p.receive(op.item);
   }
 
+  /** Lo que acompaña a un informe de fallo (telemetry.ts): nivel, semilla y dónde estaba el jugador. Nada personal. */
+  crashContext() {
+    const p = this.player?.pos;
+    return { level: this.mp?.level ?? (this.parking ? 'parking' : 'level0'), floor: this.floorNo, seed: this.seed0, pos: p ? [Math.round(p.x * 10) / 10, Math.round(p.y * 10) / 10, Math.round(p.z * 10) / 10] : null };
+  }
+
   /** Solo: lo que enseña el panel de depuración. */
   adminInfo() {
     const m = this.mission;
