@@ -1221,6 +1221,7 @@ export class BackroomsGame {
     if (pp) (pp.duckMin = duct ? 0.9 : 0), (pp.maxEye = Infinity), (pp.camFwd = duct ? 0.32 : 0); // (en el conducto, agachado casi al paso de andar y con la vista adelantada: el pecho no se mete en la cámara)
     if (!this.spectating || this.player?.dead) this.player?.update(dt, pc);
     this.camPlace(dt);
+    if (this.player && this.camUse < 0) this.world?.vents?.renderLive(this.renderer, this.scene, this.t, dt, this.player.pos); // (un televisor de la sala de control enseña de vez en cuando una cámara de verdad)
     if (this.caps.hotel && this.player) {
       // Las Suites: el pasillo se cierra sobre sí mismo (shared/src/suites.ts). Quien acaba de entrar del vestíbulo NO salta: la puerta se cierra a su espalda y recorre la última copia
       // (igual que las demás); el salto empieza al pasar a la anterior

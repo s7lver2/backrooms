@@ -123,7 +123,9 @@ export class Vents {
   private gasU = { value: 0 };
   private fans: { rotor: THREE.Object3D; v: number }[] = [];
   private heads: THREE.Object3D[] = [];
-  private feeds: { cv: HTMLCanvasElement; tex: THREE.CanvasTexture; cam: number }[] = [];
+  private feeds: { cv: HTMLCanvasElement; tex: THREE.CanvasTexture; cam: number; mat?: THREE.MeshBasicMaterial }[] = [];
+  private live?: { rt: THREE.WebGLRenderTarget; cam: THREE.PerspectiveCamera; tv: number; src: number; until: number; next: number; acc: number };
+  private roomAt?: { x: number; z: number };
   private feedI = 0;
   private feedT = 0;
   private eehTex?: THREE.CanvasTexture;
@@ -314,7 +316,7 @@ export class Vents {
     const x0 = ctl.x * CELL, x1 = (ctl.x + ctl.w) * CELL, zN = ctl.y * CELL, zF = (ctl.y + ctl.h) * CELL, xc = (x0 + x1) / 2;
     for (let y = ctl.y; y < ctl.y + ctl.h; y++) for (let x = ctl.x; x < ctl.x + ctl.w; x++) this.roomFloor.add(y * m.w + x);
     // el hormigón: paredes (con el hueco de la entrada del conducto) y techo
-    const cmat = lit(new THREE.MeshStandardMaterial({ map: concreteTex(), color: 0xb9b9b4, roughness: 0.95, metalness: 0.02 }));
+    const cmat = lit(new THREE.MeshStandardMaterial({ map: concreteTex(), color: 0xb9b9b4, roughness: 0.95, metalness: 0.02, emissive: 0x161615 }));
     const slab = (bw: number, bh: number, bd: number, x: number, y: number, z: number) => {
       const bg = new THREE.BoxGeometry(bw, bh, bd), uv = bg.getAttribute('uv'), dims = [[bd, bh], [bd, bh], [bw, bd], [bw, bd], [bw, bh], [bw, bh]];
       for (let i = 0; i < uv.count; i++) uv.setXY(i, (uv.getX(i) * dims[(i / 4) | 0][0]) / 2.5, (uv.getY(i) * dims[(i / 4) | 0][1]) / 2.5);
@@ -340,7 +342,7 @@ export class Vents {
     // las luces: tres tubos en el techo (fríos, tenues) con su luz
     const tube = new THREE.MeshBasicMaterial({ color: 0xd9e6ff });
     for (const x of [x0 + (x1 - x0) * 0.2, xc, x0 + (x1 - x0) * 0.8]) {
-      const t = new THREE.Mesh(new THREE.BoxGeometry(1.5, 0.06, 0.22), tube), l = new THREE.PointLight(0xcfe0ff, 2.2, 10, 1.5);
+      const t = new THREE.Mesh(new THREE.BoxGeometry(1.5, 0.06, 0.22), tube), l = new THREE.PointLight(0xcfe0ff, 3.6, 12, 1.4);
       t.position.set(x, RH - 0.04, (zN + zF) / 2);
       l.position.set(x, RH - 0.6, (zN + zF) / 2);
       g.add(t, l);
@@ -358,16 +360,17 @@ export class Vents {
       for (let i = 0; i < 6; i++) {
         const cv = canvas(112, 84), tex = mapOf(cv), cam = (r * 6 + i) % Math.max(1, cams.length), t = tv.clone(true), k = ud.k;
         // (la pantalla del modelo: en su cara +x, a 0,545 de x y centrada en y = 2,4, z = 0; 1,7 × 1,25 en sus unidades)
-        const scr = new THREE.Mesh(new THREE.PlaneGeometry(1.7 * k, 1.25 * k), new THREE.MeshBasicMaterial({ map: tex }));
+        const smat = new THREE.MeshBasicMaterial({ map: tex }), scr = new THREE.Mesh(new THREE.PlaneGeometry(1.7 * k, 1.25 * k), smat);
         scr.rotation.y = Math.PI / 2;
         scr.position.set((0.545 - ud.cx) * k, (2.4 - ud.minY) * k, 0);
         t.add(scr);
         t.rotation.y = Math.PI / 2; // (el frente, hacia -z: a la sala)
         t.position.set(xc + (i - 2.5) * 1.75, 0.8 + r * TV_H, zF - 0.55);
         g.add(t);
-        this.feeds.push({ cv, tex, cam });
+        this.feeds.push({ cv, tex, cam, mat: smat });
         this.paint(this.feeds[this.feeds.length - 1], 0);
       }
+    this.roomAt = { x: xc, z: (zN + zF) / 2 };
     // la mesa de operadores y sus sillas
     box(11, 0.78, 1.0, xc, 0.39, zF - 0.55, plastic);
     box(11.1, 0.04, 1.1, xc, 0.8, zF - 0.55, top);
@@ -461,6 +464,36 @@ export class Vents {
     g.font = 'bold 30px monospace', g.fillText(down ? 'OFFLINE' : 'ONLINE', 128, 62);
     g.font = '14px monospace', g.fillText(down ? 'PRESS G TO RESTORE' : 'ALL SYSTEMS NOMINAL', 128, 92);
     this.eehTex.needsUpdate = true;
+  }
+
+  /** De vez en cuando, uno de los televisores enseña lo que ve de verdad una cámara de seguridad (se pinta el mundo a una textura pequeña unas 6 veces por segundo, solo si estás en la sala). */
+  renderLive(r: THREE.WebGLRenderer, scene: THREE.Scene, t: number, dt: number, at: { x: number; z: number }) {
+    const room = this.roomAt, cams = this.maze.cams ?? [];
+    if (!room || !cams.length || !this.feeds.length) return;
+    const L = (this.live ??= { rt: new THREE.WebGLRenderTarget(256, 192), cam: new THREE.PerspectiveCamera(62, 4 / 3, 0.1, 40), tv: -1, src: 0, until: 0, next: t + 6, acc: 0 });
+    const near = Math.hypot(at.x - room.x, at.z - room.z) < 16, show = (i: number, on: boolean) => {
+      const f = this.feeds[i];
+      if (f?.mat) ((f.mat.map = on ? L.rt.texture : f.tex), (f.mat.needsUpdate = true));
+    };
+    if (L.tv >= 0 && (t > L.until || !near)) (show(L.tv, false), (L.tv = -1), (L.next = t + 15 + Math.random() * 25));
+    if (L.tv < 0 && near && t > L.next) {
+      L.tv = (Math.random() * this.feeds.length) | 0;
+      L.src = (Math.random() * cams.length) | 0;
+      L.until = t + 8 + Math.random() * 8;
+      show(L.tv, true);
+    }
+    if (L.tv < 0) return;
+    L.acc += dt;
+    if (L.acc < 0.16) return;
+    L.acc = 0;
+    const p = this.camPose(L.src, t);
+    L.cam.position.set(p.x, p.y, p.z);
+    L.cam.quaternion.setFromEuler(new THREE.Euler(p.pitch, p.yaw, 0, 'YXZ'));
+    L.cam.updateMatrixWorld(true);
+    const prev = r.getRenderTarget();
+    r.setRenderTarget(L.rt);
+    r.render(scene, L.cam);
+    r.setRenderTarget(prev);
   }
 
   update(t: number, dt: number) {
