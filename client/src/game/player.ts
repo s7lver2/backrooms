@@ -624,8 +624,8 @@ export class Player {
     let tk = 0;
     if (this.typeAt) {
       this.typeT += dt;
-      if (this.typeT >= TYPE_T) (this.typeCb?.(), (this.typeCb = undefined), (this.typeAt = undefined));
-      else tk = Math.min(1, this.typeT / 0.3, (TYPE_T - this.typeT) / 0.3);
+      if (this.typeT >= this.typeDur) (this.typeCb?.(), (this.typeCb = undefined), (this.typeAt = undefined));
+      else tk = Math.min(1, this.typeT / 0.3, (this.typeDur - this.typeT) / 0.3);
       const tap = Math.floor(this.typeT * 9);
       if (tap !== this.typeTap) (this.typeTap = tap), this.onType?.();
     }
@@ -941,8 +941,14 @@ export class Player {
   }
 
   /** Teclear en el cuadro que hay en `at` (encender un generador): `done` se llama al acabar el gesto. */
-  typing(at: THREE.Vector3, done: () => void) {
+  private typeDur = TYPE_T;
+  /** Lo que lleva el tecleo en curso (0-1; 0 si no hay). */
+  get typeFrac() {
+    return this.typeAt ? Math.min(1, this.typeT / this.typeDur) : 0;
+  }
+  typing(at: THREE.Vector3, done: () => void, secs = TYPE_T) {
     if (this.reachAt || this.typeAt) return false;
+    this.typeDur = secs;
     this.typeAt = at.clone();
     this.typeT = 0;
     this.typeTap = 0;

@@ -534,11 +534,11 @@ export class World implements Terrain {
         if (!open[y * w + x]) {
           // (el hotel: tabiques finos, una losa de 30 cm pegada a cada cara que da a un sitio abierto; el resto del bloque, hueco, que no se ve ni se pisa)
           if (hotel) {
-            for (const [dx, dy] of DIRS) if (passable(x + dx, y + dy) && !inDuct(x + dx, y + dy)) walls.push(new THREE.Matrix4().compose(new THREE.Vector3(c.x + dx * (CELL / 2 - 0.15), HEIGHT / 2, c.z + dy * (CELL / 2 - 0.15)), new THREE.Quaternion(), new THREE.Vector3(dx ? 0.3 / CELL : 1, 1, dy ? 0.3 / CELL : 1)));
+            for (const [dx, dy] of DIRS) if (passable(x + dx, y + dy) && !inDuct(x + dx, y + dy) && !inRoom(x + dx, y + dy)) walls.push(new THREE.Matrix4().compose(new THREE.Vector3(c.x + dx * (CELL / 2 - 0.15), HEIGHT / 2, c.z + dy * (CELL / 2 - 0.15)), new THREE.Quaternion(), new THREE.Vector3(dx ? 0.3 / CELL : 1, 1, dy ? 0.3 / CELL : 1)));
           } else if (DIRS.some(([dx, dy]) => passable(x + dx, y + dy))) walls.push(m.clone().makeTranslation(c.x, HEIGHT / 2, c.z));
           continue;
         }
-        if (!(hotel && x >= SUITE_L * 3 + 4 && x <= SUITE_L * 3 + 9 && y >= 6 && y <= 11) && !shaft.has(y * w + x)) ceils.push(m.clone().makeTranslation(c.x, HEIGHT, c.z)); // (el salón de recepción: un hueco de 9 × 9 m en el centro, con la cúpula)
+        if (!(hotel && x >= SUITE_L * 3 + 4 && x <= SUITE_L * 3 + 9 && y >= 6 && y <= 11) && !shaft.has(y * w + x) && !inRoom(x, y)) ceils.push(m.clone().makeTranslation(c.x, HEIGHT, c.z)); // (el salón de recepción: un hueco de 9 × 9 m en el centro, con la cúpula)
         if (voids.has(y * w + x) || holes.has(y * w + x)) continue;
         // las pasarelas de las salas de pozos: el hueco se come PIT_EDGE de cada lado, el suelo se recorta en trocitos de 12,5 cm
         const pv = maze.zone[y * w + x] === ZONE.pits ? DIRS8.filter(([dx, dy]) => voids.has((y + dy) * w + x + dx)) : [];
@@ -778,6 +778,7 @@ export class World implements Terrain {
       rig.action('idle')?.play();
       this.root.add(g);
       this.staff.push(rig);
+      this.staffG.push(g);
       this.blockers.push({ x, z, r: 0.3 });
     };
     for (const p of maze.props) {
@@ -1641,6 +1642,14 @@ export class World implements Terrain {
       return d < 2.6 && (px * fx + pz * fz) / Math.max(d, 0.01) > 0.6;
     }));
   }
+  /** Los Facelings de pie (mostrador...) y el diálogo en curso: el más cercano se gira hacia quien le habla (y los que pasean se paran). */
+  private staffG: THREE.Group[] = [];
+  private talkAt?: { x: number; z: number };
+  private baseYaw = new Map<THREE.Object3D, number>();
+  private walkOff = new Map<object, number>();
+  setTalk(p?: { x: number; z: number }) {
+    this.talkAt = p && { x: p.x, z: p.z };
+  }
   /** Dónde está la cámara (la pone el juego): lo instanciado a más de PROP_FAR m no se dibuja. */
   viewer?: THREE.Vector3;
   private cullable?: THREE.InstancedMesh[];
@@ -1673,9 +1682,20 @@ export class World implements Terrain {
     this.cab.update(dt);
     if (this.hotel && !this.walkers.length && !this.walkersOff && this.assets.gltf['suites/faceling']) this.addWalkers();
     const span = SUITE_L * CELL;
+    // el diálogo con un Faceling: el más cercano (de pie o paseando) se gira hacia ti
+    const ta = this.talkAt, turn = (g: THREE.Object3D, face: boolean) => {
+      if (!this.baseYaw.has(g)) this.baseYaw.set(g, g.rotation.y);
+      const want = face && ta ? Math.atan2(ta.x - g.position.x, ta.z - g.position.z) : this.baseYaw.get(g)!, d = Math.atan2(Math.sin(want - g.rotation.y), Math.cos(want - g.rotation.y));
+      g.rotation.y += d * Math.min(1, dt * 6);
+    };
+    let nearest: THREE.Object3D | undefined, nd = 3.5;
+    if (ta) for (const g of [...this.staffG, ...this.walkers.flatMap((w) => w.groups)]) if (Math.hypot(g.position.x - ta.x, g.position.z - ta.z) < nd) ((nd = Math.hypot(g.position.x - ta.x, g.position.z - ta.z)), (nearest = g));
+    for (const g of this.staffG) turn(g, g === nearest);
     for (const w of this.walkers) {
-      const x = (((w.phase * span + w.dir * w.v * t) % span) + span) % span;
-      w.groups.forEach((g, k) => (g.position.set(x + k * span, 0, w.z), (g.rotation.y = w.dir > 0 ? Math.PI / 2 : -Math.PI / 2), (w.blk[k].x = x + k * span)));
+      const stop = !!nearest && w.groups.includes(nearest as THREE.Group);
+      this.walkOff.set(w, (this.walkOff.get(w) ?? 0) + (stop ? dt : 0));
+      const x = (((w.phase * span + w.dir * w.v * (t - (this.walkOff.get(w) ?? 0))) % span) + span) % span;
+      w.groups.forEach((g, k) => (g.position.set(x + k * span, 0, w.z), stop && g === nearest ? turn(g, true) : (g.rotation.y = w.dir > 0 ? Math.PI / 2 : -Math.PI / 2), (w.blk[k].x = x + k * span)));
       w.rigs.forEach((r) => r.update(dt));
     }
     for (const s of this.staff) s.update(dt);

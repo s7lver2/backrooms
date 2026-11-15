@@ -10,7 +10,9 @@ import { lightmapped } from './lightmap';
  * shared/src/suites.ts; aquí solo se pinta. El mundo (`World`) lo monta y le pasa el reloj.
  */
 /** El alto de los conductos (m): se pasa agachado. */
-export const DUCT_H = 1.25;
+export const DUCT_H = 1.6;
+/** El alto de la sala de control (m): pequeña pero alta. */
+export const ROOM_H = 4.4;
 const DIRS = [[1, 0], [-1, 0], [0, 1], [0, -1]] as const;
 const lit = <M extends THREE.Material>(m: M) => (lightmapped(m), m);
 const mapOf = (c: HTMLCanvasElement, repeat = false) => {
@@ -48,6 +50,7 @@ function fitModel(assets: Assets, key: keyof Assets['gltf'], size: number, axis:
     const g = mergeGeometries(gs);
     if (!g) continue;
     const own = mat.clone();
+    own.side = THREE.DoubleSide; // (los nodos con escala negativa dan caras del revés: se ve el interior)
     lightmapped(own);
     const me = new THREE.Mesh(g, own);
     me.castShadow = me.receiveShadow = true;
@@ -55,7 +58,9 @@ function fitModel(assets: Assets, key: keyof Assets['gltf'], size: number, axis:
   }
   out.scale.setScalar(k);
   out.position.set(-c.x * k, -(opts.top ? b.max.y : b.min.y) * k, -c.z * k);
-  return new THREE.Group().add(out);
+  const wrap = new THREE.Group().add(out);
+  wrap.userData = { k, cx: c.x, cz: c.z, minY: b.min.y };
+  return wrap;
 }
 
 const ductTex = () => {
@@ -77,6 +82,21 @@ const ductTex = () => {
   const m = g.createLinearGradient(0, 160, 0, 256);
   m.addColorStop(0, 'rgba(15,12,8,0)'), m.addColorStop(1, 'rgba(15,12,8,0.45)');
   g.fillStyle = m, g.fillRect(0, 160, 256, 96);
+  return mapOf(c, true);
+};
+const concreteTex = () => {
+  // hormigón visto: manchas, juntas de encofrado cada 128 px (≈ 1,25 m) y los agujeros de los tensores
+  const c = canvas(256, 256), g = c.getContext('2d')!;
+  g.fillStyle = '#8b8b86', g.fillRect(0, 0, 256, 256);
+  for (let i = 0; i < 900; i++) (g.fillStyle = `rgba(${hash(i, 51) > 0.5 ? '255,255,255' : '0,0,0'},${0.02 + hash(i, 52) * 0.06})`), g.fillRect(hash(i, 53) * 256, hash(i, 54) * 256, 3 + hash(i, 55) * 24, 2 + hash(i, 56) * 10);
+  for (let i = 0; i < 5; i++) {
+    const x = hash(i, 57) * 256, gr = g.createLinearGradient(0, 0, 0, 256);
+    gr.addColorStop(0, 'rgba(40,36,30,0)'), gr.addColorStop(1, `rgba(40,36,30,${0.1 + hash(i, 58) * 0.2})`);
+    g.fillStyle = gr, g.fillRect(x, 0, 4 + hash(i, 59) * 12, 256);
+  }
+  g.strokeStyle = 'rgba(30,30,28,0.5)', g.lineWidth = 2, g.strokeRect(1, 1, 254, 254);
+  g.beginPath(), g.moveTo(128, 0), g.lineTo(128, 256), g.stroke();
+  for (const [x, y] of [[32, 64], [96, 64], [160, 64], [224, 64], [32, 192], [96, 192], [160, 192], [224, 192]]) (g.fillStyle = 'rgba(25,25,24,0.7)'), g.beginPath(), g.arc(x, y, 3.2, 0, 7), g.fill();
   return mapOf(c, true);
 };
 const tileTex = () => {
@@ -189,11 +209,18 @@ export class Vents {
     }
   }
 
-  /** El gas: nubes de partículas suaves que se arremolinan en cada celda con fuga. */
+  /** El gas: bocanadas de humo verde (partículas grandes y suaves con textura de nube) que se arremolinan y suben despacio en cada celda con fuga. */
   private gas() {
     const cells = this.maze.gas ?? [];
     if (!cells.length) return;
-    const N = 34, pos = new Float32Array(cells.length * N * 3), seed = new Float32Array(cells.length * N);
+    // la textura de una bocanada: varias manchas suaves superpuestas
+    const pc = canvas(128, 128), pg = pc.getContext('2d')!;
+    for (let i = 0; i < 14; i++) {
+      const x = 64 + (hash(i, 31) - 0.5) * 56, y = 64 + (hash(i, 32) - 0.5) * 56, r = 22 + hash(i, 33) * 26, gr = pg.createRadialGradient(x, y, 0, x, y, r);
+      gr.addColorStop(0, 'rgba(255,255,255,0.32)'), gr.addColorStop(1, 'rgba(255,255,255,0)');
+      pg.fillStyle = gr, pg.fillRect(0, 0, 128, 128);
+    }
+    const N = 46, pos = new Float32Array(cells.length * N * 3), seed = new Float32Array(cells.length * N);
     cells.forEach((c, k) => {
       for (let i = 0; i < N; i++) {
         const j = k * N + i;
@@ -204,31 +231,33 @@ export class Vents {
     const geo = new THREE.BufferGeometry();
     geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
     geo.setAttribute('aSeed', new THREE.BufferAttribute(seed, 1));
-    const mat = new THREE.ShaderMaterial({
-      uniforms: { uT: this.gasU },
+    const H = DUCT_H.toFixed(2), mat = new THREE.ShaderMaterial({
+      uniforms: { uT: this.gasU, uMap: { value: mapOf(pc) } },
       transparent: true,
       depthWrite: false,
       vertexShader: `
-        attribute float aSeed; uniform float uT; varying float vA; varying float vS;
+        attribute float aSeed; uniform float uT; varying float vA; varying float vS; varying float vR;
         void main() {
-          float s = aSeed, h = fract(position.y / ${DUCT_H.toFixed(2)} + uT * (0.03 + s * 0.05));
+          float s = aSeed, h = fract(position.y / ${H} + uT * (0.025 + s * 0.04));
           vec3 p = position;
-          p.y = h * ${DUCT_H.toFixed(2)};
-          p.x += sin(uT * (0.3 + s * 0.4) + s * 40.0) * 0.32;
-          p.z += cos(uT * (0.25 + s * 0.35) + s * 70.0) * 0.32;
+          p.y = h * ${H};
+          p.x += sin(uT * (0.25 + s * 0.35) + s * 40.0) * 0.4;
+          p.z += cos(uT * (0.2 + s * 0.3) + s * 70.0) * 0.4;
           vec4 mv = modelViewMatrix * vec4(p, 1.0);
           float d = max(-mv.z, 0.4);
-          vA = sin(h * 3.14159); vS = s;
-          gl_PointSize = min((0.4 + s * 0.6) * 560.0 / d, 260.0);
+          vA = sin(h * 3.14159) * smoothstep(0.35, 1.2, d); vS = s; vR = uT * (0.15 + s * 0.2) * (s > 0.5 ? 1.0 : -1.0) + s * 6.0;
+          gl_PointSize = min((0.9 + s * 0.9) * 640.0 / d, 420.0);
           gl_Position = projectionMatrix * mv;
         }`,
       fragmentShader: `
-        varying float vA; varying float vS;
+        uniform sampler2D uMap; varying float vA; varying float vS; varying float vR;
         void main() {
           vec2 q = gl_PointCoord - 0.5;
-          float r = length(q) * 2.0, a = smoothstep(1.0, 0.0, r);
-          a *= a * (0.8 + 0.2 * sin(atan(q.y, q.x) * 3.0 + vS * 20.0));
-          gl_FragColor = vec4(mix(vec3(0.38, 0.78, 0.2), vec3(0.62, 0.95, 0.35), vS), a * vA * 0.24);
+          float c = cos(vR), sn = sin(vR);
+          vec2 uv = vec2(c * q.x - sn * q.y, sn * q.x + c * q.y) + 0.5;
+          float m = texture2D(uMap, uv).a * smoothstep(0.5, 0.2, length(q));
+          vec3 col = mix(vec3(0.30, 0.62, 0.12), vec3(0.62, 0.92, 0.28), vS);
+          gl_FragColor = vec4(col * (0.8 + 0.5 * m), m * vA * 0.9);
         }`,
     });
     const pts = new THREE.Points(geo, mat);
@@ -279,86 +308,115 @@ export class Vents {
     }
   }
 
-  /** La sala de videovigilancia. */
+  /** La sala de videovigilancia: pequeña, de hormigón y alta; pared de televisores, mesa de operadores, puesto de cámaras y terminal del EEH. */
   private control(ctl: NonNullable<Maze['control']>) {
-    const g = this.group, a = this.assets, cams = this.maze.cams ?? [];
-    const x0 = ctl.x * CELL, x1 = (ctl.x + ctl.w) * CELL, zF = (ctl.y + ctl.h) * CELL;
-    for (let y = ctl.y; y < ctl.y + ctl.h; y++) for (let x = ctl.x; x < ctl.x + ctl.w; x++) this.roomFloor.add(y * this.maze.w + x);
+    const g = this.group, a = this.assets, cams = this.maze.cams ?? [], m = this.maze, RH = ROOM_H;
+    const x0 = ctl.x * CELL, x1 = (ctl.x + ctl.w) * CELL, zN = ctl.y * CELL, zF = (ctl.y + ctl.h) * CELL, xc = (x0 + x1) / 2;
+    for (let y = ctl.y; y < ctl.y + ctl.h; y++) for (let x = ctl.x; x < ctl.x + ctl.w; x++) this.roomFloor.add(y * m.w + x);
+    // el hormigón: paredes (con el hueco de la entrada del conducto) y techo
+    const cmat = lit(new THREE.MeshStandardMaterial({ map: concreteTex(), color: 0xb9b9b4, roughness: 0.95, metalness: 0.02 }));
+    const slab = (bw: number, bh: number, bd: number, x: number, y: number, z: number) => {
+      const bg = new THREE.BoxGeometry(bw, bh, bd), uv = bg.getAttribute('uv'), dims = [[bd, bh], [bd, bh], [bw, bd], [bw, bd], [bw, bh], [bw, bh]];
+      for (let i = 0; i < uv.count; i++) uv.setXY(i, (uv.getX(i) * dims[(i / 4) | 0][0]) / 2.5, (uv.getY(i) * dims[(i / 4) | 0][1]) / 2.5);
+      const me = new THREE.Mesh(bg, cmat);
+      me.position.set(x, y, z);
+      me.castShadow = me.receiveShadow = true;
+      g.add(me);
+    };
+    const T = 0.4;
+    let gx = -1;
+    for (let x = ctl.x; x < ctl.x + ctl.w; x++) if (m.open[(ctl.y - 1) * m.w + x]) gx = x; // el hueco por donde entra el conducto
+    const gl = gx * CELL, gr = gl + CELL;
+    if (gx < 0) slab(x1 - x0 + 2 * T, RH, T, xc, RH / 2, zN - T / 2);
+    else {
+      slab(gl - x0 + T, RH, T, (x0 - T + gl) / 2, RH / 2, zN - T / 2);
+      slab(x1 - gr + T, RH, T, (gr + x1 + T) / 2, RH / 2, zN - T / 2);
+      slab(CELL, RH - DUCT_H, T, (gl + gr) / 2, (RH + DUCT_H) / 2, zN - T / 2);
+    }
+    slab(x1 - x0 + 2 * T, RH, T, xc, RH / 2, zF + T / 2);
+    slab(T, RH, zF - zN, x0 - T / 2, RH / 2, (zN + zF) / 2);
+    slab(T, RH, zF - zN, x1 + T / 2, RH / 2, (zN + zF) / 2);
+    slab(x1 - x0 + 2 * T, T, zF - zN + 2 * T, xc, RH + T / 2, (zN + zF) / 2);
+    // las luces: tres tubos en el techo (fríos, tenues) con su luz
+    const tube = new THREE.MeshBasicMaterial({ color: 0xd9e6ff });
+    for (const x of [x0 + (x1 - x0) * 0.2, xc, x0 + (x1 - x0) * 0.8]) {
+      const t = new THREE.Mesh(new THREE.BoxGeometry(1.5, 0.06, 0.22), tube), l = new THREE.PointLight(0xcfe0ff, 2.2, 10, 1.5);
+      t.position.set(x, RH - 0.04, (zN + zF) / 2);
+      l.position.set(x, RH - 0.6, (zN + zF) / 2);
+      g.add(t, l);
+    }
     const plastic = lit(new THREE.MeshStandardMaterial({ color: 0x1d2020, roughness: 0.55, metalness: 0.3 })), top = lit(new THREE.MeshStandardMaterial({ color: 0x3a3f3e, roughness: 0.45, metalness: 0.3 }));
-    const box = (bw: number, bh: number, bd: number, x: number, y: number, z: number, m: THREE.Material) => {
-      const b = new THREE.Mesh(new THREE.BoxGeometry(bw, bh, bd), m);
+    const box = (bw: number, bh: number, bd: number, x: number, y: number, z: number, mm: THREE.Material) => {
+      const b = new THREE.Mesh(new THREE.BoxGeometry(bw, bh, bd), mm);
       b.position.set(x, y, z);
       b.castShadow = b.receiveShadow = true;
       g.add(b);
-      return b;
     };
-    // la pared del fondo: dos filas de monitores, cada uno con su señal (estática y el nombre de la cámara)
-    const xs = Array.from({ length: 6 }, (_, i) => x0 + 3 + i * 3);
-    for (const [r, y] of [[0, 1.2], [1, 1.95]] as const)
-      xs.forEach((x, i) => {
-        const cv = canvas(112, 84), tex = mapOf(cv), mon = new THREE.Group(), cam = (r * 6 + i) % Math.max(1, cams.length);
-        mon.position.set(x, y, zF - 0.19);
-        mon.rotation.y = Math.PI;
-        mon.add(new THREE.Mesh(new THREE.BoxGeometry(0.88, 0.64, 0.32), plastic));
-        const scr = new THREE.Mesh(new THREE.PlaneGeometry(0.76, 0.52), new THREE.MeshBasicMaterial({ map: tex }));
-        scr.position.z = 0.162;
-        mon.add(scr);
-        g.add(mon);
+    // la pared de televisores: dos filas de seis (el modelo de tv), cada una con su señal falsa sobre la pantalla
+    const TV_H = 0.9, tv = fitModel(a, 'suites/tv', TV_H, 'y'), ud = tv.userData as { k: number; cx: number; minY: number };
+    for (let r = 0; r < 2; r++)
+      for (let i = 0; i < 6; i++) {
+        const cv = canvas(112, 84), tex = mapOf(cv), cam = (r * 6 + i) % Math.max(1, cams.length), t = tv.clone(true), k = ud.k;
+        // (la pantalla del modelo: en su cara +x, a 0,545 de x y centrada en y = 2,4, z = 0; 1,7 × 1,25 en sus unidades)
+        const scr = new THREE.Mesh(new THREE.PlaneGeometry(1.7 * k, 1.25 * k), new THREE.MeshBasicMaterial({ map: tex }));
+        scr.rotation.y = Math.PI / 2;
+        scr.position.set((0.545 - ud.cx) * k, (2.4 - ud.minY) * k, 0);
+        t.add(scr);
+        t.rotation.y = Math.PI / 2; // (el frente, hacia -z: a la sala)
+        t.position.set(xc + (i - 2.5) * 1.75, 0.8 + r * TV_H, zF - 0.55);
+        g.add(t);
         this.feeds.push({ cv, tex, cam });
         this.paint(this.feeds[this.feeds.length - 1], 0);
-      });
+      }
     // la mesa de operadores y sus sillas
-    box(18.6, 0.72, 0.8, (x0 + x1) / 2, 0.36, zF - 0.95, plastic);
-    box(18.8, 0.04, 0.9, (x0 + x1) / 2, 0.74, zF - 0.95, top);
-    for (let x = x0 + 1; x < x1 - 0.5; x += 1.5) this.blockers.push({ x, z: zF - 0.95, r: 0.55 });
-    const chair = fitModel(a, 'suites/officechair', 1.0, 'y');
-    [xs[0], xs[2], xs[3], xs[5]].forEach((x, i) => {
+    box(11, 0.78, 1.0, xc, 0.39, zF - 0.55, plastic);
+    box(11.1, 0.04, 1.1, xc, 0.8, zF - 0.55, top);
+    for (let x = xc - 5; x <= xc + 5.1; x += 1.6) this.blockers.push({ x, z: zF - 0.55, r: 0.6 });
+    const chair = fitModel(a, 'suites/officechair', 1.15, 'y');
+    [-2.7, -0.9, 0.9, 2.7].forEach((dx, i) => {
       const c = chair.clone(true);
-      c.position.set(x + (i % 2 ? 0.3 : -0.2), 0, zF - 2.2 - (i % 2) * 0.4);
+      c.position.set(xc + dx + (i % 2 ? 0.2 : -0.2), 0, zF - 2.1 - (i % 2) * 0.35);
       c.rotation.y = Math.PI * (i % 2 ? 0.9 : 1.15);
       g.add(c);
     });
-    for (const x of xs) box(0.46, 0.025, 0.17, x, 0.775, zF - 1.35, plastic);
-    // el puesto de cámaras: tres paneles de control con un cartel encima
-    const st = ctl.station, [snx, snz] = DIRS[st.face] ?? DIRS[0], panel = fitModel(a, 'suites/control', 1.05, 'y');
-    for (const t of [-0.95, 0, 0.95]) {
+    // el puesto de cámaras: tres paneles de control (más grandes) con un cartel encima
+    const st = ctl.station, [snx, snz] = DIRS[st.face] ?? DIRS[0], panel = fitModel(a, 'suites/control', 1.5, 'y'), side = new THREE.Vector3(-snz, 0, snx);
+    for (const t of [-1.25, 0, 1.25]) {
       const p = panel.clone(true);
-      p.position.set(st.x, 0, st.z).addScaledVector(new THREE.Vector3(-snz, 0, snx), t);
+      p.position.set(st.x, 0, st.z).addScaledVector(side, t);
       p.rotation.y = Math.atan2(snx, snz);
       g.add(p);
-      this.blockers.push({ x: p.position.x, z: p.position.z, r: 0.5 });
+      this.blockers.push({ x: p.position.x, z: p.position.z, r: 0.65 });
     }
     const sc = canvas(384, 64), sg = sc.getContext('2d')!;
     sg.fillStyle = '#06120a', sg.fillRect(0, 0, 384, 64), (sg.strokeStyle = '#2cff7a'), (sg.lineWidth = 3), sg.strokeRect(3, 3, 378, 58);
     sg.fillStyle = '#4dff93', sg.font = 'bold 30px monospace', sg.textAlign = 'center', sg.textBaseline = 'middle', sg.fillText('SECURITY CAMERAS', 192, 34);
-    const sign = new THREE.Mesh(new THREE.PlaneGeometry(1.6, 0.27), new THREE.MeshBasicMaterial({ map: mapOf(sc) }));
-    sign.position.set(st.x, 1.75, st.z).addScaledVector(new THREE.Vector3(snx, 0, snz), 0.0);
+    const sign = new THREE.Mesh(new THREE.PlaneGeometry(2.0, 0.34), new THREE.MeshBasicMaterial({ map: mapOf(sc) }));
+    sign.position.set(st.x, 2.35, st.z);
     sign.rotation.y = Math.atan2(snx, snz);
     g.add(sign);
-    box(0.05, 0.6, 0.05, st.x - 0.7, 1.45, st.z, plastic), box(0.05, 0.6, 0.05, st.x + 0.7, 1.45, st.z, plastic);
+    box(0.05, 0.9, 0.05, st.x - 0.9, 1.9, st.z, plastic), box(0.05, 0.9, 0.05, st.x + 0.9, 1.9, st.z, plastic);
     // el terminal del EEH, contra la pared este
     const k = ctl.console, [nx, nz] = DIRS[k.face] ?? DIRS[0], eh = new THREE.Group(), cv = canvas(256, 112);
     this.eehTex = mapOf(cv);
     eh.position.set(k.x, 0, k.z);
     eh.rotation.y = Math.atan2(nx, nz);
-    const tp = fitModel(a, 'suites/control', 1.0, 'y');
-    tp.position.z = 0.32;
-    const scr = new THREE.Mesh(new THREE.PlaneGeometry(1.3, 0.57), new THREE.MeshBasicMaterial({ map: this.eehTex }));
-    scr.position.set(0, 1.55, 0.03);
+    const tp = fitModel(a, 'suites/control', 1.5, 'y');
+    tp.position.z = 0.45;
+    const scr = new THREE.Mesh(new THREE.PlaneGeometry(1.5, 0.66), new THREE.MeshBasicMaterial({ map: this.eehTex }));
+    scr.position.set(0, 2.2, 0.03);
     eh.add(tp, scr);
     g.add(eh);
-    this.blockers.push({ x: k.x + nx * 0.4, z: k.z + nz * 0.4, r: 0.5 });
+    this.blockers.push({ x: k.x + nx * 0.55, z: k.z + nz * 0.55, r: 0.65 });
     this.eehScreen(true);
-    // los cables por el suelo: de la mesa al puesto, y algunos sueltos
-    const cable = fitModel(a, 'suites/cables', 1.0, 'x');
-    const lay = (x: number, z: number, ry: number) => {
-      const c = cable.clone(true);
-      c.position.set(x, 0.01, z);
-      c.rotation.y = ry;
-      g.add(c);
-    };
-    for (const x of [xs[1], xs[2] + 0.2, xs[3] - 0.2, xs[4]]) for (let z = zF - 1.6; z > st.z + 0.5; z -= 1) lay(x + (x < st.x ? 1 : -1) * (zF - 1.6 - z) * 0.18, z, Math.PI / 2 + (x < st.x ? 0.18 : -0.18));
-    for (let i = 0; i < 8; i++) lay(x0 + 1 + hash(i, 40) * (x1 - x0 - 2), (ctl.y + 0.5 + hash(i, 41) * 4.2) * CELL, hash(i, 42) * 3.1);
+    // los cables, por el techo (el modelo es de techo): tendidos sobre la mesa y el puesto
+    const cable = fitModel(a, 'suites/cables', 1.0, 'x', { top: true });
+    for (const z of [zF - 1.5, zF - 3.4, st.z - 1.0])
+      for (let x = x0 + 0.5; x < x1 - 0.2; x += 1) {
+        const c = cable.clone(true);
+        c.position.set(x + 0.5, RH - 0.03, z + Math.sin(x * 1.7 + z) * 0.08);
+        g.add(c);
+      }
   }
 
   /** Una pantalla: estática, barras, el nombre de la cámara y la hora. */
@@ -380,7 +438,7 @@ export class Vents {
     const proto = fitModel(this.assets, 'suites/camera', 0.5, 'z', { roll: Math.PI, top: true });
     cams.forEach((c, i) => {
       const h = proto.clone(true);
-      h.position.set(c.x, c.y + 0.03, c.z);
+      h.position.set(c.x, c.y, c.z);
       this.group.add(h);
       this.heads[i] = h;
     });
@@ -389,7 +447,7 @@ export class Vents {
   /** La pose desde la que mira la cámara `i` en el instante `t` (barre de un lado a otro). */
   camPose(i: number, t: number) {
     const c = this.maze.cams![i], yaw = c.yaw + Math.sin(t * 0.45 + i * 1.7) * 0.55;
-    return { x: c.x, y: c.y - 0.1, z: c.z, yaw, pitch: c.y > 2 ? -0.3 : -0.04 };
+    return { x: c.x, y: c.y - 0.3, z: c.z, yaw, pitch: c.y > 2 ? -0.3 : -0.04 };
   }
 
   eehScreen(down: boolean) {

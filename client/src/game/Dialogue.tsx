@@ -18,9 +18,10 @@ export default function Dialogue({ n, onPick, onClose }: { n: number; onPick: (i
     return () => clearInterval(id);
   }, [say]);
   return (
-    <div className="br-totem" role="dialog" aria-label="Faceling">
-      <p className="br-totem__head">{say.slice(0, shown)}</p>
-      <ul>
+    <div className="br-dlg" role="dialog" aria-label="Faceling">
+      <p className="br-dlg__name">FACELING</p>
+      <p className="br-dlg__say">{say.slice(0, shown)}<span aria-hidden="true">▌</span></p>
+      <ul className="br-dlg__opts">
         {opts.map((o, i) => (
           <li key={i}>
             <button type="button" className="br-opt" disabled={shown < say.length} onClick={() => onPick(i)}>

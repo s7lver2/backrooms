@@ -286,7 +286,7 @@ export class Match {
   }
 
   private raw(m: Mission) {
-    return m.kind === 'photos' ? this.photos : m.kind === 'tapes' || m.kind === 'soaps' ? this.tapes : m.kind === 'survive' || m.kind === 'eeh' ? Math.floor(this.age) : m.kind === 'power' ? [...this.taken].filter((id) => id[0] === 'e').length : m.kind === 'order' ? this.delivered : this.tvOff.size;
+    return m.kind === 'photos' ? this.photos : m.kind === 'tapes' || m.kind === 'soaps' ? this.tapes : m.kind === 'eeh' && this.eehFixed ? this.base + m.goal : m.kind === 'survive' || m.kind === 'eeh' ? Math.floor(this.age) : m.kind === 'power' ? [...this.taken].filter((id) => id[0] === 'e').length : m.kind === 'order' ? this.delivered : this.tvOff.size;
   }
 
   /** Apagar la televisión `i`: hay que estar cerca de ella. */

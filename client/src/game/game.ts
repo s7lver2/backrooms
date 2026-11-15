@@ -220,7 +220,7 @@ const _aim = new THREE.Vector2(0, 0), _spec = new THREE.Vector3(), _want = new T
 const DIR = '/models/backrooms/';
 /** Segundos de viaje dentro del ascensor (ya con las puertas cerradas) antes de que la grabación se corte a negro. */
 const RIDE = 3.5;
-export const MODELS = ['hazmat', 'bacteria', 'partygoer', 'balloon', 'camcorder', 'vhs', 'gun', 'flashlight', 'water', 'elevator', 'vent', 'socket', 'exit', 'door', 'armchair', 'cabinet', 'shelf', 'chair', 'chair2', 'desk', 'crt', 'lamp', 'duct', 'radar', 'totem', 'hospital/stretcher', 'hospital/stools', 'hospital/curtain', 'hospital/extinguisher', 'hospital/cupboard', 'hospital/clock', 'hospital/exitdoor', 'hospital/locker', 'hospital/drip', 'hospital/wheelchair', 'hospital/shelf', 'suites/door', 'suites/bed', 'suites/sofa', 'suites/secretary', 'suites/faceling', 'suites/chair', 'suites/wardrobe', 'suites/table', 'suites/luggage', 'suites/bin', 'suites/mirror', 'suites/plant', 'suites/panel', 'suites/trolley', 'suites/cart', 'suites/camera', 'suites/control', 'suites/officechair', 'suites/cables'] as const;
+export const MODELS = ['hazmat', 'bacteria', 'partygoer', 'balloon', 'camcorder', 'vhs', 'gun', 'flashlight', 'water', 'elevator', 'vent', 'socket', 'exit', 'door', 'armchair', 'cabinet', 'shelf', 'chair', 'chair2', 'desk', 'crt', 'lamp', 'duct', 'radar', 'totem', 'hospital/stretcher', 'hospital/stools', 'hospital/curtain', 'hospital/extinguisher', 'hospital/cupboard', 'hospital/clock', 'hospital/exitdoor', 'hospital/locker', 'hospital/drip', 'hospital/wheelchair', 'hospital/shelf', 'suites/door', 'suites/bed', 'suites/sofa', 'suites/secretary', 'suites/faceling', 'suites/chair', 'suites/wardrobe', 'suites/table', 'suites/luggage', 'suites/bin', 'suites/mirror', 'suites/plant', 'suites/panel', 'suites/trolley', 'suites/cart', 'suites/camera', 'suites/control', 'suites/officechair', 'suites/cables', 'suites/tv'] as const;
 export type ModelName = (typeof MODELS)[number];
 export const TEXTURES = ['wall', 'carpet', 'ceiling'] as const;
 
@@ -482,6 +482,7 @@ export class BackroomsGame {
   private floorNo = 1;
   private readonly aimRay = new THREE.Raycaster();
   /** Las Suites: las cámaras de seguridad, vistas desde el puesto de la sala de control (A/D o clic cambian de cámara; E o G salen). -1 = no se usan. */
+  private eehTyping = false;
   private camUse = -1;
   private camAx = 0;
   private camLast = 0;
@@ -553,9 +554,17 @@ export class BackroomsGame {
     }
     const k = m.control?.console;
     if (k && Math.hypot(k.x - x, k.z - z) < 2.2) {
-      this.doorAct = this.eehSnap ? 'RESTORE THE EEH' : 'EEH ONLINE';
-      if (cc.grab && this.eehSnap)
-        this.mp?.sock.emit('eehRestore', (ok) => (this.note = { text: ok ? 'EEH RESTORED · THE STAFF CALMS DOWN' : 'COULD NOT RESTORE THE EEH', until: performance.now() + 4000 }));
+      this.doorAct = this.eehTyping ? 'REBOOTING THE EEH…' : this.eehSnap ? 'REBOOT THE EEH' : 'EEH ONLINE';
+      if (cc.grab && this.eehSnap && !this.eehTyping) {
+        // teclear el reinicio (unos segundos, con la barra como la del agua de almendra); al acabar, el servidor lo confirma
+        const at = _spec.set(k.x, 1.0, k.z);
+        this.player?.onType && (this.player.onType = () => this.audio?.click());
+        this.eehTyping = !!this.player?.typing(at, () => {
+          this.eehTyping = false;
+          this.mp?.sock.emit('eehRestore', (ok) => (this.note = { text: ok ? 'EEH REBOOTED · THE STAFF CALMS DOWN' : 'COULD NOT REBOOT THE EEH', until: performance.now() + 4000 }));
+        }, 3.6);
+        if (this.eehTyping && this.player) this.player.onType = () => this.audio?.click();
+      }
       return cc.grab ? { ...cc, grab: false } : cc;
     }
     return cc;
@@ -1179,7 +1188,7 @@ export class BackroomsGame {
     // Las Suites: en los conductos se va siempre agachado; mirando las cámaras el cuerpo se queda quieto
     const pp = this.player, duct = !!pp && !!this.world?.vents?.inDuct(Math.floor(pp.pos.x / CELL), Math.floor(pp.pos.z / CELL));
     const pc = this.camUse >= 0 ? { ...c, move: _none, look: _none, run: false, jump: false, crouch: true, fire: false, grab: false, flash: false, swap: false, slot: -1, wheel: 0, use: false, aim: false, zoom: 0 } : duct ? { ...c, crouch: true, run: false, jump: false } : c;
-    if (pp) (pp.duckMin = duct ? 0.9 : 0), (pp.maxEye = duct ? 1.0 : Infinity); // (ojos bajo el techo del conducto; agachado, casi al paso de andar)
+    if (pp) (pp.duckMin = duct ? 0.9 : 0), (pp.maxEye = Infinity); // (en el conducto, agachado casi al paso de andar)
     if (!this.spectating || this.player?.dead) this.player?.update(dt, pc);
     this.camPlace();
     if (this.caps.hotel && this.player) {
@@ -1202,6 +1211,7 @@ export class BackroomsGame {
       this.gadgets && (cc = this.gadgets.update(dt, cc));
       this.player && this.tvs && (cc = this.tvs.update(dt, this.player, cc, this.audio));
       this.doorAct = null;
+      this.world?.setTalk(this.talkN && this.player ? { x: this.player.pos.x, z: this.player.pos.z } : undefined); // (el Faceling con quien se habla se gira hacia ti)
       if (this.world && this.caps.hotel && this.player && !this.player.dead && !this.tvs?.hint) {
         let d = this.world.nearDoor(this.player.pos.x, this.player.pos.z, this.player.yaw, this.player.pos.y);
         // (con un objeto a la vista —al abrir se ve el botín de dentro— la puerta solo manda si se mira de frente: si no, no se podía volver a cerrar)
@@ -1363,7 +1373,7 @@ export class BackroomsGame {
     const pr = this.parking;
     if (pr) inv.tapes = pr.level.tapesCollected;
     const parking = pr ? { floor: pr.floorLabel, pendingFloors: pr.pendingFloors, prompt: pr.prompt, repair: pr.level.repair.active ? pr.level.repair.progress : null, open: pr.level.elevatorOpen } : undefined;
-    return { warden: p?.glassesOn ? this.wardenSerial : undefined, liftOpen: this.items?.open, power: this.items && !this.items.powered ? this.items.gens : undefined, parking, parkingItemHeld: p && PARKING_ITEM_IDS.includes(p.prop as ParkingItemId) ? p.prop as ParkingItemId : undefined, steelRoll: this.steelRoll && this.steelRoll.until > performance.now() ? this.steelRoll : undefined, effects: this.effects(), talk: this.talkN, lift: false, mission: ms ? { kind: ms.kind, text: ms.text, line: missionLine(ms), progress: ms.progress, goal: ms.goal, done: ms.done, exit: ms.exit } : null, ascent: up ? { boarded: !!this.mp && up.boarded.includes(this.mp.id), left: Math.max(0, up.left - (performance.now() - up.at) / 1000) } : null, act: hidden || this.run ? null : this.tvs?.hint ?? this.doorAct ?? (pl ? p?.refillAct : null) ?? null, totem: this.totemHud(), needClick: this.input.needClick, bag: this.bagOpen && !this.shopOpen, shop: this.bagOpen && this.shopOpen, note: this.gadgets?.note ?? null, hint: hidden || this.run || this.tvs?.hint ? null : this.gadgets?.hint ?? this.items?.hint ?? pl?.pickups.hint ?? this.parkPick?.hint ?? null, hide: this.dying >= 0 || this.winning || this.spectating ? null : hidden ? (p!.hideState === 'hidden' ? 'leave' : null) : this.hideNear() ? 'hide' : null, breath: p?.concealed ? { air: this.breath.air, warn: this.inspected, held: this.holding } : null, drink: p?.dead ? 0 : p?.drinking || p?.drinkingMonster || p?.drinkingUno || 0, drinkName: p?.prop === 'monster' ? 'MONSTER' : p?.prop === 'uno' ? 'UNO REVERSE' : 'ALMOND WATER', refill: p?.fill ?? 0, inv, aiming: !!p?.aiming, scoped: !!p?.scoped && !this.spectating, zoom: p?.zoom ?? 1, focus: !!this.items?.focus, tapes: this.items?.tapes ?? 0, photos: this.items?.photos ?? 0, ammo: p?.has.gun ? p.ammo : null, spare: p?.spare ?? 0, battery, time: this.t, hp: p?.hp ?? HP_MAX, hps: this.hps, spectating: this.spectating && !this.run ? (this.remotes.get(this.watching)?.name ?? '') : null, watchList: this.spectating && !this.run ? [...this.remotes.values()].map((r) => ({ name: r.name, on: r.id === this.watching && this.specView !== 'free', dead: r.dead })) : undefined, specView: this.spectating && !this.run ? this.specView : undefined };
+    return { warden: p?.glassesOn ? this.wardenSerial : undefined, liftOpen: this.items?.open, power: this.items && !this.items.powered ? this.items.gens : undefined, parking, parkingItemHeld: p && PARKING_ITEM_IDS.includes(p.prop as ParkingItemId) ? p.prop as ParkingItemId : undefined, steelRoll: this.steelRoll && this.steelRoll.until > performance.now() ? this.steelRoll : undefined, effects: this.effects(), talk: this.talkN, lift: false, mission: ms ? { kind: ms.kind, text: ms.text, line: missionLine(ms), progress: ms.progress, goal: ms.goal, done: ms.done, exit: ms.exit } : null, ascent: up ? { boarded: !!this.mp && up.boarded.includes(this.mp.id), left: Math.max(0, up.left - (performance.now() - up.at) / 1000) } : null, act: hidden || this.run ? null : this.tvs?.hint ?? this.doorAct ?? (pl ? p?.refillAct : null) ?? null, totem: this.totemHud(), needClick: this.input.needClick, bag: this.bagOpen && !this.shopOpen, shop: this.bagOpen && this.shopOpen, note: this.gadgets?.note ?? null, hint: hidden || this.run || this.tvs?.hint ? null : this.gadgets?.hint ?? this.items?.hint ?? pl?.pickups.hint ?? this.parkPick?.hint ?? null, hide: this.dying >= 0 || this.winning || this.spectating ? null : hidden ? (p!.hideState === 'hidden' ? 'leave' : null) : this.hideNear() ? 'hide' : null, breath: p?.concealed ? { air: this.breath.air, warn: this.inspected, held: this.holding } : null, drink: p?.dead ? 0 : (this.eehTyping ? p?.typeFrac : 0) || p?.drinking || p?.drinkingMonster || p?.drinkingUno || 0, drinkName: this.eehTyping ? 'REBOOTING EEH' : p?.prop === 'monster' ? 'MONSTER' : p?.prop === 'uno' ? 'UNO REVERSE' : 'ALMOND WATER', refill: p?.fill ?? 0, inv, aiming: !!p?.aiming, scoped: !!p?.scoped && !this.spectating, zoom: p?.zoom ?? 1, focus: !!this.items?.focus, tapes: this.items?.tapes ?? 0, photos: this.items?.photos ?? 0, ammo: p?.has.gun ? p.ammo : null, spare: p?.spare ?? 0, battery, time: this.t, hp: p?.hp ?? HP_MAX, hps: this.hps, spectating: this.spectating && !this.run ? (this.remotes.get(this.watching)?.name ?? '') : null, watchList: this.spectating && !this.run ? [...this.remotes.values()].map((r) => ({ name: r.name, on: r.id === this.watching && this.specView !== 'free', dead: r.dead })) : undefined, specView: this.spectating && !this.run ? this.specView : undefined };
   }
 
   /** Los efectos que tiene ahora el personaje, para el HUD (Effects.tsx). */

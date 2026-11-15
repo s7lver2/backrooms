@@ -84,7 +84,7 @@ export function suitesMaze(seed: number, floor = 1): Maze {
   const YAW = [-Math.PI / 2, Math.PI / 2, Math.PI, 0]; // yaw de quien mira hacia DIRS[i]
   const node = (i: number, j: number) => cell(VX + 2 * i, VY + 2 * j);
   const RY = VY + 2 * NY - 1; // la fila de paso a la sala (la 35)
-  let exitI = 0;
+  let exitI = 0, roomX = VX;
   {
     const seen = new Set<number>(), stack: [number, number][] = [[0, 0]], idx = (i: number, j: number) => j * NX + i, adj: number[][] = Array.from({ length: NX * NY }, () => []);
     const link = (i: number, j: number, a: number, b: number) => (adj[idx(i, j)].push(idx(a, b)), adj[idx(a, b)].push(idx(i, j)));
@@ -113,8 +113,9 @@ export function suitesMaze(seed: number, floor = 1): Maze {
     for (let i = 0; i < NX; i++) if (dist[idx(i, NY - 1)] > dist[idx(exitI, NY - 1)]) exitI = i;
     const last = node(exitI, NY - 1);
     open[at(last.x, RY)] = 1;
-    // la sala de videovigilancia: 14 × 7 celdas (filas 36-42)
-    for (let y = RY + 1; y <= RY + 7; y++) for (let x = VX; x < VX + 14; x++) open[at(x, y)] = 1;
+    // la sala de videovigilancia: pequeña y compacta, 8 × 5 celdas (filas 36-40), de hormigón y alta
+    roomX = Math.max(VX, Math.min(VX + 14 - 8, last.x - 3));
+    for (let y = RY + 1; y <= RY + 5; y++) for (let x = roomX; x < roomX + 8; x++) open[at(x, y)] = 1;
     // los callejones sin salida llevan un ventilador en el fondo
     for (let y = VY + 2; y < RY; y++)
       for (let x = VX; x < VX + 13; x++) {
@@ -248,28 +249,28 @@ export function suitesMaze(seed: number, floor = 1): Maze {
   // los conductos: la rejilla de vuelta en cada entrada (a la suite de donde sale; si no hay, al pasillo) y la sala de videovigilancia (mesas con pantallas, el terminal del EEH y la rejilla al pasillo)
   const hall = { x: (SUITE_L + 4 + 0.5) * CELL, z: 9 * CELL, yaw: 0 };
   for (let i = 0; i < NX; i++) vents.push({ x: (node(i, 0).x + 0.5) * CELL, z: (node(i, 0).y) * CELL + 0.03, face: 2, to: ventBack[i] ?? hall });
-  // la sala de control (14 × 7 celdas): los monitores en la pared del fondo, el puesto de cámaras delante, el terminal del EEH en la pared este y la rejilla al pasillo en la oeste
+  // la sala de control (8 × 5 celdas, de hormigón y alta): la pared de televisores al fondo, el puesto de cámaras en medio, el terminal del EEH en la pared este y la rejilla al pasillo en la oeste
   const CY = RY + 1, control: NonNullable<Maze['control']> = {
-    x: VX, y: CY, w: 14, h: 7,
-    console: { x: (VX + 14) * CELL - 0.06, z: (CY + 3.5) * CELL, face: 1 },
-    station: { x: (VX + 7) * CELL, z: (CY + 4) * CELL, face: 3 },
+    x: roomX, y: CY, w: 8, h: 5,
+    console: { x: (roomX + 8) * CELL - 0.06, z: (CY + 2.5) * CELL, face: 1 },
+    station: { x: (roomX + 4) * CELL, z: (CY + 2.2) * CELL, face: 3 },
   };
-  vents.push({ x: VX * CELL + 0.03, z: (CY + 3.5) * CELL, face: 0, to: hall });
+  vents.push({ x: roomX * CELL + 0.03, z: (CY + 2.5) * CELL, face: 0, to: hall });
   // las cámaras de seguridad de todo el nivel (se ven desde el puesto de la sala de control): el pasillo, cada suite, el vestíbulo y los conductos
   const cams: NonNullable<Maze['cams']> = [], addCam = (name: string, x: number, y: number, z: number, yaw: number) => cams.push({ name, x, y, z, yaw });
-  for (let k = 0; k < 4; k++) addCam(`HALL ${k + 1}`, (SUITE_L + 2 + k * 4 + 0.5) * CELL, 2.55, 9 * CELL, k % 2 ? Math.PI / 2 : -Math.PI / 2);
+  for (let k = 0; k < 4; k++) addCam(`HALL ${k + 1}`, (SUITE_L + 2 + k * 4 + 0.5) * CELL, 2.7, 9 * CELL, k % 2 ? Math.PI / 2 : -Math.PI / 2);
   for (let u = 0; u < 4; u++) {
     const cx = (SUITE_L + u * UNIT + 2.5) * CELL;
-    addCam(`SUITE ${u * 2 + 1}`, cx, 2.55, 1 * CELL + 0.2, Math.PI);
-    addCam(`SUITE ${u * 2 + 2}`, cx, 2.55, 17 * CELL - 0.2, 0);
+    addCam(`SUITE ${u * 2 + 1}`, cx, 2.7, 1 * CELL + 0.2, Math.PI);
+    addCam(`SUITE ${u * 2 + 2}`, cx, 2.7, 17 * CELL - 0.2, 0);
   }
-  addCam('LOBBY', (CW + 11) * CELL, 2.55, 4.3 * CELL, Math.PI);
-  addCam('LOBBY EAST', (W - 1) * CELL - 0.2, 2.55, 9 * CELL, Math.PI / 2);
+  addCam('LOBBY', (CW + 11) * CELL, 2.7, 4.3 * CELL, Math.PI);
+  addCam('LOBBY EAST', (W - 1) * CELL - 0.2, 2.7, 9 * CELL, Math.PI / 2);
   for (const [i, j] of [[1, 1], [4, 3], [2, 5], [5, 6]] as const) {
     const n = node(i, j), d = DIR4.findIndex(([dx, dy]) => open[at(n.x + dx, n.y + dy)]);
-    if (d >= 0) addCam(`VENT ${cams.filter((c) => c.name.startsWith('VENT')).length + 1}`, (n.x + 0.5) * CELL, 1.2, (n.y + 0.5) * CELL, YAW[d]);
+    if (d >= 0) addCam(`VENT ${cams.filter((c) => c.name.startsWith('VENT')).length + 1}`, (n.x + 0.5) * CELL, 1.6, (n.y + 0.5) * CELL, YAW[d]);
   }
-  addCam('CONTROL', (control.x + 7) * CELL, 2.55, (CY + 0.4) * CELL, 0);
+  addCam('CONTROL', (control.x + 4) * CELL, 4.4, (CY + 0.3) * CELL, 0);
   // el pasillo: enchufes en las paredes y alguna rejilla de aire en el techo
   for (let x = 0; x < CW; x++) {
     if (x % 8 === 3) props.push({ cell: cell(x, 8), kind: 'socket', rot: 3 });
@@ -298,9 +299,9 @@ export function suitesMaze(seed: number, floor = 1): Maze {
   const take = (n: number) => spots.splice(0, n);
   const [camera] = take(1), [pistol] = take(1);
   const lamps: Cell[] = [];
-  for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) if (open[at(x, y)] && x % 2 === 0 && y % 2 === 0 && (y < 18 || (y > RY && x % 4 === 0 && y % 4 === 0))) lamps.push(cell(x, y)); // (los conductos, a oscuras; la sala de control, con poca luz)
+  for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) if (open[at(x, y)] && x % 2 === 0 && y % 2 === 0 && y < 18) lamps.push(cell(x, y)); // (los conductos y la sala de control, sin lámparas: la sala lleva sus propias luces)
   return {
-    floor, span: [SUITE_L, 2 * SUITE_L], w: W, h: H, open, lit: new Uint8Array(W * H).fill(1).fill(0, 18 * W, (RY + 1) * W), zone: new Uint8Array(W * H), voids: [],
+    floor, span: [SUITE_L, 2 * SUITE_L], w: W, h: H, open, lit: new Uint8Array(W * H).fill(1).fill(0, 18 * W), zone: new Uint8Array(W * H), voids: [],
     start: cell(CW + 10, 12), stairs: cell(SUITE_L + 1, 1), gens, elevator, camera, pistol, extraGuns: [],
     tapes: take(8), flashlights: take(4), spawns: [cell(SUITE_L + 4, 8), cell(SUITE_L + 5, 9), cell(SUITE_L + 15, 9)],
     lamps, props, hides, rooms, vents, gas, control, cams, fans, duct: { x0: VX, y0: VY, x1: VX + 14, y1: RY + 1 },

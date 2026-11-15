@@ -21,3 +21,10 @@
 .br-run__n { position: absolute; top: 34vh; left: 0; right: 0; text-align: center; margin: 0; font-size: clamp(64px, 12vw, 160px); color: var(--br-rec); text-shadow: 0 0 24px rgba(255, 58, 46, 0.6); }
 .br-run__w { font-size: clamp(26px, 4vw, 54px); }
 .br-run__w small { display: block; margin-top: 14px; font-size: clamp(12px, 1.2vw, 16px); color: var(--br-dim); text-shadow: none; line-height: 1.6; }
+
+/* el diálogo de un Faceling: una caja de texto abajo (se ve al personaje, que se gira hacia ti) */
+.br-dlg { position: absolute; left: 50%; bottom: clamp(16px, 6vh, 56px); transform: translateX(-50%); z-index: 6; width: min(46em, calc(100vw - 2 * var(--br-gut))); padding: 0.9em 1.2em 1em; background: rgba(8, 6, 4, 0.88); border: 1px solid rgba(242, 241, 234, 0.45); font-size: clamp(15px, 1.6vw, 22px); }
+.br-dlg p { margin: 0; }
+.br-dlg__name { color: var(--br-dim); font-size: 0.7em; letter-spacing: 0.2em; margin-bottom: 0.4em !important; }
+.br-dlg__say { min-height: 2.6em; font-size: 1.15em; letter-spacing: 0.08em; word-break: break-word; }
+.br-dlg__opts { display: flex; flex-wrap: wrap; gap: 0.5em 1.2em; margin: 0.8em 0 0; padding: 0; list-style: none; }

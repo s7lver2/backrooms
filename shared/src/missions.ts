@@ -381,7 +381,7 @@ export function missionText(kind: MissionKind, goal: number) {
   if (kind === 'generators') return `ACTIVATE ${goal} GENERATORS`;
   if (kind === 'power') return `SWITCH ON ${goal} POWER PANELS`;
   if (kind === 'order') return `HAND ${goal} ARTIFACTS TO THE STAFF`;
-  if (kind === 'eeh') return 'SURVIVE THE EVAPORATOR FAILURE';
+  if (kind === 'eeh') return 'SURVIVE AND REBOOT THE EEH';
   if (kind === 'climb') return 'CLIMB TO FLOOR 5 BY THE SERVICE STAIRS';
   if (kind === 'contract') return `${goal} JOBS`;
   return `TURN OFF ${goal} TVS`;
@@ -397,7 +397,7 @@ export function missionHint(kind: MissionKind) {
     generators: 'FIND AND ACTIVATE THE GENERATORS',
     power: 'FIND THE ELECTRIC PANELS ON THE WALLS AND SWITCH THEM ON (G)',
     order: 'FIND ARTIFACTS AND HAND THEM TO ANY FACELING IN THE HALL (G)',
-    eeh: 'THE ENTITY EVAPORATOR (EEH) KEEPS THE STAFF CALM. WHEN THE FIRST TIMER ENDS IT FAILS: ALARM, RED LIGHTS, AND THE STAFF HUNTS YOU. HIDE IN A WARDROBE (E) UNTIL THE SECOND TIMER ENDS',
+    eeh: 'THE ENTITY EVAPORATOR (EEH) KEEPS THE STAFF CALM. WHEN THE FIRST TIMER ENDS IT FAILS: ALARM, RED LIGHTS, AND THE STAFF HUNTS YOU. HIDE IN A WARDROBE (E) OR CRAWL THROUGH THE VENTS TO THE SECURITY ROOM AND REBOOT THE EEH (G AT THE TERMINAL); SURVIVING UNTIL THE SECOND TIMER ENDS ALSO COUNTS',
     contract: 'COMPLETE JOBS ON ANY FLOOR, THEN TAKE THE ELEVATOR TO -1',
     climb: 'USE THE BACK STAIRS TO REACH FLOOR 5. STAIR DOORS OPEN ONLY ONCE A MISSION IS DONE',
   }[kind];
@@ -411,7 +411,7 @@ export function missionLine(m: Pick<ActiveMission, 'kind' | 'goal' | 'progress'>
   if (m.kind === 'eeh') {
     // antes del fallo, la cuenta atrás; después, lo que falta por aguantar (el progreso son los segundos de partida)
     const fail = m.goal - EEH_HOLD, t = m.progress < fail ? fail - m.progress : Math.max(0, m.goal - m.progress);
-    return `${m.progress < fail ? 'EVAPORATOR FAILS IN' : 'STAFF LOOSE · SURVIVE'} ${Math.floor(t / 60)}:${String(Math.floor(t % 60)).padStart(2, '0')}`;
+    return `${m.progress < fail ? 'EVAPORATOR FAILS IN' : 'STAFF LOOSE · REBOOT THE EEH OR SURVIVE'} ${Math.floor(t / 60)}:${String(Math.floor(t % 60)).padStart(2, '0')}`;
   }
   return `${{ photos: 'PHOTOS', tapes: 'TAPES', soaps: 'SOAPS', tvs: 'TVS', generators: 'GENERATORS', power: 'PANELS', order: 'ORDER', climb: 'CLIMB', contract: 'JOBS' }[m.kind]} ${Math.min(m.progress, m.goal)}/${m.goal}`;
 }

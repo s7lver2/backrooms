@@ -213,7 +213,7 @@ function Mission({ hud, room }: { hud: Hud; room: RoomView | null }) {
       {m && !m.done && <p className="br-osd__dim">{missionHint(m.kind)}</p>}
       {m?.exit && (
         <div className="br-lift">
-          <p>{hud.parking ? (i.escaped ? 'ASCENDING' : hud.parking.open ? 'STEP INSIDE TO ESCAPE' : 'FIND THE ELEVATOR TO ESCAPE') : up ? `${up.boarded ? 'YOU ARE ABOARD. WAITING FOR THE OTHERS. ' : 'CLOSES IN '}${Math.ceil(up.left)}S` : 'GET EVERYONE IN BEFORE IT CLOSES'}</p>
+          <p>{hud.parking ? (i.escaped ? 'ASCENDING' : hud.parking.open ? 'STEP INSIDE TO ESCAPE' : 'FIND THE ELEVATOR TO ESCAPE') : up ? `${up.boarded ? 'YOU ARE ABOARD. WAITING FOR THE OTHERS. ' : 'CLOSES IN '}${Math.ceil(up.left)}S` : m.done ? 'GET EVERYONE IN BEFORE IT CLOSES' : 'THE ELEVATOR IS OPEN · LEAVE NOW, OR FINISH THIS EXTRA MISSION FIRST'}</p>
           {aboard.length > 0 && <p className="br-osd__dim">ABOARD {aboard.join(', ')}</p>}
         </div>
       )}
