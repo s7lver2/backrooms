@@ -2150,7 +2150,7 @@ export class BackroomsGame {
     s.on('beerThrow', onBottle);
     this.offNet.push(() => s.off('beerThrow', onBottle));
     s.on('players', onPlayers);
-    s.on('world', onWorld);
+    s.on('world', this.worldIn = (w: WorldSnapshot) => (document.hidden ? void (this.pendingWorld = w) : onWorld(w))); // (oculta: solo se guarda el último; al volver no hay ráfaga de cientos que procesar de golpe)
     s.on('dead', onDead);
     s.on('reviving', onReviving);
     s.on('revived', onRevived);
@@ -2168,7 +2168,7 @@ export class BackroomsGame {
     s.on('toolFx', onTool);
     voice.calls = this.callPeers;
     this.offNet.push(() => (s.off('toolFx', onTool), this.callPeers.clear()));
-    this.offNet.push(() => (s.off('room', onRoom), s.off('inv', onInv), s.off('players', onPlayers), s.off('world', onWorld), s.off('dead', onDead), s.off('blastFx', onBlast), s.off('seal', onSeal),s.off('reviving', onReviving), s.off('revived', onRevived), s.off('runFailed', onRunFailed), removeEventListener('keydown', key)));
+    this.offNet.push(() => (s.off('room', onRoom), s.off('inv', onInv), s.off('players', onPlayers), s.off('world', this.worldIn!), s.off('dead', onDead), s.off('blastFx', onBlast), s.off('seal', onSeal),s.off('reviving', onReviving), s.off('revived', onRevived), s.off('runFailed', onRunFailed), removeEventListener('keydown', key)));
     if (items) {
       items.claim = (id, done) => {
         if (id.includes(':')) s.emit('lockerTake', id.split(':')[0], Number(id.split(':')[1]), done);
@@ -2228,8 +2228,18 @@ export class BackroomsGame {
   }
 
   private resync = false;
+  private pendingWorld?: WorldSnapshot;
+  private worldIn?: (w: WorldSnapshot) => void;
   private onVisible = () => {
-    if (!document.hidden) this.resync = true;
+    if (document.hidden) return;
+    // de vuelta: el reloj sin el parón, los efectos viejos fuera y el último estado del mundo
+    this.resync = true;
+    this.clock.getDelta();
+    this.fxList = [];
+    const w = this.pendingWorld;
+    this.pendingWorld = undefined;
+    if (w) this.worldIn?.(w);
+    dlog('tab', 'back to the tab');
   };
 
   /** El snapshot del servidor: las entidades (las nuevas se crean, las que faltan han muerto) y los objetos. */
