@@ -111,6 +111,8 @@ export class PickupField {
     return { x: (c.x + 0.5) * CELL + (Math.sin(c.x * 7.1 + c.y) * CELL) / 5, z: (c.y + 0.5) * CELL + (Math.cos(c.y * 5.3 + c.x) * CELL) / 5 };
   }
 
+  /** Para quien quiera saber dónde queda cada objeto del mapa (Las Suites oculta los de las habitaciones con la puerta cerrada). */
+  protected onPut?: (g: THREE.Object3D, x: number, z: number) => void;
   private ownMats = new Map<string, THREE.MeshStandardMaterial>();
   /** Pone un objeto en el suelo (los del mapa y los soltados). */
   put(id: string, kind: Pickup['kind'], c: Cell, src: THREE.Object3D, size: number, rot = 0, at?: { x: number; z: number; y?: number }, drop?: boolean, rar = spotRarity(id, c), ownSource = false) {
@@ -153,6 +155,7 @@ export class PickupField {
     const y = this.yOf(kind, size, c, at?.y); // flota a media pierna (todo levita y gira) con el brillo de su rareza
     holder.position.set(p.x, y, p.z);
     holder.rotation.set(0, rot, 0);
+    this.onPut?.(g, p.x, p.z);
     const fx = kind === 'tape' || kind === 'locker' ? undefined : glow(rar); // (las cintas son de la misión: sin rareza)
     if (fx) (holder.add(fx), resources.add(fx.material));
     this.root.add(holder);

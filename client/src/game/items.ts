@@ -113,6 +113,7 @@ export class Items extends PickupField {
   constructor(private world: World, private assets: Assets, player: Player, camera: THREE.Camera, audio?: GameAudio, withTapes = true) {
     super({ root: world.root, solid: (x, z) => world.solid(x, z), cellAt: (x, z) => world.cellAt(x, z), span: world.maze.span }, camera, audio);
     this.bind(player);
+    this.onPut = (o, x, z) => world.cullRoom(o, x, z); // (solo hace algo en el hotel)
     const m = world.maze, put = this.put.bind(this);
     if (withTapes) m.tapes.forEach((c, i) => put('t' + i, 'tape', c, assets.gltf.vhs.scene, 0.19, i * 1.3));
     m.flashlights.forEach((c, i) => put('f' + i, 'flashlight', c, assets.gltf.flashlight.scene, 0.24, i * 2.1));

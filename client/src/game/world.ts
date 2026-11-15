@@ -1147,6 +1147,7 @@ export class World implements Terrain {
             fuse(dg, dg, new Set(sdMats.values()), sdLeaf ?? undefined);
             dg.position.set(xr, b, 10.5);
             this.root.add(dg);
+            this.levelObjs.push({ o: dg, y: b, x: xr, z: 10.5 });
             this.doors.push({ x: xr, z: 10.5, nx: 0, nz: -1, leaf: (dd.getObjectByName('Plane001') ?? dd.getObjectByName('Plane.001')) ?? undefined, cell: -1, cur: 0, tgt: 0, y: b, stair: k + 1 });
             add(new THREE.PlaneGeometry(1.2, 0.45).rotateY(Math.PI), xr, b + 2.35, 10.49, floorSign(k + 1));
             this.stairDoors.push({ n: k + 1, x: xr, z: 10.3, y: b });
@@ -1709,6 +1710,14 @@ export class World implements Terrain {
   private cullable?: THREE.InstancedMesh[];
   private doorGroups: THREE.Object3D[] = [];
   private roomDoor?: Map<number, (typeof this.doors)[number]>;
+  /** Objetos sueltos de una habitación (el botín): se ocultan con su puerta cerrada, como las mallas instanciadas de la habitación. */
+  private roomObjs: { o: THREE.Object3D; r: number[]; x: number; z: number }[] = [];
+  /** Lo que cuelga de otro nivel de la escalera (las puertas de cada planta): solo se dibuja si estás a su altura. */
+  private levelObjs: { o: THREE.Object3D; y: number; x: number; z: number }[] = [];
+  /** Registra un objeto que está dentro de una habitación del hotel (por su sitio) para que no se dibuje con la puerta cerrada. */
+  cullRoom(o: THREE.Object3D, x: number, z: number) {
+    if (this.hotel && x < 72 && (z < 12 || z >= 15)) this.roomObjs.push({ o, r: [Math.floor(x / 6), z < 12 ? 1 : 0], x, z });
+  }
   /** Las Suites: los conductos, la sala de control y las cámaras de seguridad. */
   vents?: Vents;
   /** El terminal de la sala de control: `down` = el EEH está roto (se puede restaurar). */
@@ -1732,6 +1741,11 @@ export class World implements Terrain {
         im.visible = show;
       }
       for (const g of this.doorGroups) g.visible = Math.hypot(g.position.x - v.x, g.position.z - v.z) < 20;
+      for (const q of this.roomObjs) {
+        const d = Math.hypot(q.x - v.x, q.z - v.z), inside = v.x > q.r[0] * 6 + 1.3 && v.x < q.r[0] * 6 + 6.2 && (q.r[1] ? v.z < 12.2 : v.z > 14.8);
+        q.o.visible = d < PROP_FAR && (inside || ((this.roomDoor?.get((q.r[1] ? 7 : 10) * this.maze.w + q.r[0] * 4 + 2)?.cur ?? 0) > 0.02 && d < 14));
+      }
+      for (const q of this.levelObjs) q.o.visible = Math.abs(v.y - q.y) < 4.6 && Math.hypot(q.x - v.x, q.z - v.z) < 30;
     }
     this.cab.update(dt);
     if (this.hotel && !this.walkers.length && !this.walkersOff && this.assets.gltf['suites/faceling']) this.addWalkers();
