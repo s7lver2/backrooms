@@ -26,6 +26,8 @@ interface Props {
   sock?: Sock;
   room: RoomView | null;
   me: string;
+  /** Lanza la pantalla de victoria (el final de ronda) sin acabar la ronda. */
+  onVictory?: () => void;
 }
 
 const POS = 'br-adm-pos';
@@ -53,7 +55,7 @@ const Slider = ({ label, v, min, max, step, set, fmt }: { label: string; v: numb
   </label>
 );
 
-export default function AdminConsole({ game, sock, room, me }: Props) {
+export default function AdminConsole({ game, sock, room, me, onVictory }: Props) {
   const [open, setOpen] = useState(false);
   const [tab, setTab] = useState<Tab>('PLAYER');
   const [t, setT] = useState('me'); // el objetivo: 'me', 'all' o el id de un jugador
@@ -424,6 +426,11 @@ export default function AdminConsole({ game, sock, room, me }: Props) {
             ))}
             <B run={() => g && setFx(g.adminPerf())}>REFRESH</B>
           </div>
+          {onVictory && (
+            <div className="br-adm__row">
+              <B wide run={() => (toggle(false), onVictory())}>VICTORY SCREEN (END OF ROUND)</B>
+            </div>
+          )}
           <h3>GAME LOG</h3>
           <div className="br-adm__row">
             <B run={() => void copyText(dlogLines().join(NL)).then(() => setMsg('LOG COPIED'))}>COPY LOG</B>

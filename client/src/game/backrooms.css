@@ -68,7 +68,7 @@
 .br-pause ul { display: flex; flex-direction: column; align-items: flex-start; gap: 6px; margin-left: -1.5em; }
 
 .br-gl { position: absolute; inset: 0; width: 100%; height: 100%; display: block; visibility: hidden; }
-.br[data-screen="load"] .br-gl, .br[data-screen="play"] .br-gl, .br[data-screen="pause"] .br-gl, .br[data-screen="dead"] .br-gl, .br[data-screen="crash"] .br-gl, .br[data-screen="wait"] .br-gl, .br[data-screen="waitpause"] .br-gl { visibility: visible; }
+.br[data-screen="load"] .br-gl, .br[data-screen="play"] .br-gl, .br[data-screen="pause"] .br-gl, .br[data-screen="dead"] .br-gl, .br[data-screen="crash"] .br-gl, .br[data-screen="wait"] .br-gl, .br[data-screen="waitpause"] .br-gl, .br[data-screen="epilogue"] .br-gl { visibility: visible; }
 .br-stage { position: absolute; inset: 0; }
 
 /* la misión, siempre: arriba a la izquierda, lo que toca ahora y las cintas en bloques */

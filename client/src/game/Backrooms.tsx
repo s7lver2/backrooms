@@ -1041,7 +1041,7 @@ export default function Backrooms({ onQuit, onWin }: { onQuit: () => void; onWin
         </div>
       )}
       {(screen === 'play' || screen === 'wait') && <LogPopup game={game} />}
-      {acct.me?.admin && (screen === 'play' || screen === 'wait') && !(hud?.parking && hud.inv.escaped) && <AdminConsole game={game} sock={net.sock} room={net.room} me={net.me} />}
+      {acct.me?.admin && (screen === 'play' || screen === 'wait') && !(hud?.parking && hud.inv.escaped) && <AdminConsole game={game} sock={net.sock} room={net.room} me={net.me} onVictory={() => endRef.current({ won: true, completed: true, mission: null, reward: 0, penalty: 0, bank: 0, fates: {}, victory: Object.fromEntries((net.room?.players ?? []).map((p) => [p.id, emoteGate.victory || 1])) })} />}
       {(screen === 'play' || screen === 'wait') && mp && net.sock && (
         <div className="br-chatbox">
           <ChatLog msgs={msgs} fade={!chat} max={6} />
