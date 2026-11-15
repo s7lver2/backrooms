@@ -1181,7 +1181,7 @@ export class World implements Terrain {
         }
         for (const im of instanced(slit, ms, (mat) => mat, this.hotel)) this.root.add(im);
       }
-      for (const im of instanced(norm, ms, (mat) => ((mat.side = THREE.DoubleSide), t.tint && (mat as THREE.MeshStandardMaterial).color.set(t.tint), lightmapped(mat)), this.hotel)) ((im.receiveShadow = kind !== 'wardrobe'), (im.castShadow = kind === 'bed' || kind === 'sofa'), this.root.add(im)); // (el armario, de dos caras y casi cerrado, se rayaba con sus propias sombras)
+      for (const im of instanced(norm, ms, (mat) => ((mat.side = THREE.DoubleSide), t.tint && (mat as THREE.MeshStandardMaterial).color.set(t.tint), lightmapped(mat)), this.hotel)) ((im.receiveShadow = kind !== 'wardrobe'), (im.castShadow = kind === 'bed' || kind === 'sofa' || kind === 'wardrobe'), this.root.add(im)); // (el armario, de dos caras y casi cerrado, se rayaba con sus propias sombras)
     }
 
     // las puertas de las suites (Las Suites), blancas con su moldura. Cerradas: a ras de la cara de la pared. Abiertas: la hoja girada hacia dentro y el hueco enmarcado

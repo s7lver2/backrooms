@@ -666,8 +666,8 @@ export class Player {
     // la cámara: los ojos, con el vaivén de una cámara de mano al andar
     const neck = this.poolMode ? 0 : Math.sin(down * 1.45) * 0.12; // (en las Poolrooms la cámara es de PoolLevel y no se mueve: si el Player la adelantara, los brazos irían a otro sitio que los objetos)
     // (agachado en un nicho, algo hacia el fondo: de espaldas a la salida)
-    const bx = Math.sin(this.hideYaw) * 0.32 * hk, bz = Math.cos(this.hideYaw) * 0.32 * hk;
-    this.camera.position.set(this.pos.x - Math.sin(this.yaw) * neck + bx, this.pos.y + this.eyeBase - 0.5 * rk - 0.82 * hk - this.duckD * this.duckK + bobY, this.pos.z - Math.cos(this.yaw) * neck + bz);
+    const bx = -Math.sin(this.hideYaw) * 0.62 * hk, bz = -Math.cos(this.hideYaw) * 0.62 * hk; // (escondido: la vista, pegada a la rendija de la puerta)
+    this.camera.position.set(this.pos.x - Math.sin(this.yaw) * neck + bx, this.pos.y + this.eyeBase - 0.5 * rk - 0.6 * hk - this.duckD * this.duckK + bobY, this.pos.z - Math.cos(this.yaw) * neck + bz);
     this.recoil = Math.max(0, this.recoil - dt * 5);
     // al recoger, la vista se va al objeto
     let pitch = this.pitch;

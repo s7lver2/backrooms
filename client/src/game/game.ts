@@ -1356,9 +1356,9 @@ export class BackroomsGame {
     const fx = -Math.sin(p.yaw), fz = -Math.cos(p.yaw);
     for (const h of this.hides) {
       const dx = h.x - p.pos.x, dz = h.z - p.pos.z, d = Math.hypot(dx, dz);
-      if (d > 2.4 || (fx * dx + fz * dz) / d < 0.8) continue;
+      if (d > 2.6 || (fx * dx + fz * dz) / d < 0.6) continue; // (más amplio: no hace falta apuntar al centro del armario)
       // por la boca: del lado de la salida
-      if (((p.pos.x - h.x) * (h.fx - h.x) + (p.pos.z - h.z) * (h.fz - h.z)) / Math.hypot(h.fx - h.x, h.fz - h.z) < 0.9) continue;
+      if (((p.pos.x - h.x) * (h.fx - h.x) + (p.pos.z - h.z) * (h.fz - h.z)) / Math.hypot(h.fx - h.x, h.fz - h.z) < 0.6) continue;
       if (h.occ || [...this.remotes.values()].some((r) => r.hiding && Math.hypot(r.pos.x - h.x, r.pos.z - h.z) < 1)) continue;
       return h;
     }

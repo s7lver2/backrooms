@@ -853,3 +853,7 @@
 .br-epi__t { margin: 0; font-size: 2em; letter-spacing: 0.2em; text-shadow: 0 2px 8px #000; }
 .br-epi__row { display: flex; gap: 1.6em; flex-wrap: wrap; justify-content: center; }
 .br-epi p { margin: 0; text-shadow: 0 2px 6px #000; }
+
+/* escondido en un armario: solo se ve por la rendija de la puerta */
+.br-peek { position: absolute; inset: 0; z-index: 3; pointer-events: none; background: linear-gradient(90deg, #000 0, #000 calc(50% - 0.7em), rgba(0, 0, 0, 0.35) calc(50% - 0.45em), transparent calc(50% - 0.3em), transparent calc(50% + 0.3em), rgba(0, 0, 0, 0.35) calc(50% + 0.45em), #000 calc(50% + 0.7em), #000 100%); animation: br-peek-in 0.4s ease-out both; }
+@keyframes br-peek-in { from { opacity: 0; } to { opacity: 1; } }
