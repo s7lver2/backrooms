@@ -11,7 +11,8 @@ export interface Terrain {
   /** Altura del suelo en (x, z) para unos pies a altura `y` (plantas, rampas, peldaños); null: pared. */
   floorAt(x: number, z: number, y?: number): number | null;
   /** Pared o fuera del mapa en ese punto (sin tener en cuenta la altura). */
-  solid(x: number, z: number): boolean;
+  /** ¿Hay pared en (x, z)? `y`: la altura del suelo, en los niveles con varias plantas (por defecto, la primera). */
+  solid(x: number, z: number, y?: number): boolean;
   /** ¿Cabe un cuerpo de radio `r` con los pies en `y` en (x, z)? (paredes, columnas, mobiliario, tubos...). */
   fits(x: number, z: number, y: number, r?: number): boolean;
   /** Agua en (x, z) a esa altura: la superficie y lo honda que es (de los pies a la superficie); null: seco. */

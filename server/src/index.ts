@@ -315,7 +315,7 @@ function without(inv: Inventory, kind: ItemId | 'loot', i: number): { inv: Inven
 function takeDrop(r: RoomState, p: Player, id: string) {
   const d = r.drops.get(id);
   const spent = d?.kind === 'pokeball' && d.q?.c === 'player'; // (recoger la bola de un compañero atrapado lo libera y la bola se destruye)
-  if (!d || p.dead || Math.hypot(p.st.x - d.x, p.st.z - d.z) > 3.6 || (!spent && !fitsDrop(p.cap, d, p))) return false;
+  if (!d || p.dead || Math.hypot(p.st.x - d.x, p.st.z - d.z) > 3.6 || (d.y !== undefined && Math.abs(p.st.y - d.y) > 2.2) || (!spent && !fitsDrop(p.cap, d, p))) return false;
   r.drops.delete(id);
   if (!spent) p.cap = withDrop(p.cap, d);
   bag(p);
@@ -872,7 +872,7 @@ io.on('connection', (sock) => {
     }
     const cell = r?.match?.cellOf(k), rar = cell ? spotRarity(k, cell, LEVELS[r!.levelId]?.luck) : 0; // (la rareza del objeto del mapa sale de su celda: la misma que pinta el cliente)
     const room = !p || (k[0] === 'v' ? hasRoom(p.cap, st(p), 'loot') : !kind || canHold(p.cap, kind, st(p)));
-    const ok = !!r?.match && !!p && r.phase === 'playing' && !p.boarded && !r.match.parking && (k[0] === 'd' ? takeDrop(r, p, k) : room && r.match.pickup(p, k));
+    const ok = !!r?.match && !!p && r.phase === 'playing' && !p.boarded && (k[0] === 'd' ? takeDrop(r, p, k) : !r.match.parking && room && r.match.pickup(p, k)); // (en el parking solo se recogen soltados: lo suyo va por parkingInteract)
     if (ok && p!.uid && k[0] === 't') count(p!.uid, 'tapes'); // las cintas (ids t...)
     if (ok) r!.match!.noise(p!.st.x, p!.st.z, NOISE_PICK);
     if (ok && k[0] !== 'd') gain(p!, k, rar); // lo que se lleva: hay que tenerlo para soltarlo, beberlo o declararlo al subir
@@ -886,7 +886,7 @@ io.on('connection', (sock) => {
     if (typeof cb === 'function') cb(ok);
   });
 
-  sock.on('strip', (pts) => {
+  sock.on('strip', (pts, y) => {
     const r = roomOf(sock.id), p = r?.players.get(sock.id);
     if (!r || !p || p.dead || r.phase !== 'playing' || !Array.isArray(pts)) return;
     // puntos válidos, a más de STRIP_GAP*0,75 del anterior, hasta STRIP_PTS
@@ -904,7 +904,7 @@ io.on('connection', (sock) => {
       r.strips.splice(r.strips.indexOf(mine[0]), 1);
       io.to(r.code).emit('unstrip', mine[0].id);
     }
-    const k: Strip = { id: Math.random().toString(36).slice(2, 8), owner: sock.id, pts: out };
+    const k: Strip = { id: Math.random().toString(36).slice(2, 8), owner: sock.id, pts: out, ...(r.match?.parking && Number.isFinite(y) && Math.abs(y!) < 1e3 && { y }) };
     r.strips.push(k);
     io.to(r.code).emit('strip', k);
   });
@@ -1141,7 +1141,7 @@ io.on('connection', (sock) => {
     let ok = false;
     const free = !!r && !!p && now - (p.lastDrop ?? 0) >= DROP_GAP && [...r.drops.values()].filter((d) => d.by === p.id).length < DROP_MAX;
     // en la sala de espera también se suelta (de lo que se conserva, `inv`): lo del suelo vuelve a su dueño al empezar la ronda
-    const out = free && (r!.phase === 'lobby' ? without(p!.inv, kind, Number(index) || 0) : r!.match && !r!.match.parking && r!.phase === 'playing' && !p!.dead && !p!.boarded ? without(p!.cap, kind, Number(index) || 0) : undefined);
+    const out = free && (r!.phase === 'lobby' ? without(p!.inv, kind, Number(index) || 0) : r!.match && r!.phase === 'playing' && !p!.dead && !p!.boarded ? without(p!.cap, kind, Number(index) || 0) : undefined);
     if (out && r!.phase === 'lobby') {
       p!.lastDrop = now;
       p!.inv = out.inv;
@@ -1162,10 +1162,11 @@ io.on('connection', (sock) => {
       p!.lastDrop = now;
       p!.cap = out.inv;
       let x = p!.st.x - Math.sin(p!.st.yaw) * 0.7, z = p!.st.z - Math.cos(p!.st.yaw) * 0.7;
-      if (solidAt(r!.match!.maze, x, z)) (x = p!.st.x), (z = p!.st.z); // con una pared delante, a sus pies
+      const pk = r!.match!.parking?.map; // (el parking tiene plantas: el soltado lleva la altura de los pies y se comprueba con su propio mapa)
+      if (pk ? !parkingFits(pk, x, z, p!.st.y) : solidAt(r!.match!.maze, x, z)) (x = p!.st.x), (z = p!.st.z); // con una pared delante, a sus pies
       const id = 'd' + (++dropNo).toString(36);
-      r!.drops.set(id, { id, kind, x, z, by: p!.id, at: now, q: out.q });
-      r!.match!.noise(x, z, NOISE_DROP);
+      r!.drops.set(id, { id, kind, x, z, by: p!.id, at: now, q: out.q, ...(pk && { y: p!.st.y }) });
+      if (!pk) r!.match!.noise(x, z, NOISE_DROP);
       bag(p!);
       ok = true;
     }
@@ -1271,7 +1272,7 @@ io.on('connection', (sock) => {
       if (id === 'steelcard') {
         const open = openOf(r);
         const allowed = ITEM_IDS.filter(item => item !== 'steelcard' && itemOpen(item, open) && canHold(remaining, item, st(p))
-          && (!match.parking || !['gun', 'ammo', 'watergun', 'tank', 'totem', 'radar', 'caution'].includes(item)));
+          && (!match.parking || !['gun', 'ammo', 'watergun', 'tank'].includes(item))); // (en el parking siguen sin ir el rifle ni el agua; la cinta, el radar y el tótem sí)
         if (!allowed.length) return (rlog(r, `${p.name} steel card: nothing to roll (open ${[...open].join(',')})`), cb(null));
         if (Math.random() < .05) {
           match.curseUntil = now + 60_000;

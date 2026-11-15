@@ -320,6 +320,8 @@ export interface Drop {
   kind: ItemId | 'loot';
   x: number;
   z: number;
+  /** La altura de los pies de quien lo soltó, solo en los niveles con varias plantas (el parking): de ahí cae. Sin ella, el nivel lo decide (suelo único). */
+  y?: number;
   /** Quién lo soltó (id de socket). */
   by: string;
   /** Su rareza y su desgaste. */

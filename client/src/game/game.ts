@@ -46,6 +46,7 @@ import { ANISO, FPS_CAPS, settings } from '../settings';
 import { watchCanvas } from '../errlog';
 import { gearIcons } from './invIcons';
 import { prepAvatar } from './InvAvatar';
+import { ParkingPickups } from './parking-pickups';
 import { Epilogue, findSpot, type Actor, type Arena, type Stage } from './epilogue';
 import { POOL_CELL, WAIT_HALF, EMOTE_DEFS, type RoundResult, type Sold } from '@backrooms/shared';
 import { type LockerItem, RIFLE_MAG, canHold, ITEM_IDS, START_INV, type AdminFx, makeMission, missionLine, tvCount, type ActiveMission, type Inventory, type ItemId, type MissionKind, type Maze, type LevelCaps, levelCaps, NOISE_RUN, NOISE_SHOT, NOISE_PHOTO, type Noise } from '@backrooms/shared';
@@ -596,6 +597,8 @@ export class BackroomsGame {
   private pool?: PoolTest | PoolLevel;
   private parking?: ParkingRound;
   private parkingBoardRequest = 0;
+  /** Los objetos soltados en la Habitable Zone (el PickupField de siempre, con plantas). */
+  private parkPick?: ParkingPickups;
   private parkingToken = 0;
   private disposed = false;
   get inParking() { return !!this.parking; }
@@ -1061,6 +1064,7 @@ export class BackroomsGame {
     this.itemEffects();
     if (this.fxList.length) this.fxList = this.fxList.filter((f) => f(dt));
     if (this.player?.charging || this.arc) this.arcFrame();
+    if (this.run) return this.runFrame(dt, c); // (el nivel rojo del Tótem vale en cualquier nivel, también en el parking)
     if (this.parking) {
       // (un fallo en un fotograma de la Habitable Zone se anota en el registro y no deja el juego congelado)
       try {
@@ -1238,7 +1242,7 @@ export class BackroomsGame {
     const pr = this.parking;
     if (pr) inv.tapes = pr.level.tapesCollected;
     const parking = pr ? { floor: pr.floorLabel, pendingFloors: pr.pendingFloors, prompt: pr.prompt, repair: pr.level.repair.active ? pr.level.repair.progress : null, open: pr.level.elevatorOpen } : undefined;
-    return { warden: p?.glassesOn ? this.wardenSerial : undefined, liftOpen: this.items?.open, power: this.items && !this.items.powered ? this.items.gens : undefined, parking, parkingItemHeld: p && PARKING_ITEM_IDS.includes(p.prop as ParkingItemId) ? p.prop as ParkingItemId : undefined, steelRoll: this.steelRoll && this.steelRoll.until > performance.now() ? this.steelRoll : undefined, effects: this.effects(), talk: this.talkN, lift: this.liftOpen, mission: ms ? { kind: ms.kind, text: ms.text, line: missionLine(ms), progress: ms.progress, goal: ms.goal, done: ms.done, exit: ms.exit } : null, ascent: up ? { boarded: !!this.mp && up.boarded.includes(this.mp.id), left: Math.max(0, up.left - (performance.now() - up.at) / 1000) } : null, act: hidden || this.run ? null : this.tvs?.hint ?? this.doorAct ?? (pl ? p?.refillAct : null) ?? null, totem: this.totemHud(), needClick: this.input.needClick, bag: this.bagOpen && !this.shopOpen, shop: this.bagOpen && this.shopOpen, note: this.gadgets?.note ?? null, hint: hidden || this.run || this.tvs?.hint ? null : this.gadgets?.hint ?? this.items?.hint ?? pl?.pickups.hint ?? null, hide: this.dying >= 0 || this.winning || this.spectating ? null : hidden ? (p!.hideState === 'hidden' ? 'leave' : null) : this.hideNear() ? 'hide' : null, breath: p?.concealed ? { air: this.breath.air, warn: this.inspected, held: this.holding } : null, drink: p?.dead ? 0 : p?.drinking || p?.drinkingMonster || p?.drinkingUno || 0, drinkName: p?.prop === 'monster' ? 'MONSTER' : p?.prop === 'uno' ? 'UNO REVERSE' : 'ALMOND WATER', refill: p?.fill ?? 0, inv, aiming: !!p?.aiming, scoped: !!p?.scoped && !this.spectating, zoom: p?.zoom ?? 1, focus: !!this.items?.focus, tapes: this.items?.tapes ?? 0, photos: this.items?.photos ?? 0, ammo: p?.has.gun ? p.ammo : null, spare: p?.spare ?? 0, battery, time: this.t, hp: p?.hp ?? HP_MAX, hps: this.hps, spectating: this.spectating && !this.run ? (this.remotes.get(this.watching)?.name ?? '') : null, watchList: this.spectating && !this.run ? [...this.remotes.values()].map((r) => ({ name: r.name, on: r.id === this.watching && this.specView !== 'free', dead: r.dead })) : undefined, specView: this.spectating && !this.run ? this.specView : undefined };
+    return { warden: p?.glassesOn ? this.wardenSerial : undefined, liftOpen: this.items?.open, power: this.items && !this.items.powered ? this.items.gens : undefined, parking, parkingItemHeld: p && PARKING_ITEM_IDS.includes(p.prop as ParkingItemId) ? p.prop as ParkingItemId : undefined, steelRoll: this.steelRoll && this.steelRoll.until > performance.now() ? this.steelRoll : undefined, effects: this.effects(), talk: this.talkN, lift: this.liftOpen, mission: ms ? { kind: ms.kind, text: ms.text, line: missionLine(ms), progress: ms.progress, goal: ms.goal, done: ms.done, exit: ms.exit } : null, ascent: up ? { boarded: !!this.mp && up.boarded.includes(this.mp.id), left: Math.max(0, up.left - (performance.now() - up.at) / 1000) } : null, act: hidden || this.run ? null : this.tvs?.hint ?? this.doorAct ?? (pl ? p?.refillAct : null) ?? null, totem: this.totemHud(), needClick: this.input.needClick, bag: this.bagOpen && !this.shopOpen, shop: this.bagOpen && this.shopOpen, note: this.gadgets?.note ?? null, hint: hidden || this.run || this.tvs?.hint ? null : this.gadgets?.hint ?? this.items?.hint ?? pl?.pickups.hint ?? this.parkPick?.hint ?? null, hide: this.dying >= 0 || this.winning || this.spectating ? null : hidden ? (p!.hideState === 'hidden' ? 'leave' : null) : this.hideNear() ? 'hide' : null, breath: p?.concealed ? { air: this.breath.air, warn: this.inspected, held: this.holding } : null, drink: p?.dead ? 0 : p?.drinking || p?.drinkingMonster || p?.drinkingUno || 0, drinkName: p?.prop === 'monster' ? 'MONSTER' : p?.prop === 'uno' ? 'UNO REVERSE' : 'ALMOND WATER', refill: p?.fill ?? 0, inv, aiming: !!p?.aiming, scoped: !!p?.scoped && !this.spectating, zoom: p?.zoom ?? 1, focus: !!this.items?.focus, tapes: this.items?.tapes ?? 0, photos: this.items?.photos ?? 0, ammo: p?.has.gun ? p.ammo : null, spare: p?.spare ?? 0, battery, time: this.t, hp: p?.hp ?? HP_MAX, hps: this.hps, spectating: this.spectating && !this.run ? (this.remotes.get(this.watching)?.name ?? '') : null, watchList: this.spectating && !this.run ? [...this.remotes.values()].map((r) => ({ name: r.name, on: r.id === this.watching && this.specView !== 'free', dead: r.dead })) : undefined, specView: this.spectating && !this.run ? this.specView : undefined };
   }
 
   /** Los efectos que tiene ahora el personaje, para el HUD (Effects.tsx). */
@@ -2351,6 +2355,7 @@ export class BackroomsGame {
     const world = this.world ?? this.poolWorld, mp = this.mp;
     if (this.parking && mp) {
       if (w.parking) this.parking.sync(w.parking, mp.id);
+      this.parkPick?.syncDrops(w.drops ?? []);
       return;
     }
     if (!world || !mp) return;
@@ -2647,7 +2652,7 @@ export class BackroomsGame {
     this.camera.add(this.flash, this.flash.target);
     r.dispose();
     const rp = this.composer.passes[0] as RenderPass;
-    rp.scene = this.pool?.scene ?? this.scene; // (de vuelta al nivel en el que se estaba, también las Poolrooms)
+    rp.scene = this.parking?.level.scene ?? this.pool?.scene ?? this.scene; // (de vuelta al nivel en el que se estaba, también las Poolrooms y el parking)
     rp.camera = this.pool?.camera ?? this.camera;
     this.vhs.enabled = false;
     this.vhs.uniforms.uCorrupt.value = this.vhs.uniforms.uBlack.value = 0;
@@ -2790,7 +2795,7 @@ fps ${(1 / Math.max(dt, 1e-3)).toFixed(0)}`;
   private poolStat?: { n: number; ms: number; el: HTMLPreElement };
 
   private parkingInventory(inventory: Inventory): Inventory {
-    return { ...inventory, gun: false, ammo: 0, watergun: false, tank: false, totem: 0, caution: false, radar: false };
+    return { ...inventory, gun: false, ammo: 0, watergun: false, tank: false }; // (el rifle y el agua no entran; la cinta, el radar y el tótem sí)
   }
 
   private async startParking(seed: number, mp: Mp) {
@@ -2841,6 +2846,14 @@ fps ${(1 / Math.max(dt, 1e-3)).toFixed(0)}`;
       this.input.suspend = false;
       this.input.tabInventory = true;
       this.wire(mp);
+      // lo que se suelta y se recoge del suelo, la cinta de acordonar, el radar y el tótem: los mismos prefabs que en los demás niveles, con las plantas del parking
+      const pk = (this.parkPick = new ParkingPickups(round.level, this.camera, this.assets!, audio));
+      pk.bind(player);
+      pk.claim = (id, done) => void claimPickup(mp.sock, id, done, 2500, () => this.mp === mp && this.parkPick === pk);
+      const lift = round.level.map.elevator;
+      const gd = (this.gadgets = new Gadgets(round.level.terrain, player, this.camera, this.assets!, this.canvas.parentElement ?? document.body, () => [...this.remotes.values()].filter((r) => !(r.jam > 0)), () => new THREE.Vector3(lift.x, lift.y, lift.z), true));
+      gd.onTotem = () => this.openTotem();
+      gd.net(mp.sock);
       this.input.begin();
       this.clock.start();
       this.renderer.setAnimationLoop(() => this.frame());
@@ -2871,6 +2884,12 @@ fps ${(1 / Math.max(dt, 1e-3)).toFixed(0)}`;
     }
     if (!active || this.bagOpen) c = { ...c, move: _none, look: _none, bag: false, grab: false, bagHeld: false, flash: false, slot: -1, wheel: 0, use: false, useHeld: false, fire: false, fireHeld: false, aim: false };
     this.t += dt;
+    if (!this.winning && this.dying < 0 && !player.dead) {
+      if (c.drop) this.dropSelected();
+      if (this.gadgets) c = this.gadgets.update(dt, c); // cinta de acordonar y radar: se llevan los clics que gastan
+      this.parkPick?.tick(this.t, dt, c);
+      if (c.grab && this.parkPick?.hint) c = { ...c, grab: false }; // (G ya cogió el objeto: no es también para taquillas ni puertas)
+    }
     round.setListening(!this.paused && !document.hidden);
     const aboard = round.update(dt, c, this.camera, active, this.t, action => {
       if (action.kind === 'unlock') return void (action.id && this.onLocker?.('park:' + action.id)); // taquilla con llave: el minijuego (LockerGame) y, al ganar, parkingUnlock
@@ -2913,6 +2932,10 @@ fps ${(1 / Math.max(dt, 1e-3)).toFixed(0)}`;
     const round = this.parking;
     if (!round) return;
     this.parking = undefined;
+    this.parkPick?.dispose();
+    this.parkPick = undefined;
+    this.gadgets?.dispose();
+    this.gadgets = undefined;
     this.input.tabInventory = false;
     this.player?.dispose();
     this.player = undefined;

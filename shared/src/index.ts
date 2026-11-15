@@ -38,6 +38,8 @@ export interface Strip {
   id: string;
   owner: string;
   pts: number[];
+  /** La altura del suelo donde está tendido (niveles con varias plantas); sin ella, a ras del suelo del nivel (0). */
+  y?: number;
 }
 export const NAME_MAX = 16;
 export const CHAT_MAX = 200;
@@ -387,7 +389,7 @@ export interface ClientToServer {
   /** Listo / no listo en la sala de espera. En la fase `starting` (votación): `true` = este cliente ya tiene el nivel cargado. */
   ready: (on: boolean) => void;
   /** Terminar un tramo de cinta (el servidor le pone id y dueño y lo reparte). */
-  strip: (pts: number[]) => void;
+  strip: (pts: number[], y?: number) => void;
   /** Quitar un tramo (el de cualquiera). */
   unstrip: (id: string) => void;
   /** Pistola de agua: un chorro desde (x, z) mirando a `yaw` (unos 20 mensajes/s como mucho mientras dispara). El servidor busca a quién moja. */

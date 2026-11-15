@@ -31,11 +31,11 @@ export interface Target {
 
 
 /** ¿Se ve `b` desde `a` sin pared en medio? (pasos de 25 cm por la rejilla) */
-export function sees(world: World, a: THREE.Vector3, b: THREE.Vector3) {
+export function sees(world: { solid(x: number, z: number, y?: number): boolean }, a: THREE.Vector3, b: THREE.Vector3, floor?: number) {
   const d = a.distanceTo(b), n = Math.ceil(d / 0.25);
   for (let i = 1; i < n; i++) {
     const t = i / n;
-    if (world.solid(a.x + (b.x - a.x) * t, a.z + (b.z - a.z) * t)) return false;
+    if (world.solid(a.x + (b.x - a.x) * t, a.z + (b.z - a.z) * t, floor)) return false;
   }
   return true;
 }
@@ -44,6 +44,28 @@ export function sees(world: World, a: THREE.Vector3, b: THREE.Vector3) {
 function aimPoint(tg: Target, eye: THREE.Vector3, fwd: THREE.Vector3) {
   const dh = Math.hypot(tg.pos.x - eye.x, tg.pos.z - eye.z), flat = Math.hypot(fwd.x, fwd.z) || 1e-6;
   return tg.pos.clone().setY(THREE.MathUtils.clamp(eye.y + (fwd.y / flat) * dh, 0.3, tg.height));
+}
+
+/** Los modelos de lo que se ve en el suelo (soltados, objetos del mapa) y su tamaño: los mismos en todos los niveles. */
+export function dropModels(assets: Assets, kit?: PoolKit): Partial<Record<ItemId | 'loot', PickupModel>> {
+  const g = assets.gltf;
+  return {
+    loot: (r) => [lootModel(r), 0.24],
+    ...(kit?.tank && { tank: [kit.tank, 0.6] as [THREE.Object3D, number] }),
+    ...(kit?.watergun && { watergun: [kit.watergun, 0.4] as [THREE.Object3D, number] }),
+    flashlight: [g.flashlight.scene, 0.24],
+    camera: [g.camcorder.scene, 0.22],
+    gun: [g.gun.scene, 0.72],
+    water: [g.water.scene, 0.17],
+    caution: [g.duct.scene, 0.16],
+    radar: [g.radar.scene, 0.2],
+    totem: [g.totem.scene, 0.5],
+    ...Object.fromEntries(inventoryModels.flatMap(id => {
+      const model = itemModel(id);
+      return model ? [[id, [model, id === 'bat' ? 0.7 : 0.2] as [THREE.Object3D, number]]] : [];
+    })),
+    ammo: () => [new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.06, 0.06), new THREE.MeshStandardMaterial({ color: 0xb08d3a, roughness: 0.5, metalness: 0.5 })), 0.12],
+  };
 }
 
 export class Items extends PickupField {
@@ -197,24 +219,7 @@ export class Items extends PickupField {
 
   /** Los modelos de cada objeto y su tamaño. */
   private models(): Partial<Record<ItemId | 'loot', PickupModel>> {
-    const g = this.assets.gltf, kit = this.kit;
-    return {
-      loot: (r) => [lootModel(r), 0.24],
-      ...(kit?.tank && { tank: [kit.tank, 0.6] as [THREE.Object3D, number] }),
-      ...(kit?.watergun && { watergun: [kit.watergun, 0.4] as [THREE.Object3D, number] }),
-      flashlight: [g.flashlight.scene, 0.24],
-      camera: [g.camcorder.scene, 0.22],
-      gun: [g.gun.scene, 0.72],
-      water: [g.water.scene, 0.17],
-      caution: [g.duct.scene, 0.16],
-      radar: [g.radar.scene, 0.2],
-      totem: [g.totem.scene, 0.5],
-      ...Object.fromEntries(inventoryModels.flatMap(id => {
-        const model = itemModel(id);
-        return model ? [[id, [model, id === 'bat' ? 0.7 : 0.2] as [THREE.Object3D, number]]] : [];
-      })),
-      ammo: () => [new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.06, 0.06), new THREE.MeshStandardMaterial({ color: 0xb08d3a, roughness: 0.5, metalness: 0.5 })), 0.12],
-    };
+    return dropModels(this.assets, this.kit);
   }
 
   /** La taquilla `id` se ha abierto (minijuego hecho): la puerta se abre y lo que queda dentro (`taken`: lo ya cogido) se ve en los estantes, listo para G. */

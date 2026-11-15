@@ -27,12 +27,12 @@ Piezas que se escriben **una sola vez** y valen para todos los niveles (nivel 0,
 | `ElevatorCab` | sí | sí | sí |
 | `Epilogue` | sí | sí | sí |
 | `entityBody` / `Entity` | sí | sí (entidades del servidor) | **no** (`caps.ents = false`): skinwalkers y smilers propios; comparten `followPose`, `Rig` y `Cosmetics` (ver «Por qué...») |
-| `PickupField` | sí (`Items`) | sí (`PoolPickups`) | **no**: taquillas, objetos y cintas son código propio de `parking.ts` (`storageItems`, `takeItem`, `parkingInteract`); no hay objetos soltados ni `syncDrops` |
-| `Gadgets` | sí | sí | **no** |
+| `PickupField` | sí (`Items`) | sí (`PoolPickups`) | sí para lo del suelo (`ParkingPickups`: soltar y recoger objetos, con plantas); las taquillas, cintas de misión y generadores siguen en `parking.ts` (puertas con colisión + `parkingInteract`) |
+| `Gadgets` | sí | sí | sí (cinta por plantas, radar y tótem; el rifle y el agua siguen sin entrar) |
 
 Por qué el parking no los usa hoy (revisado a fondo el 15/11/2026):
-- `PickupField` está pensado para celdas planas (`Cell`, `CELL`, suelo a una altura) y para el protocolo `claim` / `lockerTake`. El parking tiene varias plantas (`y`), taquillas con puertas con colisión propia (`parking.ts`, `hinges`) y su protocolo `parkingInteract`. Para unirlos hay que dar altura/planta a `PickupHost` y a los soltados (`Drop` solo lleva `x, z`), y cambiar el servidor.
-- `Gadgets` (cinta, radar, tótem): el servidor **prohíbe** esos objetos en el parking a propósito (`server/src/index.ts`, lista `['gun','ammo','watergun','tank','totem','radar','caution']`) y `parkingInventory` los quita en el cliente. Además las cintas son planas (`x, z`, sin planta). Meterlos es una decisión de diseño, no solo de código.
+- `PickupField` ya es multinivel (15/11/2026): `PickupHost.solid(x, z, y?)`, `put(..., { x, z, y })`, `yOf(kind, size, cell, base?)`, `floorOf(x, z, y?)` y `Drop.y` (el servidor lo rellena solo en el parking; en el laberinto y la piscina no hay `y` y todo sigue igual). Las taquillas del parking NO se portaron: sus puertas tienen colisión propia y su protocolo `parkingInteract` valida en el servidor puerta, ganzúa y botín; solo lo soltado va por `PickupField`.
+- `Gadgets` (cinta, radar, tótem) funciona por plantas con `floors = true` (`Strip.y`, la cinta se pinta a la altura de la planta y `solid`/`sees` reciben esa altura). El servidor ya no los prohíbe en el parking (solo `gun`, `ammo`, `watergun`, `tank`) y `Game.parkingInventory` tampoco los quita. El tótem usa el nivel rojo, que ahora tiene prioridad sobre el bucle del parking (`Game.frame`).
 - `Entity` / `entityBody`: `Entity` ya no depende de `World` ni de `EntitySim` (acepta un `EntityHost` y un `Brain`, ver sección 7), pero los enemigos del parking **no se han migrado** a él, por dos motivos concretos:
   - **Skinwalker:** lleva dos `Rig` a la vez (humano y bestia) que se funden por opacidad de materiales, `Cosmetics` del jugador y partículas de transformación; `Entity` es un cuerpo con un solo `Rig` y los clips salen de `ENTITIES[kind]` (`shared/sim.ts`). Además su IA (`ParkingSkinAI`) actualiza **todos** los agentes de golpe y el cliente solo lee su pose (también en red, `syncNetwork`); no es una cabeza por entidad. Migrarlo exigiría un `Kind` nuevo en `shared/sim.ts` con clips humano/bestia y un cuerpo de dos rigs en `entityBody`, y no se puede probar sin navegador. Se comparte solo lo seguro: `followPose` (suavizado de pose) y `Rig`/`Cosmetics`.
   - **Smiler:** no es un cuerpo: es un velo, una cara aditiva y humo instanciado orientados a la cámara. No hay `Rig` que reutilizar.
@@ -110,7 +110,7 @@ Los niveles solo la colocan; el viaje, el temblor y el panel son del prefab.
 ## 9. `PickupField` / `PickupHost`
 Todo lo recogible: objeto flotante con brillo de rareza, aviso, mano que baja, petición al servidor (`claim`), `sync` de lo cogido y `syncDrops` de lo soltado (con físicas).
 
-**Uso**: el nivel implementa `PickupHost` (`root`, `solid`, `cellAt`, opcional `span` si el mundo se repite) y construye su `PickupField` (o una subclase: `Items` en el laberinto, `PoolPickups` en las Poolrooms). No se escriben recogidas propias.
+**Uso**: el nivel implementa `PickupHost` (`root`, `solid(x, z, y?)`, `cellAt`, opcional `span` si el mundo se repite) y construye su `PickupField` (o una subclase: `Items` en el laberinto, `PoolPickups` en las Poolrooms, `ParkingPickups` en el parking). Niveles con plantas: pasa la altura del suelo en `solid` y en los soltados (`Drop.y`). Los modelos de lo soltado salen de `dropModels()` (`items.ts`), iguales en todos los niveles. No se escriben recogidas propias.
 
 ## 10. `Epilogue` (final de ronda)
 Al ganar, el servidor manda `RoundResult.victory` (la pose de cada jugador). El prefab monta: fila de jugadores con su pose, entidades bailando detrás y cámara que se mece mirando a la fila. El cliente muestra después **CONTINUE · ANOTHER ROUND** o **SAVE AND EXIT**.

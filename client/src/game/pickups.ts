@@ -18,10 +18,13 @@ import type { GameAudio } from './audio';
 const REACH = 1.6; // metros para recoger
 export const MAG = RIFLE_MAG, TOTAL = AMMO_PACK; // el rifle: monta 2 balas a la vez y el del mapa trae un cargador de 4
 
-/** Lo que el nivel le da: dónde colgar los objetos, paredes (para lo que cae), de qué celda es un punto y, si el mundo se repite (Las Suites), cuánto. */
+/**
+ * Lo que el nivel le da: dónde colgar los objetos, paredes (para lo que cae), de qué celda es un punto y, si el mundo se repite (Las Suites), cuánto.
+ * Niveles con varias plantas (el parking): `solid` recibe también la altura del suelo (`y`), y lo soltado trae la suya (`Drop.y`); los niveles de un solo suelo la ignoran.
+ */
 export interface PickupHost {
   readonly root: THREE.Object3D;
-  solid(x: number, z: number): boolean;
+  solid(x: number, z: number, y?: number): boolean;
   cellAt(x: number, z: number): Cell;
   /** Las Suites: el mapa se repite (celdas [desde, hasta)); cada objeto tiene sus copias. */
   readonly span?: [number, number];
@@ -91,13 +94,13 @@ export class PickupField {
   protected shape(_kind: Pickup['kind'], src: THREE.Object3D, size: number): THREE.Object3D {
     return fit(skClone(src), size); // (SkeletonUtils: el tótem lleva piel)
   }
-  /** A qué altura flota (en el suelo del punto). */
-  protected yOf(kind: Pickup['kind'], size: number, _c: Cell): number {
-    return kind === 'locker' ? size / 2 : 0.32 + size / 4; // (la taquilla está de pie en el suelo)
+  /** A qué altura flota (en el suelo del punto; `base`: la altura de ese suelo si el nivel tiene plantas). */
+  protected yOf(kind: Pickup['kind'], size: number, _c: Cell, base?: number): number {
+    return (base ?? 0) + (kind === 'locker' ? size / 2 : 0.32 + size / 4); // (la taquilla está de pie en el suelo)
   }
-  /** Dónde cae lo soltado: el suelo de ese punto. */
-  protected floorOf(_x: number, _z: number): number {
-    return 0;
+  /** Dónde cae lo soltado: el suelo de ese punto (`y`: la altura que trae el soltado, si el nivel tiene plantas). */
+  protected floorOf(_x: number, _z: number, y?: number): number {
+    return y ?? 0;
   }
   protected label(kind: Pickup['kind']) {
     return LABEL[kind];
@@ -108,7 +111,7 @@ export class PickupField {
   }
 
   /** Pone un objeto en el suelo (los del mapa y los soltados). */
-  put(id: string, kind: Pickup['kind'], c: Cell, src: THREE.Object3D, size: number, rot = 0, at?: { x: number; z: number }, drop?: boolean, rar = spotRarity(id, c), ownSource = false) {
+  put(id: string, kind: Pickup['kind'], c: Cell, src: THREE.Object3D, size: number, rot = 0, at?: { x: number; z: number; y?: number }, drop?: boolean, rar = spotRarity(id, c), ownSource = false) {
     if (this.disposed) return;
     const resources = new Set<{ dispose(): void }>();
     // Los modelos procedurales son nuestros; los GLTF conservan geometrías, materiales y texturas compartidos.
@@ -138,7 +141,7 @@ export class PickupField {
     const holder = new THREE.Group();
     holder.add(g);
     const p = at ?? this.spot(c);
-    const y = this.yOf(kind, size, c); // flota a media pierna (todo levita y gira) con el brillo de su rareza
+    const y = this.yOf(kind, size, c, at?.y); // flota a media pierna (todo levita y gira) con el brillo de su rareza
     holder.position.set(p.x, y, p.z);
     holder.rotation.set(0, rot, 0);
     const fx = kind === 'tape' || kind === 'locker' ? undefined : glow(rar); // (las cintas son de la misión: sin rareza)
@@ -147,7 +150,7 @@ export class PickupField {
     let phys: Pickup['phys'];
     if (drop) {
       // lo soltado sale a la altura de la mano con un empujón hacia delante (el mismo para todos: sale del id), cae, rebota y se queda en el suelo
-      const h = Math.sin(id.split('').reduce((a, ch) => a * 31 + ch.charCodeAt(0), 7)) * 43758.5453, u = h - Math.floor(h), a = u * Math.PI * 2, fl = this.floorOf(p.x, p.z);
+      const h = Math.sin(id.split('').reduce((a, ch) => a * 31 + ch.charCodeAt(0), 7)) * 43758.5453, u = h - Math.floor(h), a = u * Math.PI * 2, fl = this.floorOf(p.x, p.z, at?.y);
       holder.position.y = fl + 1.1;
       phys = { v: new THREE.Vector3(Math.cos(a) * 0.9, 1.6, Math.sin(a) * 0.9), spin: new THREE.Vector3((u - 0.5) * 9, (u - 0.3) * 6, (0.5 - u) * 9), rest: false, floor: fl + 0.03 + size * 0.35 };
     }
@@ -173,9 +176,9 @@ export class PickupField {
     const o = p.obj, s = Math.min(dt, 0.05);
     f.v.y -= 9.8 * s;
     const nx = o.position.x + f.v.x * s, nz = o.position.z + f.v.z * s;
-    if (this.host.solid(nx, o.position.z)) f.v.x *= -0.4;
+    if (this.host.solid(nx, o.position.z, f.floor)) f.v.x *= -0.4;
     else o.position.x = nx;
-    if (this.host.solid(o.position.x, nz)) f.v.z *= -0.4;
+    if (this.host.solid(o.position.x, nz, f.floor)) f.v.z *= -0.4;
     else o.position.z = nz;
     o.position.y += f.v.y * s;
     o.rotation.x += f.spin.x * s;
@@ -324,7 +327,7 @@ export class PickupField {
       if (this.pickups.some((p) => p.id === d.id) || !models[d.kind]) continue;
       const model = models[d.kind]!, own = typeof model === 'function';
       const [src, size] = own ? model(d.q?.r) : model;
-      this.put(d.id, d.kind as Pickup['kind'], this.host.cellAt(d.x, d.z), src, size, (d.x * 3.1 + d.z) % 6.28, { x: d.x, z: d.z }, true, d.q?.r ?? 0, own);
+      this.put(d.id, d.kind as Pickup['kind'], this.host.cellAt(d.x, d.z), src, size, (d.x * 3.1 + d.z) % 6.28, { x: d.x, z: d.z, y: d.y }, true, d.q?.r ?? 0, own);
     }
   }
 

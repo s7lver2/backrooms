@@ -3,7 +3,12 @@ import { perks } from './perks';
 import { boostOf, MAX_PLAYERS, STRIP_GAP, STRIP_MAX, STRIP_PTS, type Strip } from '@backrooms/shared';
 import type { Controls } from './input';
 import type { Player } from './player';
-import type { World } from './world';
+/** Lo que Gadgets pide al nivel: dónde colgar la cinta, paredes (con la altura del suelo si hay plantas) y huecos. */
+export interface GadgetWorld {
+  readonly root: THREE.Object3D;
+  voidAt(x: number, z: number): boolean;
+  solid(x: number, z: number, y?: number): boolean;
+}
 import type { Sock } from '../net';
 import type { Assets } from './game';
 import { Holo, RADAR_IDLE, RADAR_SCAN } from './holo';
@@ -59,6 +64,11 @@ export class Gadgets {
   /** La recta que se está marcando: [x0, z0, x1, z1] con el primer punto fijo y el segundo donde se mira; null si no hay primer punto. */
   private cur: number[] | null = null;
   private start: [number, number] | null = null;
+  /** Niveles con varias plantas (`floors`): la altura del suelo de la recta que se tiende; si no, la cinta va siempre a ras del suelo (0). */
+  private curY = 0;
+  private groundY() {
+    return this.floors ? this.player.pos.y : 0;
+  }
   private mesh: THREE.Mesh;
   private pos: THREE.BufferAttribute;
   private uv: THREE.BufferAttribute;
@@ -73,7 +83,7 @@ export class Gadgets {
   private sock?: Sock;
   private serial = 0;
 
-  constructor(private world: World, private player: Player, private camera: THREE.Camera, _assets: Assets, _host: HTMLElement, private peers: () => Iterable<{ pos: THREE.Vector3; dead: boolean }>, private exit?: () => THREE.Vector3 | undefined) {
+  constructor(private world: GadgetWorld, private player: Player, private camera: THREE.Camera, _assets: Assets, _host: HTMLElement, private peers: () => Iterable<{ pos: THREE.Vector3; dead: boolean }>, private exit?: () => THREE.Vector3 | undefined, private floors = false) {
     const tex = tapeTexture();
     const mat = new THREE.MeshStandardMaterial({ map: tex, roughness: 0.3, metalness: 0.1, side: THREE.DoubleSide, emissive: 0xffffff, emissiveMap: tex, emissiveIntensity: 0.3, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 });
     const g = new THREE.BufferGeometry();
@@ -103,16 +113,18 @@ export class Gadgets {
 
   /** La malla de todos los tramos (y el que se está tendiendo, hasta los pies): una cinta de WIDTH por segmento, con la v corriendo a lo largo. */
   private rebuild() {
-    const all = this.cur ? [...this.strips.map((k) => k.pts), this.cur] : this.strips.map((k) => k.pts);
+    const all = this.strips.map((k) => ({ pts: k.pts, y: k.y ?? 0 }));
+    if (this.cur) all.push({ pts: this.cur, y: this.curY });
     let q = 0;
-    for (const pts of all) {
+    for (const { pts, y } of all) {
+      const gy = y + LIFT;
       let len = 0;
       for (let i = 2; i < pts.length && q < CAP; i += 2) {
         const ax = pts[i - 2], az = pts[i - 1], bx = pts[i], bz = pts[i + 1], d = Math.hypot(bx - ax, bz - az);
         if (d < 1e-3) continue;
         const nx = (-(bz - az) / d) * (WIDTH / 2), nz = ((bx - ax) / d) * (WIDTH / 2), v0 = len / PERIOD, v1 = (len + d) / PERIOD;
-        this.pos.setXYZ(q * 4, ax - nx, LIFT, az - nz), this.pos.setXYZ(q * 4 + 1, ax + nx, LIFT, az + nz);
-        this.pos.setXYZ(q * 4 + 2, bx - nx, LIFT, bz - nz), this.pos.setXYZ(q * 4 + 3, bx + nx, LIFT, bz + nz);
+        this.pos.setXYZ(q * 4, ax - nx, gy, az - nz), this.pos.setXYZ(q * 4 + 1, ax + nx, gy, az + nz);
+        this.pos.setXYZ(q * 4 + 2, bx - nx, gy, bz - nz), this.pos.setXYZ(q * 4 + 3, bx + nx, gy, bz + nz);
         this.uv.setXY(q * 4, 0, v0), this.uv.setXY(q * 4 + 1, 1, v0), this.uv.setXY(q * 4 + 2, 0, v1), this.uv.setXY(q * 4 + 3, 1, v1);
         len += d;
         q++;
@@ -138,9 +150,10 @@ export class Gadgets {
     this.cur = this.start = null;
     if (keep && pts && pts.length === 4) {
       this.left = Math.max(0, this.left - this.len(pts));
-      if (this.sock) this.sock.emit('strip', pts);
+      const y = this.floors ? this.curY : undefined;
+      if (this.sock) this.sock.emit('strip', pts, y);
       else {
-        this.strips.push({ id: 'l' + this.serial++, owner: '', pts });
+        this.strips.push({ id: 'l' + this.serial++, owner: '', pts, y });
         if (this.strips.length > STRIP_MAX) this.strips.shift();
       }
     }
@@ -151,8 +164,8 @@ export class Gadgets {
   private floorAim(): [number, number] | null {
     const eye = this.camera.getWorldPosition(_v.clone()), dir = this.camera.getWorldDirection(new THREE.Vector3());
     if (dir.y > -0.03) return null;
-    const t = (LIFT - eye.y) / dir.y, x = eye.x + dir.x * t, z = eye.z + dir.z * t;
-    if (Math.hypot(x - this.player.pos.x, z - this.player.pos.z) > TAPE_MAX || !sees(this.world, eye, _x.set(x, LIFT, z)) || this.world.voidAt(x, z)) return null;
+    const fy = this.groundY(), t = (fy + LIFT - eye.y) / dir.y, x = eye.x + dir.x * t, z = eye.z + dir.z * t;
+    if (Math.hypot(x - this.player.pos.x, z - this.player.pos.z) > TAPE_MAX || !sees(this.world, eye, _x.set(x, fy + LIFT, z), this.floors ? fy : undefined) || this.world.voidAt(x, z)) return null;
     return [x, z];
   }
 
@@ -161,7 +174,7 @@ export class Gadgets {
     const d = Math.hypot(b[0] - a[0], b[1] - a[1]), n = Math.ceil(d / 0.3);
     for (let i = 0; i <= n; i++) {
       const x = a[0] + ((b[0] - a[0]) * i) / n, z = a[1] + ((b[1] - a[1]) * i) / n;
-      if (this.world.solid(x, z) || this.world.voidAt(x, z)) return false;
+      if (this.world.solid(x, z, this.floors ? this.curY : undefined) || this.world.voidAt(x, z)) return false;
     }
     return true;
   }
@@ -174,10 +187,10 @@ export class Gadgets {
         const ax = k.pts[i - 2], az = k.pts[i - 1], bx = k.pts[i], bz = k.pts[i + 1], n = Math.max(1, Math.ceil(Math.hypot(bx - ax, bz - az) / 0.4));
         for (let j = 0; j <= n; j++) {
           const x = ax + ((bx - ax) * j) / n, z = az + ((bz - az) * j) / n;
-          _v.set(x, LIFT, z).sub(eye);
+          _v.set(x, (k.y ?? 0) + LIFT, z).sub(eye);
           const t = _v.dot(dir);
           if (t < 0.2 || t > GRAB || t >= bt || _v.addScaledVector(dir, -t).length() > 0.35) continue;
-          if (sees(this.world, eye, _x.set(x, LIFT, z))) (bt = t), (best = k);
+          if (sees(this.world, eye, _x.set(x, (k.y ?? 0) + LIFT, z), this.floors ? k.y ?? 0 : undefined)) (bt = t), (best = k);
         }
       }
     return best;
@@ -230,7 +243,7 @@ export class Gadgets {
       const a = this.floorAim();
       if (!this.start) {
         if (this.left < 0.5) (this.note = 'TAPE ROLL EMPTY'), (this.noteT = 2);
-        else if (a) this.start = a;
+        else if (a) ((this.start = a), (this.curY = this.groundY()));
       } else if (a && Math.hypot(a[0] - this.start[0], a[1] - this.start[1]) >= 0.5 && this.clear(this.start, a)) {
         if (Math.hypot(a[0] - this.start[0], a[1] - this.start[1]) > this.left) (this.note = 'NOT ENOUGH TAPE LEFT'), (this.noteT = 2);
         else ((this.cur = [this.start[0], this.start[1], a[0], a[1]]), this.finish());

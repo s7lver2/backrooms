@@ -1139,7 +1139,7 @@ export default function Backrooms({ onQuit, onWin }: { onQuit: () => void; onWin
             const p = game.current!.player;
             if (p && HOT[id]?.have(p.own)) HOT[id].use(p);
           }}
-          onDrop={hud.parking ? undefined : (id, i) => (id === 'loot' ? game.current!.dropLoot(i ?? 0) : game.current!.dropItem(id as ItemId))}
+          onDrop={(id, i) => (id === 'loot' ? game.current!.dropLoot(i ?? 0) : game.current!.dropItem(id as ItemId))}
           onEquipSpecial={(id) => {
             game.current?.player?.equipParkingItem(id);
             game.current?.closeBag();

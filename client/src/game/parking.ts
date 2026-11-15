@@ -25,7 +25,7 @@ export class ParkingLevel {
     groundPace: { walk: 3.1, run: 6 },
     floorAt: (x: number, z: number, y = 0) => this.fits(x, z, y)?.y ?? null,
     fits: (x: number, z: number, y: number) => this.fits(x, z, y) !== null,
-    solid: (x: number, z: number) => !this.fits(x, z, this.map.spawn.y),
+    solid: (x: number, z: number, y = this.map.spawn.y) => !this.fits(x, z, y),
     furniture: () => false,
     liquidAt: () => null,
     voidAt: () => false,
