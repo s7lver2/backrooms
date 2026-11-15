@@ -278,6 +278,7 @@ export class EntitySim {
   loot: Cell[];
   /** En paz: no hace nada (el personal del hotel) hasta `rage()`; ya furioso, siempre sabe dónde está el jugador más cercano que no esté escondido. */
   passive = false;
+  private anchor = { x: 0, z: 0, t: 0 }; // (el perro guardián contra atascos: si lleva 7 s sin moverse de un sitio, se le suelta)
   enraged = false;
   /** Dentro de una nube de humo: fracción (0–1) de lo lejos que ve. */
   blind = 0;
@@ -535,6 +536,7 @@ export class EntitySim {
     if (this.passive) {
       const P = this.patrol;
       if (P) (this.x += P.dir * P.v * dt), (this.z = P.z), (this.facing = P.dir > 0 ? Math.PI / 2 : -Math.PI / 2), (this.moving = true);
+      else this.moving = false; // (quieto de pie: la animación de estar quieto, no la de andar)
       return undefined;
     }
     // los sentidos: al que más se da cuenta (el más cerca que ve) le hace caso; y lo que oye
@@ -557,6 +559,14 @@ export class EntitySim {
     }
     this.repath -= dt;
     this.routeAge += dt;
+    // atascado mirando un nicho (o parado en cualquier sitio) más de 7 s: se le suelta y vuelve a lo suyo
+    const an = this.anchor;
+    if (Math.hypot(this.x - an.x, this.z - an.z) > 0.6) (an.x = this.x), (an.z = this.z), (an.t = 0);
+    else if ((an.t += dt) > 7 && this.state !== 'chase') {
+      an.t = 0;
+      if (this.insp) (this.insp.h.cd = 20), (this.insp.h.by = null), (this.insp = undefined);
+      (this.state = 'wander'), (this.path = []), (this.heard = undefined), (this.alert = 0), (this.rest = 0);
+    }
     // el cerebro: manda el primer comportamiento de la ficha que quiere
     runBehaviors(this.def.brain, BRAIN, this, s);
     if (this.roused && !this.enraged && this.state === 'wander' && !this.heard) (this.roused = false), (this.passive = true), (this.path = []); // (no encontró nada: vuelve a lo suyo)

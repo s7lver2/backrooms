@@ -190,7 +190,7 @@ export function suitesMaze(seed: number, floor = 1): Maze {
         const wallA = (d: number) => (ws > 0 ? Xw + d : Xe - d), wallB = (d: number) => (ws > 0 ? Xe - d : Xw + d);
         const busyA: [number, number][] = [], busyB: [number, number][] = [];
         // a veces, un Faceling de pie en un rincón de la suite, junto a la puerta (mira hacia dentro); en las tres copias a la vez, como todo
-        if (mulberry32(seed * 17 + side * 5 + slot * 3 + 11)() < 0.04) (busyA.push([7.85, 8.75]), put('faceling', wallA(0.7), 8.3, faceA, 0.45));
+        if (mulberry32(seed * 17 + side * 5 + slot * 3 + 11)() < 0.16) (busyA.push([7.85, 8.75]), put('faceling', wallA(0.7), 8.3, faceA, 0.45));
         /** Un hueco libre de `len` m a lo largo de la pared, pasada la cama (desde t = 2,4); null si no cabe. */
         const spot = (busy: [number, number][], len: number) => {
           for (let i = 0; i < 10; i++) {

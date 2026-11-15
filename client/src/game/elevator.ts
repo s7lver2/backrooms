@@ -272,7 +272,7 @@ export class ElevatorCab {
 
   /** El indicador: la planta, y la flecha en marcha. */
   private paint() {
-    const up = this.rideT > 0 && this.closed >= 1, n = this.floor + (up ? Math.floor(this.rideT / 0.9) : 0), text = (up ? '▲ ' : '') + n;
+    const up = this.rideT > 0 && this.closed >= 1, n = this.floor + (up ? Math.min(1, Math.floor(this.rideT / 0.9)) : 0), text = (up ? '▲ ' : '') + n;
     if (text === this.shown) return;
     this.shown = text;
     const c = this.led.image as HTMLCanvasElement, g = c.getContext('2d')!;

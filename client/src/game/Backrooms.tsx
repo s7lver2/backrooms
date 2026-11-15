@@ -321,7 +321,10 @@ export default function Backrooms({ onQuit, onWin }: { onQuit: () => void; onWin
   const msgs = useChat(net.sock);
   const [chat, setChat] = useState(false);
   const [won, setWon] = useState(false);
-  const [ascend, setAscend] = useState(0); // Las Suites: la planta a la que sube el ascensor entre una ronda y la siguiente (0 = ninguna)
+  const [veil, setVeil] = useState(false);
+  const [ascend, setAscend] = useState(0);
+  const ascendRef = useRef(0);
+  ascendRef.current = ascend; // Las Suites: la planta a la que sube el ascensor entre una ronda y la siguiente (0 = ninguna)
   const [notice, setNotice] = useState('');
   // la sala de espera 3D (game.ts/waiting.ts): lista, el ordenador abierto y lo que se lee de ella 10 veces por segundo
   const [waitReady, setWaitReady] = useState(false);
@@ -565,10 +568,8 @@ export default function Backrooms({ onQuit, onWin }: { onQuit: () => void; onWin
     // ronda ganada en el laberinto: volvemos a aparecer en el nivel con la pose de victoria; la pantalla de siempre queda para el resto
     if (r.climb) {
       // subiendo a la planta siguiente del hotel: la ronda no acaba, ni pantalla de fin ni final
-      game.current?.stop();
-      setChat(false);
-      setAscend(r.floor ?? 0);
-      return void setScreen('lobby');
+      setAscend(r.floor ?? 0); // (el juego sigue en pie: la cabina sigue subiendo, con su rumor, mientras el servidor y los clientes preparan la planta)
+      return;
     }
     if (r.won && game.current?.epilogue(r, net.me)) {
       setChat(false);
@@ -613,7 +614,7 @@ export default function Backrooms({ onQuit, onWin }: { onQuit: () => void; onWin
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ascend, net.room?.phase, net.sock]);
   useEffect(() => {
-    if (ascend && net.room?.phase === 'playing' && screenRef.current !== 'play') enterRef.current();
+    if (ascend && net.room?.phase === 'playing') (game.current?.stop(), enterRef.current());
   }, [ascend, net.room?.phase]);
 
   // un logro concedido por el servidor: aviso en pantalla y la cuenta se vuelve a leer (progreso, cosméticos nuevos)
@@ -672,7 +673,8 @@ export default function Backrooms({ onQuit, onWin }: { onQuit: () => void; onWin
     game.current!.start(room.seed, { sock, id: sock.id!, life: DIFFICULTY[room.difficulty].life, players: room.players.length, index: Math.max(0, room.players.findIndex((p) => p.id === sock.id)), inv: invRef.current ?? undefined, mission: room.mission, level: room.levelId, floor: room.floor, caps: room.caps });
     setNotice('');
     setComputer(false);
-    setTimeout(() => setAscend(0), 1800); // (el telón de la planta se funde al empezar)
+    if (ascendRef.current) (setVeil(true), setTimeout(() => setVeil(false), 900)); // (el corte de una cabina a la siguiente: negro que se funde)
+    setAscend(0);
     setScreen('play');
   }, [net.sock, enter]);
   const enterRef = useRef(enterMatch);
@@ -737,7 +739,7 @@ export default function Backrooms({ onQuit, onWin }: { onQuit: () => void; onWin
 
   // el admin corta la ronda (vuelve el lobby sin pasar por «over»): de la partida a la sala de espera
   useEffect(() => {
-    if (phase !== 'lobby' || !mpRef.current || (screenRef.current !== 'play' && screenRef.current !== 'pause')) return;
+    if (phase !== 'lobby' || ascend || !mpRef.current || (screenRef.current !== 'play' && screenRef.current !== 'pause')) return;
     game.current?.stop();
     setChat(false);
     setScreen('wait');
@@ -1043,12 +1045,7 @@ export default function Backrooms({ onQuit, onWin }: { onQuit: () => void; onWin
           </p>
         </aside>
       )}
-      {!!ascend && (
-        <div className="br-ascend" role="status" data-out={screen === 'play' || undefined}>
-          <b>FLOOR {ascend} / 5</b>
-          <span>THE ELEVATOR IS CLIMBING…</span>
-        </div>
-      )}
+      {veil && <div className="br-ascend" aria-hidden="true" />}
       {screen === 'over' && <End win={won} result={result} me={net.me} onInsert={() => setScreen('lobby')} />}
       {(screen === 'play' || screen === 'pause') && hud?.aiming && <Osd hud={hud} />}
       {screen === 'play' && !!hud?.warden && <div key={hud.warden} className="br-warden" aria-hidden="true" />}

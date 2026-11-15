@@ -868,3 +868,5 @@
 .br-ascend span { color: var(--br-dim); animation: br-rec 1.2s steps(1) infinite; }
 .br-ascend { transition: opacity 1.5s; pointer-events: none; }
 .br-ascend[data-out] { opacity: 0; }
+.br-ascend { animation: br-veil 0.9s ease-out forwards; }
+@keyframes br-veil { from { opacity: 1; } to { opacity: 0; } }

@@ -499,7 +499,7 @@ export class World implements Terrain {
   private hotel: boolean;
   private assets: Assets;
   /** Facelings que pasean por el pasillo del hotel (cosmético: se calculan del reloj de la partida, así que casi coinciden en todos los clientes). Uno por copia del pasillo. */
-  private walkers: { rigs: Rig[]; groups: THREE.Group[]; blk: { x: number; z: number; r: number }[]; phase: number; dir: number; z: number; v: number }[] = [];
+  private walkers: { rigs: Rig[]; groups: THREE.Group[]; blk: { x: number; z: number; r: number }[]; phase: number; dir: number; z: number; v: number; still?: boolean }[] = [];
   constructor(readonly maze: Maze, assets: Assets, hotel = false) {
     this.hotel = hotel;
     this.assets = assets;
@@ -1438,7 +1438,7 @@ export class World implements Terrain {
     holder.position.set(ec.x + ox * (CELL / 2), 0, ec.z + oy * (CELL / 2));
     holder.rotation.y = Math.atan2(ox, oy); // +z local hacia el lado abierto
     this.root.add(holder);
-    this.cab = new ElevatorCab(CELL, CELL - 0.04, HEIGHT - 0.04, 0, true);
+    this.cab = new ElevatorCab(CELL, CELL - 0.04, HEIGHT - 0.04, hotel ? maze.floor ?? 1 : 0, true);
     if (hotel) this.cab.addCallButton(); // (Las Suites: el ascensor se llama con su botón)
     holder.add(this.cab.group);
     this.elevator = holder;
@@ -1542,7 +1542,7 @@ export class World implements Terrain {
 
   /** Los Facelings que pasean por el pasillo: tres, cada uno por su carril y a su paso, y uno por cada copia del pasillo (se repite cada `SUITE_L`). */
   private addWalkers() {
-    for (const [phase, dir, z, v] of [[0.15, 1, 12.75, 1.0]]) {
+    for (const [phase, dir, z, v] of [[0.15, 1, 12.75, 1.0], [0.62, -1, 14.25, 0.8]]) { // (dos carriles, uno en cada sentido: no se cruzan en el mismo hueco)
       const w: (typeof this.walkers)[number] = { rigs: [], groups: [], blk: [], phase, dir, z, v };
       for (let k = 0; k < 3; k++) {
         const rig = new Rig(this.assets.gltf['suites/faceling']), h = new THREE.Box3().setFromObject(rig.root).getSize(new THREE.Vector3()).y, g = new THREE.Group(), b = { x: 0, z, r: 0.3 };
@@ -1698,9 +1698,10 @@ export class World implements Terrain {
     for (const g of this.staffG) turn(g, g === nearest);
     for (const w of this.walkers) {
       const stop = !!nearest && w.groups.includes(nearest as THREE.Group);
+      if (stop !== w.still) (w.still = stop), w.rigs.forEach((rg) => (rg.action(stop ? 'walk' : 'idle')?.stop(), rg.action(stop ? 'idle' : 'walk')?.reset().play())); // (parado hablando contigo: de pie, no andando en el sitio)
       this.walkOff.set(w, (this.walkOff.get(w) ?? 0) + (stop ? dt : 0));
       const x = (((w.phase * span + w.dir * w.v * (t - (this.walkOff.get(w) ?? 0))) % span) + span) % span;
-      w.groups.forEach((g, k) => (g.scale.setScalar(Math.min(1, Math.max(0, Math.min(x + k * span, 3 * span - x - k * span) / 10))), (g.visible = g.scale.x > 0.02), g.position.set(x + k * span, 0, w.z), // (en los extremos del pasillo, lejos, se encogen en vez de saltar)
+      w.groups.forEach((g, k) => (g.scale.setScalar(this.viewer ? Math.min(1, Math.max(0, (30 - Math.hypot(x + k * span - this.viewer.x, w.z - this.viewer.z)) / 8)) : 1), (g.visible = g.scale.x > 0.02), g.position.set(x + k * span, 0, w.z), // (en los extremos del pasillo, lejos, se encogen en vez de saltar)
  stop && g === nearest ? turn(g, true) : (g.rotation.y = w.dir > 0 ? Math.PI / 2 : -Math.PI / 2), (w.blk[k].x = x + k * span)));
       w.rigs.forEach((r) => r.update(dt));
     }

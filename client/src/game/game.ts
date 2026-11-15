@@ -481,6 +481,7 @@ export class BackroomsGame {
   /** Las Suites: la planta en la que se está (el ascensor y la escalera solo suben a la siguiente) y el rayo con el que se apunta a los botones. */
   private floorNo = 1;
   private arriveFloor = 1;
+  private climbTo = 0;
   private arrive = 0; // (s que quedan del viaje al llegar a una planta superior)
   private readonly aimRay = new THREE.Raycaster();
   /** Las Suites: las cámaras de seguridad, vistas desde el puesto de la sala de control (A/D o clic cambian de cámara; E o G salen). -1 = no se usan. */
@@ -622,6 +623,7 @@ export class BackroomsGame {
   pickFloor(f: number) {
     if (!this.items) return;
     this.items.won = true;
+    this.climbTo = f; // (subiendo por el hotel no se corta a negro: la cabina sigue subiendo mientras se carga la planta)
     this.win(false, f);
   }
   /** El diálogo con un Faceling para otra misión: habla con glifos sin sentido y se elige a ciegas entre `n` opciones. */
@@ -1133,7 +1135,7 @@ export class BackroomsGame {
       p.frozen = p.lookFree = true;
       w.cab.floor = (mp?.floor ?? 2) - 1;
       w.cab.resetClosed();
-      w.cab.rideT = 0;
+      w.cab.rideT = 0.95; // (el indicador ya marca la planta nueva: el viaje sigue donde lo dejó la cabina anterior)
       this.arrive = 1.7;
       this.arriveFloor = mp?.floor ?? 2;
     }
@@ -1230,6 +1232,7 @@ export class BackroomsGame {
       if (this.arrive <= 0) {
         const cab = this.world.cab;
         (cab.floor = this.arriveFloor), (cab.rideT = -1), cab.open();
+        if (this.items) this.items.open = this.world.elevatorOpen = true; // (la puerta deja de ser pared: se puede salir)
         this.player.frozen = this.player.lookFree = false;
         this.audio?.click();
       }
@@ -1324,7 +1327,7 @@ export class BackroomsGame {
             this.doorAct = n === this.floorNo ? `FLOOR ${n} · YOU ARE HERE` : n === this.floorNo + 1 ? `PRESS ${n}` : `FLOOR ${n} · ONE FLOOR AT A TIME`;
             if (cc.grab) {
               cc = { ...cc, grab: false };
-              if (n === this.floorNo + 1) this.pickFloor(n);
+              if (n === this.floorNo + 1 && it.ready) this.pickFloor(n);
               else this.audio?.reject();
             }
           }
@@ -1396,7 +1399,7 @@ export class BackroomsGame {
     // en el ascensor: puertas, arranque y un rato de viaje (la cámara tiembla con la cabina); luego la grabación se corta a negro
     const cab = this.world?.cab;
     if (this.winning && cab && !this.viaStairs) this.camera.position.y += cab.shake;
-    if (this.winning && (!cab || this.viaStairs || cab.rideT > RIDE)) this.black = Math.min(1, this.black + dt / 1.5);
+    if (this.winning && !(this.caps.hotel && !this.viaStairs && this.climbTo > 0 && this.climbTo < SUITE_FLOORS) && (!cab || this.viaStairs || cab.rideT > RIDE)) this.black = Math.min(1, this.black + dt / 1.5);
     u.uBlack.value = Math.max(this.black, this.fadeIn / 0.9);
     u.uAspect.value = this.fadeIn > 0 && !p?.aiming && this.dying < 0 && !this.winning ? 1 : this.camera.aspect;
     // la foto: se pinta el fotograma del flash y se queda congelado un instante
