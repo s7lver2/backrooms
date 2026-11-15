@@ -1193,8 +1193,13 @@ export class World implements Terrain {
           slit.add(m);
         }
         for (const im of instanced(slit, ms, (mat) => mat, this.hotel)) this.root.add(im);
+        // la sombra: una caja del tamaño del armario (el modelo, de dos caras y casi hueco, daba una sombra rota); no se pinta, solo tapa la luz
+        const nc = nb.getCenter(new THREE.Vector3()), proxy = new THREE.Group(), pm = new THREE.Mesh(new THREE.BoxGeometry(ns.x, ns.y, ns.z), new THREE.MeshBasicMaterial({ colorWrite: false, depthWrite: false }));
+        pm.position.copy(nc);
+        proxy.add(pm);
+        for (const im of instanced(proxy, ms, (mat) => mat, this.hotel)) ((im.castShadow = true), this.root.add(im));
       }
-      for (const im of instanced(norm, ms, (mat) => ((mat.side = THREE.DoubleSide), t.tint && (mat as THREE.MeshStandardMaterial).color.set(t.tint), lightmapped(mat)), this.hotel)) ((im.receiveShadow = kind !== 'wardrobe'), (im.castShadow = kind === 'bed' || kind === 'sofa' || kind === 'wardrobe'), this.root.add(im)); // (el armario, de dos caras y casi cerrado, se rayaba con sus propias sombras)
+      for (const im of instanced(norm, ms, (mat) => ((mat.side = THREE.DoubleSide), t.tint && (mat as THREE.MeshStandardMaterial).color.set(t.tint), lightmapped(mat)), this.hotel)) ((im.receiveShadow = kind !== 'wardrobe'), (im.castShadow = kind === 'bed' || kind === 'sofa'), this.root.add(im)); // (el armario, de dos caras y casi cerrado, se rayaba con sus propias sombras)
     }
 
     // las puertas de las suites (Las Suites), blancas con su moldura. Cerradas: a ras de la cara de la pared. Abiertas: la hoja girada hacia dentro y el hueco enmarcado

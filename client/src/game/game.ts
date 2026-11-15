@@ -1201,8 +1201,13 @@ export class BackroomsGame {
       this.gadgets && (cc = this.gadgets.update(dt, cc));
       this.player && this.tvs && (cc = this.tvs.update(dt, this.player, cc, this.audio));
       this.doorAct = null;
-      if (this.world && this.caps.hotel && this.player && !this.player.dead && !this.tvs?.hint && !this.items?.hint) {
-        const d = this.world.nearDoor(this.player.pos.x, this.player.pos.z, this.player.yaw, this.player.pos.y); // Las Suites: G abre y cierra las puertas de las suites (las de la escalera, solo con la misión cumplida)
+      if (this.world && this.caps.hotel && this.player && !this.player.dead && !this.tvs?.hint) {
+        let d = this.world.nearDoor(this.player.pos.x, this.player.pos.z, this.player.yaw, this.player.pos.y);
+        // (con un objeto a la vista —al abrir se ve el botín de dentro— la puerta solo manda si se mira de frente: si no, no se podía volver a cerrar)
+        if (d && this.items?.hint) {
+          const px = d.x + d.nx * 0.3 - this.player.pos.x, pz = d.z + d.nz * 0.3 - this.player.pos.z;
+          if ((px * -Math.sin(this.player.yaw) + pz * -Math.cos(this.player.yaw)) / Math.max(Math.hypot(px, pz), 0.01) < 0.85) d = undefined;
+        } // Las Suites: G abre y cierra las puertas de las suites (las de la escalera, solo con la misión cumplida)
         if (d) {
           const lock = d.stair && !this.items?.ready;
           this.doorAct = lock ? 'FLOOR DOOR LOCKED · FINISH THE MISSION' : d.tgt ? 'CLOSE DOOR' : 'OPEN DOOR';
