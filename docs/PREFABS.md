@@ -30,7 +30,10 @@ Piezas que se escriben **una sola vez** y valen para todos los niveles (nivel 0,
 | `PickupField` | sí (`Items`) | sí (`PoolPickups`) | **no**: taquillas, objetos y cintas son código propio de `parking.ts` (`storageItems`, `takeItem`, `parkingInteract`); no hay objetos soltados ni `syncDrops` |
 | `Gadgets` | sí | sí | **no** |
 
-Pendiente para igualar la Habitable Zone: pasar sus taquillas y objetos a `PickupField` (que ya entiende `locker` y piezas de taquilla `given`) y valorar `Gadgets`. Los enemigos propios son deliberados.
+Por qué el parking no los usa hoy (revisado a fondo el 15/11/2026):
+- `PickupField` está pensado para celdas planas (`Cell`, `CELL`, suelo a una altura) y para el protocolo `claim` / `lockerTake`. El parking tiene varias plantas (`y`), taquillas con puertas con colisión propia (`parking.ts`, `hinges`) y su protocolo `parkingInteract`. Para unirlos hay que dar altura/planta a `PickupHost` y a los soltados (`Drop` solo lleva `x, z`), y cambiar el servidor.
+- `Gadgets` (cinta, radar, tótem): el servidor **prohíbe** esos objetos en el parking a propósito (`server/src/index.ts`, lista `['gun','ammo','watergun','tank','totem','radar','caution']`) y `parkingInventory` los quita en el cliente. Además las cintas son planas (`x, z`, sin planta). Meterlos es una decisión de diseño, no solo de código.
+- `Entity` / `entityBody`: `Entity` necesita un `World` de laberinto y `EntitySim`; los enemigos del parking (skinwalker humano/bestia y smiler) son otros modelos con su IA sobre el mapa de plantas. No son los mismos monstruos, así que no se pueden sustituir sin cambiar el elenco. Se reutilizan `Rig` y `Cosmetics`.
 
 ---
 
