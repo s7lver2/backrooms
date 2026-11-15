@@ -180,6 +180,9 @@ export class Player {
   speed = 0;
   /** Agachado (C o Ctrl): ojos más bajos, mitad de velocidad, sin correr; las entidades te ven de menos lejos. `duckK` es la transición (0–1). */
   duck = false;
+  /** Lo más lento que se va agachado (los conductos de Las Suites: 0,9 del paso de andar) y lo más alto que pueden estar los ojos sobre los pies (techo bajo). */
+  duckMin = 0;
+  maxEye = Infinity;
   private duckK = 0;
   /** Consola de admin: velocidad x2 y atravesar paredes. */
   speedMul = 1;
@@ -533,7 +536,7 @@ export class Player {
     if (this.stamina <= 0) this.winded = true;
     else if (this.stamina > 0.3) this.winded = false;
     const pace = run ? this.world.groundPace?.run ?? RUN : this.world.groundPace?.walk ?? WALK;
-    let speed = moving ? (pace * this.speedMul * this.buffSpeed * perks.stats.speed * (this.pillOn ? PILLS.speed : 1) + this.pillSpeed) * Math.min(1, c.move.length()) * (this.duck ? perks.stats.sneak : 1) * (this.stunT > 0 ? 0 : this.wetT > 0 ? 0.5 : 1) * (this.aiming ? CAM_AIM_SLOW : 1) : 0;
+    let speed = moving ? (pace * this.speedMul * this.buffSpeed * perks.stats.speed * (this.pillOn ? PILLS.speed : 1) + this.pillSpeed) * Math.min(1, c.move.length()) * (this.duck ? Math.max(perks.stats.sneak, this.duckMin) : 1) * (this.stunT > 0 ? 0 : this.wetT > 0 ? 0.5 : 1) * (this.aiming ? CAM_AIM_SLOW : 1) : 0;
     const f = new THREE.Vector3(-Math.sin(this.yaw), 0, -Math.cos(this.yaw)), r = new THREE.Vector3(-f.z, 0, f.x);
     const v = f.multiplyScalar(c.move.y).add(r.multiplyScalar(c.move.x));
     if (v.lengthSq() > 0) v.normalize().multiplyScalar(speed * dt);
@@ -667,7 +670,7 @@ export class Player {
     const neck = this.poolMode ? 0 : Math.sin(down * 1.45) * 0.12; // (en las Poolrooms la cámara es de PoolLevel y no se mueve: si el Player la adelantara, los brazos irían a otro sitio que los objetos)
     // (agachado en un nicho, algo hacia el fondo: de espaldas a la salida)
     const bx = -Math.sin(this.hideYaw) * 0.62 * hk, bz = -Math.cos(this.hideYaw) * 0.62 * hk; // (escondido: la vista, pegada a la rendija de la puerta)
-    this.camera.position.set(this.pos.x - Math.sin(this.yaw) * neck + bx, this.pos.y + this.eyeBase - 0.5 * rk - 0.6 * hk - this.duckD * this.duckK + bobY, this.pos.z - Math.cos(this.yaw) * neck + bz);
+    this.camera.position.set(this.pos.x - Math.sin(this.yaw) * neck + bx, this.pos.y + Math.min(this.eyeBase - 0.5 * rk - 0.6 * hk - this.duckD * this.duckK + bobY, this.maxEye), this.pos.z - Math.cos(this.yaw) * neck + bz);
     this.recoil = Math.max(0, this.recoil - dt * 5);
     // al recoger, la vista se va al objeto
     let pitch = this.pitch;

@@ -1178,6 +1178,7 @@ export class BackroomsGame {
     // Las Suites: en los conductos se va siempre agachado; mirando las cámaras el cuerpo se queda quieto
     const pp = this.player, duct = !!pp && !!this.world?.vents?.inDuct(Math.floor(pp.pos.x / CELL), Math.floor(pp.pos.z / CELL));
     const pc = this.camUse >= 0 ? { ...c, move: _none, look: _none, run: false, jump: false, crouch: true, fire: false, grab: false, flash: false, swap: false, slot: -1, wheel: 0, use: false, aim: false, zoom: 0 } : duct ? { ...c, crouch: true, run: false, jump: false } : c;
+    if (pp) (pp.duckMin = duct ? 0.9 : 0), (pp.maxEye = duct ? 1.0 : Infinity); // (ojos bajo el techo del conducto; agachado, casi al paso de andar)
     if (!this.spectating || this.player?.dead) this.player?.update(dt, pc);
     this.camPlace();
     if (this.caps.hotel && this.player) {

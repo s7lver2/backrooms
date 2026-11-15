@@ -115,6 +115,7 @@ export class Vents {
     this.grates();
     this.gas();
     this.fanBlades(open);
+    this.dimLights(open);
     if (maze.control) this.control(maze.control);
     this.cameras();
   }
@@ -259,6 +260,22 @@ export class Vents {
       g.add(back, ring, rotor);
       this.group.add(g);
       this.fans.push({ rotor, v: (Math.random() < 0.5 ? -1 : 1) * (2 + Math.random() * 3) });
+    }
+  }
+
+  /** De vez en cuando, una luz de emergencia tenue en el techo de los conductos (un fijo naranja con su luz). */
+  private dimLights(open: (x: number, y: number) => boolean) {
+    const d = this.maze.duct;
+    if (!d) return;
+    const cells: [number, number][] = [];
+    for (let y = d.y0 + 2; y < d.y1 - 2; y++)
+      for (let x = d.x0; x < d.x1; x++) if (open(x, y) && hash(x, y) < 0.07 && cells.every(([a, b]) => Math.hypot(a - x, b - y) > 4)) cells.push([x, y]);
+    const lamp = new THREE.MeshBasicMaterial({ color: 0xffa860 });
+    for (const [x, y] of cells.slice(0, 6)) {
+      const g = new THREE.Mesh(new THREE.BoxGeometry(0.22, 0.05, 0.1), lamp), l = new THREE.PointLight(0xff9a50, 1.1, 6.5, 1.6);
+      g.position.set((x + 0.5) * CELL, DUCT_H - 0.03, (y + 0.5) * CELL);
+      l.position.set(g.position.x, DUCT_H - 0.25, g.position.z);
+      this.group.add(g, l);
     }
   }
 
