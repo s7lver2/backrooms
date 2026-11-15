@@ -579,7 +579,13 @@ export class World implements Terrain {
         vertexShader: 'uniform mat4 textureMatrix; varying vec4 vUv; void main() { vUv = textureMatrix * vec4(position, 1.0); gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }',
         fragmentShader: 'uniform sampler2D tDiffuse; varying vec4 vUv; void main() { vec4 b = texture2DProj(tDiffuse, vUv); gl_FragColor = vec4(b.rgb, 0.22);\n#include <tonemapping_fragment>\n#include <colorspace_fragment>\n}',
       };
-      this.rf = new Reflector(new THREE.PlaneGeometry(cw * CELL, 3), { textureWidth: 512, textureHeight: 512, clipBias: 0.003, shader });
+      this.rf = new Reflector(new THREE.PlaneGeometry(cw * CELL, 3), { textureWidth: 256, textureHeight: 256, clipBias: 0.003, shader });
+      // el reflejo (22 % de opacidad) repinta todo el mundo: cada tercer fotograma basta (la textura y su matriz se quedan juntas, así que no «nada» al girar)
+      const paint = this.rf.onBeforeRender;
+      let tick = 0;
+      this.rf.onBeforeRender = function (this: THREE.Object3D, ...a: Parameters<typeof paint>) {
+        if (tick++ % 3 === 0) paint.apply(this, a);
+      };
       const rmat = this.rf.material as THREE.ShaderMaterial;
       rmat.transparent = true;
       rmat.depthWrite = false;

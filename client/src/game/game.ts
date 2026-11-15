@@ -765,6 +765,21 @@ export class BackroomsGame {
     if (this.bloom) this.bloom.enabled = on;
   }
 
+  /** Resolución dinámica: si el equipo no llega a ~50 fps baja la resolución de dibujo de 0,1 en 0,1 (hasta 0,6) y la sube si le sobra de largo (>90 fps). Un paso cada 4 s, con la media de ese rato. */
+  private drs = 1;
+  private drsAcc = { n: 0, ms: 0, t: 0 };
+  private relayout?: () => void;
+  private adapt(dt: number) {
+    const a = this.drsAcc, cap = FPS_CAPS[settings.fpsLimit] ?? 0, now = performance.now();
+    if (dt > 0.25 || document.hidden || (cap && cap < 60)) return void (a.n = a.ms = 0);
+    (a.n++, (a.ms += dt * 1000));
+    if (now - a.t < 4000 || a.n < 60) return;
+    const avg = a.ms / a.n;
+    (a.n = a.ms = 0), (a.t = now);
+    const next = avg > 20 ? Math.max(0.6, this.drs - 0.1) : avg < 11 ? Math.min(1, this.drs + 0.1) : this.drs;
+    if (Math.abs(next - this.drs) > 1e-3) ((this.drs = next), this.relayout?.());
+  }
+
   /** El tope de fotogramas (ajuste FPS LIMIT): true si a este fotograma le toca saltarse el dibujo. */
   private capped() {
     const cap = FPS_CAPS[settings.fpsLimit] ?? 0;
@@ -912,7 +927,7 @@ export class BackroomsGame {
     this.flash.target.position.set(0, -0.3, -6);
     const resize = () => {
       // como mucho a 1080 líneas (y a la mitad en calidad baja): el grano y la cinta lo ablandan igual
-      const w = canvas.clientWidth || innerWidth, h = canvas.clientHeight || innerHeight, pr = Math.min(devicePixelRatio, 1080 / h) * (opts.low ? 0.6 : 1) * settings.resScale;
+      const w = canvas.clientWidth || innerWidth, h = canvas.clientHeight || innerHeight, pr = Math.min(devicePixelRatio, 1080 / h) * (opts.low ? 0.6 : 1) * settings.resScale * this.drs;
       this.renderer.setPixelRatio(pr);
       this.renderer.setSize(w, h, false);
       this.composer?.setPixelRatio(pr);
@@ -929,6 +944,7 @@ export class BackroomsGame {
     };
     resize();
     addEventListener('resize', resize);
+    this.relayout = resize;
     this.offs.push(() => removeEventListener('resize', resize));
     const resumeParkingAudio = () => this.parking?.audio?.resume();
     canvas.addEventListener('pointerdown', resumeParkingAudio);
@@ -1217,7 +1233,9 @@ export class BackroomsGame {
 
   private frame() {
     if (this.capped()) return;
+    this.renderer.shadowMap.autoUpdate = true;
     const realDt = this.clock.getDelta();
+    this.adapt(realDt);
     const dt = Math.min(realDt, 0.05) * (this.mp ? 1 : this.cheats.slow); // (cámara lenta: solo en solitario)
     this.lastFrame = performance.now();
     if (this.epi) return this.epiFrame(dt);
@@ -1289,7 +1307,7 @@ export class BackroomsGame {
     if (this.camera.near !== nr) (this.camera.near = nr), this.camera.updateProjectionMatrix(); // (en el conducto, agachado casi al paso de andar y con la vista adelantada: el pecho no se mete en la cámara)
     if (!this.spectating || this.player?.dead) this.player?.update(dt, pc);
     this.camPlace(dt);
-    if (this.player) this.world?.vents?.gate(this.player.pos.z, this.camUse >= 0);
+    if (this.player) this.world?.vents?.gate(this.player.pos.z, this.camUse >= 0, this.camera.position);
     if (this.player && this.camUse < 0) this.world?.vents?.renderLive(this.renderer, this.scene, this.t, dt, this.player.pos); // (un televisor de la sala de control enseña de vez en cuando una cámara de verdad)
     if (this.caps.hotel && this.player) {
       // Las Suites: el pasillo se cierra sobre sí mismo (shared/src/suites.ts). Quien acaba de entrar del vestíbulo NO salta: la puerta se cierra a su espalda y recorre la última copia
@@ -1453,6 +1471,7 @@ export class BackroomsGame {
     this.drawMap();
     this.shakeCam(dt);
     this.eehCheck();
+    this.renderer.shadowMap.autoUpdate = this.flash.intensity > 0.01; // (con la linterna apagada su mapa de sombras no se ve: no se repinta)
     this.composer.render(dt);
   }
 

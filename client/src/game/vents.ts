@@ -146,11 +146,25 @@ export class Vents {
     const box = new THREE.Box3(), c = new THREE.Vector3();
     this.deep = this.group.children.filter((o) => !(o as THREE.Light).isLight && box.setFromObject(o).getCenter(c).z > DEEP_Z);
     this.cameras();
+    for (let i = 0; i < Math.min(3, this.cand.length); i++) { const l = new THREE.PointLight(0xffffff, 0, 6, 1.5); this.pool.push(l), this.group.add(l); }
   }
   private deep: THREE.Object3D[] = [];
   private deepOn = true;
+  /** Las luces de abajo (9 en total) son candidatas: solo 3 luces reales (constantes: sin recompilar) se colocan en las más cercanas; cada luz de más cuesta en cada píxel de todo el mundo. */
+  private cand: { p: THREE.Vector3; c: number; i: number; d: number }[] = [];
+  private pool: THREE.PointLight[] = [];
+  private near(at: THREE.Vector3) {
+    const s = this.cand.map((k) => ({ k, r: k.p.distanceTo(at) / k.d })).sort((a, b) => a.r - b.r);
+    this.pool.forEach((l, i) => {
+      const k = s[i]?.k, on = !!k && s[i].r < 1.6;
+      if (!k || (!on && l.intensity === 0)) return;
+      l.intensity = on ? k.i : 0;
+      if (on) (l.position.copy(k.p), l.color.set(k.c), (l.distance = k.d));
+    });
+  }
   /** Dibuja lo de abajo solo si el jugador está allí (o si se mira por una cámara, que puede ver los conductos). */
-  gate(z: number, force: boolean) {
+  gate(z: number, force: boolean, at: THREE.Vector3) {
+    this.near(at);
     const on = force || z > DEEP_Z - 3;
     if (on === this.deepOn) return;
     this.deepOn = on;
@@ -318,10 +332,10 @@ export class Vents {
       for (let x = d.x0; x < d.x1; x++) if (open(x, y) && hash(x, y) < 0.07 && cells.every(([a, b]) => Math.hypot(a - x, b - y) > 4)) cells.push([x, y]);
     const lamp = new THREE.MeshBasicMaterial({ color: 0xffa860 });
     for (const [x, y] of cells.slice(0, 6)) {
-      const g = new THREE.Mesh(new THREE.BoxGeometry(0.22, 0.05, 0.1), lamp), l = new THREE.PointLight(0xff9a50, 1.1, 6.5, 1.6);
+      const g = new THREE.Mesh(new THREE.BoxGeometry(0.22, 0.05, 0.1), lamp);
       g.position.set((x + 0.5) * CELL, DUCT_H - 0.03, (y + 0.5) * CELL);
-      l.position.set(g.position.x, DUCT_H - 0.25, g.position.z);
-      this.group.add(g, l);
+      this.cand.push({ p: new THREE.Vector3(g.position.x, DUCT_H - 0.25, g.position.z), c: 0xff9a50, i: 1.1, d: 6.5 });
+      this.group.add(g);
     }
   }
 
@@ -357,10 +371,10 @@ export class Vents {
     // las luces: tres tubos en el techo (fríos, tenues) con su luz
     const tube = new THREE.MeshBasicMaterial({ color: 0xd9e6ff });
     for (const x of [x0 + (x1 - x0) * 0.2, xc, x0 + (x1 - x0) * 0.8]) {
-      const t = new THREE.Mesh(new THREE.BoxGeometry(1.5, 0.06, 0.22), tube), l = new THREE.PointLight(0xcfe0ff, 3.6, 12, 1.4);
+      const t = new THREE.Mesh(new THREE.BoxGeometry(1.5, 0.06, 0.22), tube);
       t.position.set(x, RH - 0.04, (zN + zF) / 2);
-      l.position.set(x, RH - 0.6, (zN + zF) / 2);
-      g.add(t, l);
+      this.cand.push({ p: new THREE.Vector3(x, RH - 0.6, (zN + zF) / 2), c: 0xcfe0ff, i: 3.6, d: 12 });
+      g.add(t);
     }
     const plastic = lit(new THREE.MeshStandardMaterial({ color: 0x1d2020, roughness: 0.55, metalness: 0.3 })), top = lit(new THREE.MeshStandardMaterial({ color: 0x3a3f3e, roughness: 0.45, metalness: 0.3 }));
     const box = (bw: number, bh: number, bd: number, x: number, y: number, z: number, mm: THREE.Material) => {
