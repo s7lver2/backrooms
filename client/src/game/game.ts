@@ -207,7 +207,7 @@ export interface Hud {
   totem: { pick: { id: string; name: string }[] | null; phone?: boolean; run: RunHud | null; notes: string[]; immune: number };
 }
 
-const _spec = new THREE.Vector3(), _want = new THREE.Vector3(), _none = new THREE.Vector2(), _feet = new THREE.Vector3();
+const _spec = new THREE.Vector3(), _want = new THREE.Vector3(), _none = new THREE.Vector2(), _feet = new THREE.Vector3(), _head = new THREE.Vector3(), _dir = new THREE.Vector3();
 
 /*
  * Las backrooms: el juego de juegos/backrooms.exe. Sin React; el caparazón (Backrooms.tsx) lo carga,
@@ -718,6 +718,16 @@ export class BackroomsGame {
     // la imagen: escena, el halo de los fluorescentes (no en calidad baja), color de pantalla, el grano y,
     // mirando por la cámara, la cinta encima
     this.composer = new EffectComposer(this.renderer);
+    // con el contexto WebGL perdido (la GPU lo suelta) no se pinta: pintar en ese estado lanza dentro de three y tumbaba la pantalla entera (o el cierre del juego)
+    const paintScene = this.composer.render.bind(this.composer), gl = this.renderer;
+    this.composer.render = (dt?: number) => {
+      if (gl.getContext().isContextLost()) return;
+      try {
+        paintScene(dt);
+      } catch (e) {
+        if (!gl.getContext().isContextLost()) throw e;
+      }
+    };
     this.composer.addPass(new RenderPass(this.scene, this.camera));
     if (!opts.low) {
       this.bloom = new UnrealBloomPass(new THREE.Vector2(256, 256), 0.55, 0.6, 0.92);
@@ -1876,7 +1886,9 @@ export class BackroomsGame {
     const cam = wr.camera;
     if (emo) {
       // el emote se ve de frente: la sala ya puso la cámara delante; el Player solo pone el cuerpo (con su clip), sin tocar la cámara
-      me.showEmote(emo, _feet.set(wr.pos.x, wr.py, wr.pos.z), wr.yaw, dt);
+      const first = !settings.emoteCam;
+      me.showEmote(emo, _feet.set(wr.pos.x, wr.py, wr.pos.z), wr.yaw, dt, first ? _head : undefined);
+      if (first) cam.position.copy(_head).addScaledVector(cam.getWorldDirection(_dir), 0.12); // (la vista sale de la cabeza del cuerpo que hace el emote)
       this.flash.intensity = 0;
       return;
     }

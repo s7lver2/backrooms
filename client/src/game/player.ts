@@ -846,7 +846,7 @@ export class Player {
    * Con '' vuelve a lo de siempre (el clip se para y `update` recupera el cuerpo en primera persona). Se llama cada fotograma EN LUGAR de `update` mientras
    * dura el emote (el `update` colocaría la cámara en los ojos y se perdería la vista de frente).
    */
-  showEmote(clip: string, feet: THREE.Vector3, yaw: number, dt: number) {
+  showEmote(clip: string, feet: THREE.Vector3, yaw: number, dt: number, first?: THREE.Vector3) {
     const A = this.rig.animator;
     if (clip !== this.emoteClip) {
       this.emoteClip = clip;
@@ -862,6 +862,12 @@ export class Player {
     this.rig.update(dt);
     body.updateMatrixWorld(true);
     for (const s of ['Head', 'Neck', 'LeftArm', 'RightArm']) this.bones[s]?.scale.setScalar(1);
+    // en primera persona la cámara va en la cabeza del cuerpo que baila (sentado, más abajo) y la cabeza se esconde para no verla por dentro: se ven los brazos y el cuerpo
+    if (first) {
+      this.bones.Head?.getWorldPosition(first);
+      for (const s of ['Head', 'Neck']) this.bones[s]?.scale.setScalar(0.001);
+      body.updateMatrixWorld(true);
+    }
   }
 
   /** Espectador: nada de lo que llevaba en las manos (ni el cuerpo caído) va con la cámara de quien se mira. Se llama cada fotograma, después de todo lo que los muestra. */

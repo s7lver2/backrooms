@@ -521,7 +521,7 @@ export class WaitingRoom {
   }
   /** El clip del emote que se está haciendo con la cámara delante (para verse bailar; sentado en el suelo también), o '' si no hay. */
   get emoteClip() {
-    return this.emote && this.mode === 'free' && this.seat !== 'chair' && this.emK > 0.15 ? EMOTE_DEFS[this.emote - 1].clip : '';
+    return this.emote && this.mode === 'free' && this.seat !== 'chair' && (this.emK > 0.15 || !settings.emoteCam) ? EMOTE_DEFS[this.emote - 1].clip : '';
   }
   /** ¿Choca un círculo de la sala en (x, z)? (la física del Player de la sala de espera). */
   solid(x: number, z: number) {
