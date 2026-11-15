@@ -439,11 +439,21 @@ export class Vents {
     const cams = this.maze.cams ?? [];
     if (!cams.length) return;
     const proto = fitModel(this.assets, 'suites/camera', 0.5, 'z', { roll: Math.PI, top: true });
+    const mount = new THREE.MeshStandardMaterial({ color: 0x2b2d2e, metalness: 0.7, roughness: 0.45 });
     cams.forEach((c, i) => {
       const h = proto.clone(true);
-      h.position.set(c.x, c.y, c.z);
+      const top = c.wall ? c.y - 0.14 : c.y;
+      h.position.set(c.x, top, c.z);
       this.group.add(h);
       this.heads[i] = h;
+      if (c.wall) {
+        // el brazo que sale de la pared hasta la cámara, y la placa de anclaje
+        const [wx, wz] = c.wall, L = 0.32, arm = new THREE.Mesh(new THREE.BoxGeometry(wx ? L : 0.07, 0.07, wz ? L : 0.07), mount);
+        arm.position.set(c.x + (wx * L) / 2, top - 0.035, c.z + (wz * L) / 2);
+        const plate = new THREE.Mesh(new THREE.BoxGeometry(wx ? 0.03 : 0.22, 0.22, wz ? 0.03 : 0.22), mount);
+        plate.position.set(c.x + wx * L, top - 0.035, c.z + wz * L);
+        this.group.add(arm, plate);
+      }
     });
   }
 
@@ -451,6 +461,11 @@ export class Vents {
   camPose(i: number, t: number) {
     const c = this.maze.cams![i], yaw = c.yaw + Math.sin(t * 0.45 + i * 1.7) * 0.55;
     return { x: c.x, y: c.y - 0.3, z: c.z, yaw, pitch: c.y > 2 ? -0.3 : -0.04 };
+  }
+
+  /** Con la vista en la cámara `i`, su propio cuerpo no se dibuja (se vería por dentro); -1 = se ven todas. */
+  hideHead(i: number) {
+    this.heads.forEach((h, k) => (h.visible = k !== i));
   }
 
   eehScreen(down: boolean) {

@@ -489,6 +489,7 @@ export class BackroomsGame {
   private camHud?: HTMLElement;
   private camKept: THREE.Object3D[] = [];
   private camVis = new Map<THREE.Object3D, boolean>();
+  private camInt = new Map<THREE.Light, number>();
   private camTop?: HTMLElement;
   private camNoise?: HTMLCanvasElement;
   private camStatic = 0;
@@ -517,9 +518,12 @@ export class BackroomsGame {
     this.camUse = -1;
     this.camVis.forEach((v, o) => (o.visible = v));
     this.camVis.clear();
+    this.camInt.forEach((v, l) => (l.intensity = v));
+    this.camInt.clear();
     this.camHud?.remove();
     this.camHud = this.camTop = this.camNoise = undefined;
     this.world?.setWatch(undefined);
+    this.world?.vents?.hideHead(-1);
   }
   private camLabel() {
     const m = this.world?.maze, c = m?.cams?.[this.camUse];
@@ -537,10 +541,16 @@ export class BackroomsGame {
     const v = this.world?.vents;
     if (this.camUse < 0 || !v) return;
     const p = v.camPose(this.camUse, this.t);
+    v.hideHead(this.camUse);
     this.camera.position.set(p.x, p.y, p.z);
     this.camera.quaternion.setFromEuler(_eu.set(p.pitch, p.yaw, 0, 'YXZ'));
     this.camera.updateMatrixWorld(true);
-    this.camera.children.forEach((o) => (o.visible = false)); // (cada fotograma: el Player los vuelve a poner)
+    // (cada fotograma: el Player los vuelve a poner) las luces NO se ocultan, se apagan: cambiar la cuenta de luces recompilaba todos los shaders (el tirón al entrar y en cada cámara nueva)
+    this.camera.children.forEach((o) => {
+      const l = o as THREE.Light;
+      if (l.isLight) (this.camInt.has(l) || this.camInt.set(l, l.intensity), (l.visible = true), (l.intensity = 0));
+      else o.visible = false;
+    });
     // la estática entre cámaras
     const n = this.camNoise;
     if (n) {
@@ -1218,7 +1228,9 @@ export class BackroomsGame {
     // Las Suites: en los conductos se va siempre agachado; mirando las cámaras el cuerpo se queda quieto
     const pp = this.player, duct = !!pp && !!this.world?.vents?.inDuct(Math.floor(pp.pos.x / CELL), Math.floor(pp.pos.z / CELL));
     const pc = this.camUse >= 0 ? { ...c, move: _none, look: _none, run: false, jump: false, crouch: true, fire: false, grab: false, flash: false, swap: false, slot: -1, wheel: 0, use: false, aim: false, zoom: 0 } : duct ? { ...c, crouch: true, run: false, jump: false } : c;
-    if (pp) (pp.duckMin = duct ? 0.9 : 0), (pp.maxEye = Infinity), (pp.camFwd = duct ? 0.32 : 0); // (en el conducto, agachado casi al paso de andar y con la vista adelantada: el pecho no se mete en la cámara)
+    if (pp) (pp.duckMin = duct ? 0.9 : 0), (pp.maxEye = Infinity), (pp.camFwd = duct ? 0.22 : 0);
+    const nr = duct ? 0.025 : 0.05; // (pegado a la pared del conducto, la cámara quedaba a 2 cm del muro: se veía a su través)
+    if (this.camera.near !== nr) (this.camera.near = nr), this.camera.updateProjectionMatrix(); // (en el conducto, agachado casi al paso de andar y con la vista adelantada: el pecho no se mete en la cámara)
     if (!this.spectating || this.player?.dead) this.player?.update(dt, pc);
     this.camPlace(dt);
     if (this.player && this.camUse < 0) this.world?.vents?.renderLive(this.renderer, this.scene, this.t, dt, this.player.pos); // (un televisor de la sala de control enseña de vez en cuando una cámara de verdad)

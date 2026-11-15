@@ -321,6 +321,7 @@ export default function Backrooms({ onQuit, onWin }: { onQuit: () => void; onWin
   const msgs = useChat(net.sock);
   const [chat, setChat] = useState(false);
   const [won, setWon] = useState(false);
+  const [ascend, setAscend] = useState(0); // Las Suites: la planta a la que sube el ascensor entre una ronda y la siguiente (0 = ninguna)
   const [notice, setNotice] = useState('');
   // la sala de espera 3D (game.ts/waiting.ts): lista, el ordenador abierto y lo que se lee de ella 10 veces por segundo
   const [waitReady, setWaitReady] = useState(false);
@@ -566,6 +567,7 @@ export default function Backrooms({ onQuit, onWin }: { onQuit: () => void; onWin
       // subiendo a la planta siguiente del hotel: la ronda no acaba, ni pantalla de fin ni final
       game.current?.stop();
       setChat(false);
+      setAscend(r.floor ?? 0);
       return void setScreen('lobby');
     }
     if (r.won && game.current?.epilogue(r, net.me)) {
@@ -655,6 +657,7 @@ export default function Backrooms({ onQuit, onWin }: { onQuit: () => void; onWin
     game.current!.start(room.seed, { sock, id: sock.id!, life: DIFFICULTY[room.difficulty].life, players: room.players.length, index: Math.max(0, room.players.findIndex((p) => p.id === sock.id)), inv: invRef.current ?? undefined, mission: room.mission, level: room.levelId, floor: room.floor, caps: room.caps });
     setNotice('');
     setComputer(false);
+    setAscend(0);
     setScreen('play');
   }, [net.sock, enter]);
   const enterRef = useRef(enterMatch);
@@ -1024,6 +1027,12 @@ export default function Backrooms({ onQuit, onWin }: { onQuit: () => void; onWin
             <button type="button" className="br-opt" onClick={() => leaveMp()}>SAVE AND EXIT</button>
           </p>
         </aside>
+      )}
+      {!!ascend && screen !== 'play' && screen !== 'pause' && (
+        <div className="br-ascend" role="status">
+          <b>FLOOR {ascend} / 5</b>
+          <span>THE ELEVATOR IS CLIMBING…</span>
+        </div>
       )}
       {screen === 'over' && <End win={won} result={result} me={net.me} onInsert={() => setScreen('lobby')} />}
       {(screen === 'play' || screen === 'pause') && hud?.aiming && <Osd hud={hud} />}

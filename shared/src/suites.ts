@@ -258,7 +258,7 @@ export function suitesMaze(seed: number, floor = 1): Maze {
   vents.push({ x: roomX * CELL + 0.03, z: (CY + 2.5) * CELL, face: 0, to: hall });
   // las cámaras de seguridad de todo el nivel (se ven desde el puesto de la sala de control): el pasillo, cada suite, el vestíbulo y los conductos
   const cams: NonNullable<Maze['cams']> = [], addCam = (name: string, x: number, y: number, z: number, yaw: number) => cams.push({ name, x, y, z, yaw });
-  for (let k = 0; k < 4; k++) addCam(`HALL ${k + 1}`, (SUITE_L + 2 + k * 4 + 0.5) * CELL, 2.7, 9 * CELL, k % 2 ? Math.PI / 2 : -Math.PI / 2);
+  for (let k = 0; k < 4; k++) addCam(`HALL ${k + 1}`, (SUITE_L + 3 + k * 4 + 0.5) * CELL, 2.7, 9 * CELL, k % 2 ? Math.PI / 2 : -Math.PI / 2);
   for (let u = 0; u < 4; u++) {
     const cx = (SUITE_L + u * UNIT + 2.5) * CELL;
     addCam(`SUITE ${u * 2 + 1}`, cx, 2.7, 1 * CELL + 0.2, Math.PI);
@@ -272,13 +272,34 @@ export function suitesMaze(seed: number, floor = 1): Maze {
   }
   // y de vez en cuando, cámaras de más en sitios al azar (cambian con la semilla)
   for (let k = 0, n = 3 + ((rv() * 3) | 0); k < n; k++) {
-    if (rv() < 0.5) addCam(`AUX ${k + 1}`, (SUITE_L + 1 + rv() * (SUITE_L - 2)) * CELL, 2.7, 9 * CELL, rv() < 0.5 ? Math.PI / 2 : -Math.PI / 2);
+    const hx = SUITE_L + 1 + ((rv() * (SUITE_L - 2)) | 0); // (la columna del pasillo: nunca la de una puerta, para que haya pared donde colgarla)
+    if (rv() < 0.5) addCam(`AUX ${k + 1}`, (hx + (hx % UNIT === 2 ? 1 : 0) + 0.5) * CELL, 2.7, 9 * CELL, rv() < 0.5 ? Math.PI / 2 : -Math.PI / 2);
     else {
       const u = (rv() * 4) | 0, north = rv() < 0.5;
       addCam(`AUX ${k + 1}`, (SUITE_L + u * UNIT + 1.5 + rv() * 2) * CELL, 2.7, north ? 6.8 * CELL : 11.2 * CELL, north ? 0 : Math.PI);
     }
   }
   addCam('CONTROL', (control.x + 4) * CELL, 4.4, (CY + 0.3) * CELL, 0);
+  // todas van contra la pared (no colgadas en el aire): se pega cada una a la pared de detrás (la de su lado, si no) y se anota hacia dónde está
+  const EDGE = 0.32;
+  for (const c of cams) {
+    if (c.name === 'CONTROL') { (c.z = CY * CELL + EDGE), (c.wall = [0, -1]); continue; }
+    const hit = ([dx, dz]: [number, number]) => {
+      for (let s = 0.1; s <= 3.2; s += 0.1) {
+        const px = c.x + dx * s, pz = c.z + dz * s;
+        if (px < 0 || px >= W * CELL || !open[at(Math.floor(px / CELL), Math.floor(pz / CELL))]) return dx ? (dx > 0 ? Math.floor(px / CELL) : Math.floor(px / CELL) + 1) * CELL : (dz > 0 ? Math.floor(pz / CELL) : Math.floor(pz / CELL) + 1) * CELL;
+      }
+      return undefined;
+    };
+    const back: [number, number] = [Math.round(Math.sin(c.yaw)), Math.round(Math.cos(c.yaw))], dirs: [number, number][] = [back, [0, -1], [0, 1], [1, 0], [-1, 0]];
+    for (const d of Math.abs(c.z - 9 * CELL) < 1e-6 ? (cams.indexOf(c) % 2 ? [[0, 1], [0, -1]] as [number, number][] : dirs.slice(1)) : dirs) {
+      const e = hit(d);
+      if (e === undefined) continue;
+      if (d[0]) c.x = e - d[0] * EDGE; else c.z = e - d[1] * EDGE;
+      c.wall = d;
+      break;
+    }
+  }
   // el pasillo: enchufes en las paredes y alguna rejilla de aire en el techo
   for (let x = 0; x < CW; x++) {
     if (x % 8 === 3) props.push({ cell: cell(x, 8), kind: 'socket', rot: 3 });

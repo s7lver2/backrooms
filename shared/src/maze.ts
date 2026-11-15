@@ -34,7 +34,7 @@ export interface Maze {
   /** Las Suites: ventiladores al fondo de los callejones de los conductos. */
   fans?: Cell[];
   /** Las Suites: las cámaras de seguridad (posición en metros, `yaw` de quien mira hacia donde apuntan); se ven desde el puesto de la sala de control. */
-  cams?: { name: string; x: number; y: number; z: number; yaw: number }[];
+  cams?: { name: string; x: number; y: number; z: number; yaw: number; wall?: [number, number] }[];
   /** Las Suites: los cuadros eléctricos que hay que activar (en la copia del medio) para que el ascensor tenga corriente. */
   gens?: Cell[];
   start: Cell;

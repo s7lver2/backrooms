@@ -226,7 +226,8 @@ function checkOver(r: RoomState) {
 
 /** Prepara la ronda que viene (en el lobby): su semilla, el nivel y las tres misiones de la pizarra, sin votos. */
 function prepare(r: RoomState, seed = 0, level?: string) {
-  r.nextSeed = seed || r.fixedSeed || 1 + ((Math.random() * 2 ** 31) | 0);
+  // subiendo por el hotel (otra planta) el edificio es el mismo: se conserva la semilla; si no, una nueva
+  r.nextSeed = seed || r.fixedSeed || (r.floor > 1 && r.levelId === 'suites' && r.seed) || 1 + ((Math.random() * 2 ** 31) | 0);
   r.levelId = level ?? (r.floor > 1 ? 'suites' : pickLevel(r.nextSeed, openOf(r))); // (a medio hotel, la ronda es la planta siguiente)
   const lc = levelCaps(r.levelId);
   const pool = r.levelId === 'parking' ? parkingMissions(r.nextSeed, r.round) : lc.hotel ? suitesMissions(r.nextSeed, r.round, r.floor) : lc.pool ? poolMissions(r.nextSeed, r.round) : offerMissions(r.nextSeed, r.round, tvCount(generateMaze(r.nextSeed))); // (el mapa dice cuántas televisiones hay)
