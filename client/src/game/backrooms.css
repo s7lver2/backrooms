@@ -821,3 +821,14 @@
 .br-tree__gate[data-next] .br-tree__tag { color: #8ff096; }
 .br-tree__gate[data-poor] .br-tree__tag { color: var(--br-rec); }
 .br-tree__gate[data-flash] { animation: br-pop 0.7s ease-out 2; }
+
+.br-tree__grid { gap: 1.6em 1.4em; grid-template-rows: auto repeat(4, minmax(5.4em, auto)); }
+.br .br-tree__node { width: 6.4em; align-items: center; text-align: center; gap: 0.2em; padding: 0.5em 0.3em; justify-self: center; }
+.br .br-tree__node .br-tree__ic { width: 1.7em; height: 1.7em; }
+.br-tree__rn { font-size: 0.72em; letter-spacing: 0.04em; line-height: 1.1; }
+.br-tree__rl { font-size: 0.8em; }
+.br-tree__node .br-tree__tag { font-size: 0.75em; }
+.br .br-tree__gate { width: 5.4em; justify-self: center; padding: 0.5em 0.3em; }
+.br .br-tree__gate b { font-size: 0.72em; }
+.br-tree__gate .br-tree__tag { font-size: 0.8em; }
+.br-tree__cell { align-items: center; }

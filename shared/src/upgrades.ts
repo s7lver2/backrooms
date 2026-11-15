@@ -41,13 +41,13 @@ export const UPGRADES: Record<UpId, UpDef> = {
   lungs: { name: 'LUNGS', info: 'How long you can run before you are out of breath.', cost: [100, 180, 300, 460], val: [0.4, 0.55, 0.7, 0.85, 1], fmt: pct, stages: [st(2, 0), st(2, 2)], col: 3 },
   legs: { name: 'LEGS', info: 'Walking and running speed.', cost: [150, 260, 420], val: [0.85, 0.9, 0.95, 1], fmt: pct, stages: [st(1, 1), st(2, 4, ['pool', 1])], col: 3 },
   pool: { name: 'LEVEL 37', info: 'Unlocks the Poolrooms: they can come up in a round, with better loot and its own gear in the shop.', cost: [600], val: [0, 1], fmt: (v) => (v ? 'UNLOCKED' : 'LOCKED'), stages: [gate(3, 12)], col: 2, level: 'poolrooms' },
-  light: { name: 'BATTERIES', info: 'Your flashlight lasts longer.', cost: [90, 170, 300], val: [1, 1.15, 1.3, 1.5], fmt: mul, stages: [st(1, 2), st(2, 3, ['pool', 1])], col: 0 },
-  rest: { name: 'SECOND WIND', info: 'You get your breath back faster.', cost: [200, 340], val: [1, 1.4, 1.8], fmt: mul, stages: [st(2, 3, ['pool', 1])], col: 1 },
-  heal: { name: 'MEDIC', info: 'Almond Water heals more.', cost: [110, 200, 340], val: [1, 1.15, 1.3, 1.5], fmt: mul, stages: [st(2, 1), st(1, 4, ['pool', 1])], col: 2 },
-  sneak: { name: 'SOFT STEPS', info: 'Crouching is faster: sneak past what hunts you.', cost: [180, 320], val: [0.5, 0.65, 0.8], fmt: pct, stages: [st(2, 3, ['pool', 1])], col: 3 },
-  suites: { name: 'LEVEL -20', info: 'Unlocks the Suites: a hotel with its own staff, and four new items in the shop.', cost: [1500], val: [0, 1], fmt: (v) => (v ? 'UNLOCKED' : 'LOCKED'), stages: [gate(6, 28, ['parking', 1])], col: 2, level: 'suites' },
+  light: { name: 'BATTERIES', info: 'Your flashlight lasts longer.', cost: [90, 170, 300], val: [1, 1.15, 1.3, 1.5], fmt: mul, stages: [st(1, 2), st(2, 4, ['pool', 1])], col: 0 },
+  rest: { name: 'SECOND WIND', info: 'You get your breath back faster.', cost: [200, 340], val: [1, 1.4, 1.8], fmt: mul, stages: [st(2, 6, ['parking', 1])], col: 1 },
+  heal: { name: 'MEDIC', info: 'Almond Water heals more.', cost: [110, 200, 340], val: [1, 1.15, 1.3, 1.5], fmt: mul, stages: [st(2, 1), st(1, 6, ['parking', 1])], col: 2 },
+  sneak: { name: 'SOFT STEPS', info: 'Crouching is faster: sneak past what hunts you.', cost: [180, 320], val: [0.5, 0.65, 0.8], fmt: pct, stages: [st(2, 6, ['parking', 1])], col: 3 },
+  suites: { name: 'LEVEL -20', info: 'Unlocks the Suites: a hotel with its own staff, and four new items in the shop.', cost: [1500], val: [0, 1], fmt: (v) => (v ? 'UNLOCKED' : 'LOCKED'), stages: [gate(7, 28, ['parking', 1])], col: 2, level: 'suites' },
   parking: { name: 'LEVEL 1', info: 'Unlocks the Habitable Zone: a concrete parking garage with its own enemies, and four new items in the shop.', cost: [1000], val: [0, 1], fmt: (v) => (v ? 'UNLOCKED' : 'LOCKED'), stages: [gate(5, 20, ['pool', 1])], col: 0, level: 'parking' },
-  reach: { name: 'THROWING ARM', info: 'Thrown items fly further and the bat hits harder.', cost: [300, 500, 800], val: [1, 1.15, 1.3, 1.5], fmt: mul, stages: [st(3, 7, ['suites', 1])], col: 3 },
+  reach: { name: 'THROWING ARM', info: 'Thrown items fly further and the bat hits harder.', cost: [300, 500, 800], val: [1, 1.15, 1.3, 1.5], fmt: mul, stages: [st(3, 8, ['suites', 1])], col: 3 },
 };
 export const UP_IDS = Object.keys(UPGRADES) as UpId[];
 /** Niveles comprados (lo que falta es 0). */

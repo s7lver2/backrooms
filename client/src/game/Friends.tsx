@@ -1,8 +1,11 @@
 import { useCallback, useEffect, useState } from 'react';
+import type * as THREE from 'three';
 import { ACHIEVEMENTS, STAT_LABEL, cosmetic, type Friends, type Profile, type StatKey } from '@backrooms/shared';
 import { type Account, avatarUrl, friendAct, getFriends, getProfile } from '../account';
 import { Avatar } from './Account';
 import InvAvatar from './InvAvatar';
+import ItemView from './ItemView';
+import { model } from './cosmetics';
 import { MindMap } from './MindMap';
 import type { Assets } from './game';
 import Frame from './Frame';
@@ -17,6 +20,28 @@ import './achievements.css';
 const TABS = ['FRIENDS', 'REQUESTS'] as const;
 const slot = { color: 'COLOR', head: 'HEAD', back: 'BACK' } as const;
 const STAT_ICON: Record<string, string> = { games: '♣', escapes: '▲', tapes: '▣', photos: '◉', holds: '○', kills: '◆', falls: '▼', lockers: '✦', unos: '♠', monsters: '☼' };
+/** Una pieza que lleva puesta, girando en 3D (el color es un tinte: una muestra). */
+function Worn3D({ assets, slotKey, id }: { assets?: Assets; slotKey: 'color' | 'head' | 'back'; id: string }) {
+  const [obj, setObj] = useState<THREE.Object3D>();
+  const def = id ? cosmetic(slotKey, id) : undefined;
+  useEffect(() => {
+    setObj(undefined);
+    if (slotKey === 'color' || !id) return;
+    let live = true;
+    model(id).then((m) => live && setObj(m ?? undefined));
+    return () => void (live = false);
+  }, [slotKey, id]);
+  return (
+    <div className="mm-pop__piece">
+      <div className="mm-pop__3d">
+        {slotKey === 'color' ? <i style={{ background: def?.hex ?? '#444' }} /> : assets && obj ? <ItemView assets={assets} kind="loot" r={0} object={obj} /> : <span className="br-lobby__dim">{id ? '…' : '—'}</span>}
+      </div>
+      <small>{slot[slotKey]}</small>
+      {def?.name ?? (id || '—')}
+    </div>
+  );
+}
+const SHOWN = Object.keys(STAT_ICON) as StatKey[];
 const WORN = { left: 'none', hand: 'none', belt: 'none' } as const;
 
 export function FriendsScreen({ acct, assets, onSignIn, onBack }: { acct: Account; assets?: Assets; onSignIn: () => void; onBack: () => void }) {
@@ -121,21 +146,20 @@ export function FriendsScreen({ acct, assets, onSignIn, onBack }: { acct: Accoun
                   </div>
                 )}
                 <div className="mm-pop__worn">
-                  {(['color', 'head', 'back'] as const).map((k) => (
-                    <div key={k}>
-                      <small>{slot[k]}</small>
-                      {prof.loadout[k] ? cosmetic(k, prof.loadout[k])?.name ?? prof.loadout[k] : '—'}
-                    </div>
-                  ))}
+                  {(['color', 'head', 'back'] as const).map((k) => <Worn3D key={k} assets={assets} slotKey={k} id={prof.loadout[k]} />)}
                 </div>
               </section>
               <section className="mm-pop__info">
+                <div className="mm-pop__sum">
+                  <span><b>{Object.keys(have).length}</b>/{ACHIEVEMENTS.length} <small>★ ACHIEVEMENTS</small></span>
+                  <span className="ach__bar" aria-hidden="true">{'▮'.repeat(Math.round((Object.keys(have).length / ACHIEVEMENTS.length) * 20))}<span className="off">{'▮'.repeat(20 - Math.round((Object.keys(have).length / ACHIEVEMENTS.length) * 20))}</span></span>
+                </div>
                 <div className="mm-pop__stats">
-                  <div><b>{Object.keys(have).length}/{ACHIEVEMENTS.length}</b><small>★ ACHIEVEMENTS</small></div>
-                  {(Object.keys(STAT_LABEL) as StatKey[]).filter((k) => prof.stats[k]).map((k) => (
-                    <div key={k}>
-                      <b>{prof.stats[k]}</b>
-                      <small>{STAT_ICON[k] ?? '✦'} {STAT_LABEL[k]}</small>
+                  {SHOWN.map((k) => (
+                    <div key={k} data-zero={!prof.stats[k] || undefined}>
+                      <span className="mm-pop__ic" aria-hidden="true">{STAT_ICON[k]}</span>
+                      <b>{prof.stats[k] ?? 0}</b>
+                      <small>{STAT_LABEL[k]}</small>
                     </div>
                   ))}
                 </div>

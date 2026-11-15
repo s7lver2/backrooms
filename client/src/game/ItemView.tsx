@@ -42,11 +42,11 @@ function modelOf(assets: Assets, k: IconKey | 'loot', r: number): THREE.Object3D
   }
 }
 
-export default function ItemView({ assets, kind, r }: { assets: Assets; kind: IconKey | 'loot'; r: number }) {
+export default function ItemView({ assets, kind, r, object }: { assets: Assets; kind: IconKey | 'loot'; r: number; object?: THREE.Object3D }) {
   const box = useRef<HTMLDivElement>(null);
   useEffect(() => {
     const el = box.current;
-    const src = modelOf(assets, kind, r);
+    const src = object ?? modelOf(assets, kind, r);
     if (!el || !src) return;
     const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
     renderer.outputColorSpace = THREE.SRGBColorSpace;
@@ -109,6 +109,6 @@ export default function ItemView({ assets, kind, r }: { assets: Assets; kind: Ic
       renderer.forceContextLoss();
       renderer.domElement.remove();
     };
-  }, [assets, kind, r]);
+  }, [assets, kind, r, object]);
   return <div ref={box} className="iv-view" role="img" aria-label="The item, turning" />;
 }

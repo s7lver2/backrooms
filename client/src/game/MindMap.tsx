@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type PointerEvent as RPE, type ReactNode } from 'react';
+import { useEffect, useMemo, useRef, useState, type PointerEvent as RPE, type ReactNode, type WheelEvent as RWE } from 'react';
 import { ACHIEVEMENTS, BRANCHES, COSMETICS, EMOTE_DEFS, STAT_LABEL, type AchievementDef, type StatKey } from '@backrooms/shared';
 
 /*
@@ -47,23 +47,40 @@ export function MindMap({ name, center, have, stats, rarity, dim, panel }: { nam
 
   // el arrastre mueve el mapa (translate), sin salirse; un arrastre no cuenta como clic
   const view = useRef<HTMLDivElement>(null), world = useRef<HTMLDivElement>(null);
-  const pan = useRef({ x: 0, y: 0, d: null as null | { px: number; py: number; x0: number; y0: number }, moved: false });
+  const pan = useRef({ x: 0, y: 0, z: 1, d: null as null | { px: number; py: number; x0: number; y0: number }, moved: false });
+  const [zoom, setZoom] = useState(1);
+  const apply = (smooth = false) => {
+    const w = world.current;
+    if (!w) return;
+    w.style.transition = smooth ? 'transform 0.35s ease' : 'none';
+    w.style.transform = `translate(${pan.current.x}px, ${pan.current.y}px) scale(${pan.current.z})`;
+  };
   const setPan = (x: number, y: number, smooth = false) => {
     const v = view.current, w = world.current;
     if (!v || !w) return;
     const lim = (vs: number, ws: number, p: number) => (ws <= vs ? (vs - ws) / 2 : Math.max(vs - ws, Math.min(0, p)));
-    pan.current.x = lim(v.clientWidth, w.offsetWidth, x);
-    pan.current.y = lim(v.clientHeight, w.offsetHeight, y);
-    w.style.transition = smooth ? 'transform 0.4s ease' : 'none';
-    w.style.transform = `translate(${pan.current.x}px, ${pan.current.y}px)`;
+    pan.current.x = lim(v.clientWidth, w.offsetWidth * pan.current.z, x);
+    pan.current.y = lim(v.clientHeight, w.offsetHeight * pan.current.z, y);
+    apply(smooth);
   };
-  const centerOn = (px: number, py: number, smooth = false) => setPan((view.current?.clientWidth ?? 0) / 2 - ((world.current?.offsetWidth ?? 0) * px) / 100, (view.current?.clientHeight ?? 0) / 2 - ((world.current?.offsetHeight ?? 0) * py) / 100, smooth);
+  /** Cambia el zoom (0,35–2) manteniendo quieto el punto (cx, cy) de la vista (el centro, con los botones). */
+  const zoomTo = (z: number, cx = (view.current?.clientWidth ?? 0) / 2, cy = (view.current?.clientHeight ?? 0) / 2, smooth = false) => {
+    const p = pan.current, nz = Math.max(0.35, Math.min(2, z)), k = nz / p.z;
+    p.z = nz;
+    setZoom(nz);
+    setPan(cx - (cx - p.x) * k, cy - (cy - p.y) * k, smooth);
+  };
+  const centerOn = (px: number, py: number, smooth = false) => setPan((view.current?.clientWidth ?? 0) / 2 - ((world.current?.offsetWidth ?? 0) * pan.current.z * px) / 100, (view.current?.clientHeight ?? 0) / 2 - ((world.current?.offsetHeight ?? 0) * pan.current.z * py) / 100, smooth);
   // al abrir (y al cambiar de rama) la vista se centra: en el jugador, o en la rama elegida
   useEffect(() => {
     const ps = dim && dim !== 'ALL' ? ACHIEVEMENTS.filter((a) => a.branch === dim).map((a) => L.pos[a.key]) : [{ x: 50, y: 50 }];
     centerOn(ps.reduce((s, p) => s + p.x, 0) / ps.length, ps.reduce((s, p) => s + p.y, 0) / ps.length, true);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [dim]);
+  const wheel = (e: RWE) => {
+    const r = view.current!.getBoundingClientRect();
+    zoomTo(pan.current.z * (e.deltaY < 0 ? 1.12 : 1 / 1.12), e.clientX - r.left, e.clientY - r.top);
+  };
   const down = (e: RPE) => (pan.current.d = { px: e.clientX, py: e.clientY, x0: pan.current.x, y0: pan.current.y });
   const drag = (e: RPE) => {
     const d = pan.current.d;
@@ -84,7 +101,7 @@ export function MindMap({ name, center, have, stats, rarity, dim, panel }: { nam
         onPointerCancel={release}
         onClickCapture={(e) => pan.current.moved && (e.stopPropagation(), e.preventDefault(), (pan.current.moved = false))}
         onClick={(e) => !(e.target as HTMLElement).closest('.mm__node') && setSel(null)}
-        onWheel={(e) => setPan(pan.current.x - e.deltaX, pan.current.y - e.deltaY)}
+        onWheel={wheel}
       >
         <div className="mm__world" ref={world}>
           <svg className="mm__lines" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true">
@@ -126,6 +143,12 @@ export function MindMap({ name, center, have, stats, rarity, dim, panel }: { nam
           ))}
         </div>
       </div>
+      <span className="mm__zoom">
+        <button type="button" className="br-opt" aria-label="Zoom out" onClick={() => zoomTo(pan.current.z / 1.25, undefined, undefined, true)}>−</button>
+        <small>{Math.round(zoom * 100)}%</small>
+        <button type="button" className="br-opt" aria-label="Zoom in" onClick={() => zoomTo(pan.current.z * 1.25, undefined, undefined, true)}>+</button>
+        <button type="button" className="br-opt" aria-label="Reset view" onClick={() => (zoomTo(1, undefined, undefined, true), centerOn(50, 50, true))}>⌂</button>
+      </span>
       {shown && (
         <aside className="mm__side" aria-live="polite">
           <button type="button" className="br-opt mm__x" aria-label="Close" onClick={() => setSel(null)}>×</button>
