@@ -1647,6 +1647,11 @@ export class World implements Terrain {
   private talkAt?: { x: number; z: number };
   private baseYaw = new Map<THREE.Object3D, number>();
   private walkOff = new Map<object, number>();
+  private watchAt?: { x: number; z: number };
+  /** Con la vista en las cámaras de seguridad, todo el personal se vuelve hacia ti. */
+  setWatch(p?: { x: number; z: number }) {
+    this.watchAt = p && { x: p.x, z: p.z };
+  }
   setTalk(p?: { x: number; z: number }) {
     this.talkAt = p && { x: p.x, z: p.z };
   }
@@ -1699,6 +1704,7 @@ export class World implements Terrain {
       w.rigs.forEach((r) => r.update(dt));
     }
     for (const s of this.staff) s.update(dt);
+    if (this.watchAt) for (const g of [...this.staffG, ...this.walkers.flatMap((w) => w.groups)]) g.rotation.y = Math.atan2(this.watchAt.x - g.position.x, this.watchAt.z - g.position.z);
     if (this.dustMat) this.dustMat.uniforms.uT.value = t;
     if (this.skyMat) this.skyMat.uniforms.uT.value = t;
     this.hallFx?.(t);

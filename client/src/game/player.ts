@@ -182,6 +182,8 @@ export class Player {
   duck = false;
   /** Lo más lento que se va agachado (los conductos de Las Suites: 0,9 del paso de andar) y lo más alto que pueden estar los ojos sobre los pies (techo bajo). */
   duckMin = 0;
+  /** Los ojos, adelantados esto (m): en los conductos el pecho agachado se metía en la cámara. */
+  camFwd = 0;
   maxEye = Infinity;
   private duckK = 0;
   /** Consola de admin: velocidad x2 y atravesar paredes. */
@@ -667,7 +669,7 @@ export class Player {
     this.bones.Neck?.scale.setScalar(0.5);
 
     // la cámara: los ojos, con el vaivén de una cámara de mano al andar
-    const neck = this.poolMode ? 0 : Math.sin(down * 1.45) * 0.12; // (en las Poolrooms la cámara es de PoolLevel y no se mueve: si el Player la adelantara, los brazos irían a otro sitio que los objetos)
+    const neck = (this.poolMode ? 0 : Math.sin(down * 1.45) * 0.12) + this.camFwd; // (en las Poolrooms la cámara es de PoolLevel y no se mueve: si el Player la adelantara, los brazos irían a otro sitio que los objetos)
     // (agachado en un nicho, algo hacia el fondo: de espaldas a la salida)
     const bx = -Math.sin(this.hideYaw) * 0.62 * hk, bz = -Math.cos(this.hideYaw) * 0.62 * hk; // (escondido: la vista, pegada a la rendija de la puerta)
     this.camera.position.set(this.pos.x - Math.sin(this.yaw) * neck + bx, this.pos.y + Math.min(this.eyeBase - 0.5 * rk - 0.6 * hk - this.duckD * this.duckK + bobY, this.maxEye), this.pos.z - Math.cos(this.yaw) * neck + bz);

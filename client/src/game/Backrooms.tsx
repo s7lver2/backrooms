@@ -12,7 +12,7 @@ import TotemUi from './Totem';
 import Effects from './Effects';
 import { HOT } from './quickslots';
 import { setCursors } from './cursors';
-import { RIFLE_MAG, DIFFICULTY, missionHint, levelsOpen, type Inventory as SrvInv, type ItemId, type RoomView, type RoundResult } from '@backrooms/shared';
+import { RIFLE_MAG, DIFFICULTY, missionHint, isEeh, levelsOpen, type Inventory as SrvInv, type ItemId, type RoomView, type RoundResult } from '@backrooms/shared';
 import { useNet, useServer } from '../net';
 import { avatarUrl, useAccount } from '../account';
 import { FriendsScreen } from './Friends';
@@ -220,7 +220,7 @@ function Mission({ hud, room }: { hud: Hud; room: RoomView | null }) {
       {!!hud.parking?.pendingFloors && <p>GENERATORS LEFT ON FLOORS {hud.parking.pendingFloors}</p>}
       {m && !m.done && (
         <p aria-label={m.line}>
-          {m.line} {m.kind === 'survive' || m.kind === 'eeh' ? blocks(Math.round((m.progress / m.goal) * 10), 10) : blocks(m.progress, m.goal)}
+          {m.line} {m.kind === 'survive' || isEeh(m.kind) ? blocks(Math.round((m.progress / m.goal) * 10), 10) : blocks(m.progress, m.goal)}
         </p>
       )}
       {(i.charge < 0.99 || i.spares > 0) && (

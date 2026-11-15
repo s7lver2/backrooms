@@ -52,7 +52,7 @@ import { POOL_CELL, WAIT_HALF, EMOTE_DEFS, type RoundResult, type Sold } from '@
 import { type LockerItem, RIFLE_MAG, canHold, ITEM_IDS, START_INV, type AdminFx, makeMission, missionLine, tvCount, type ActiveMission, type Inventory, type ItemId, type MissionKind, type Maze, type LevelCaps, levelCaps, NOISE_RUN, NOISE_SHOT, NOISE_PHOTO, type Noise } from '@backrooms/shared';
 import { Explosion } from './explosion';
 import { Breath, HEIGHT as ENT_HEIGHT, DEFAULT_LOOK, EEH_HOLD, HIT_DAMAGE, HP_MAX, MONSTER, PILLS, GLASSES, SUITE_FLOORS, REVIVE_IMMUNE, boostOf, totemSpot, type Look, hideStates, tickHides, startOffset, type HideState, type PlayerState, type RoomView, type ToolFx, type WorldSnapshot, FLIGHT_DT, flight } from '@backrooms/shared';
-import { parkingOptionsForMission, PARKING_HEIGHT } from '@backrooms/shared';
+import { parkingOptionsForMission, PARKING_HEIGHT, isEeh } from '@backrooms/shared';
 import { ITEMS, PARKING_ITEM_IDS, type ParkingItemId } from '@backrooms/shared';
 
 /** Lo que el juego necesita de una sala: el socket y quién soy. */
@@ -488,15 +488,26 @@ export class BackroomsGame {
   private camLast = 0;
   private camHud?: HTMLElement;
   private camKept: THREE.Object3D[] = [];
+  private camVis = new Map<THREE.Object3D, boolean>();
+  private camTop?: HTMLElement;
+  private camNoise?: HTMLCanvasElement;
+  private camStatic = 0;
   private camOn() {
     const n = this.world?.maze.cams?.length ?? 0;
     if (!n || this.camUse >= 0) return;
     this.camUse = this.camLast % n;
-    this.camKept = [...this.camera.children]; // (las manos y la linterna quedan fuera de la imagen)
-    this.camKept.forEach((o) => this.camera.remove(o));
-    this.camHud = Object.assign(document.createElement('div'), { className: 'br-camhud' });
-    this.camHud.style.cssText = 'position:fixed;inset:0;z-index:5;pointer-events:none;font:700 clamp(12px,1.6vw,20px) monospace;color:#7dffb0;text-shadow:0 0 6px #000;padding:3vh 3vw;display:flex;flex-direction:column;justify-content:space-between;box-shadow:inset 0 0 0 3px rgba(125,255,176,0.35),inset 0 0 12vw rgba(0,0,0,0.8)';
-    (this.canvas.parentElement ?? document.body).append(this.camHud);
+    this.camVis = new Map(this.camera.children.map((o) => [o, o.visible])); // (las manos y la linterna quedan fuera de la imagen)
+    const hud = (this.camHud = Object.assign(document.createElement('div'), { className: 'br-camhud' }));
+    hud.style.cssText = 'position:fixed;inset:0;z-index:5;pointer-events:none;font:700 clamp(12px,1.6vw,20px) monospace;color:#7dffb0;text-shadow:0 0 6px #000;padding:3vh 3vw;display:flex;flex-direction:column;justify-content:space-between;box-shadow:inset 0 0 0 3px rgba(125,255,176,0.35),inset 0 0 12vw rgba(0,0,0,0.8)';
+    const noise = (this.camNoise = Object.assign(document.createElement('canvas'), { width: 160, height: 90 }));
+    noise.style.cssText = 'position:absolute;inset:0;width:100%;height:100%;image-rendering:pixelated;opacity:0';
+    this.camTop = document.createElement('div');
+    const bottom = Object.assign(document.createElement('div'), { textContent: '◄ A  ·  D ►   CLICK: NEXT   E / G: LEAVE' });
+    bottom.style.cssText = 'text-align:center;opacity:.85;position:relative';
+    this.camTop.style.position = 'relative';
+    hud.append(noise, this.camTop, bottom);
+    (this.canvas.parentElement ?? document.body).append(hud);
+    this.camStatic = 0.45;
     this.camLabel();
     this.audio?.click();
   }
@@ -504,15 +515,15 @@ export class BackroomsGame {
     if (this.camUse < 0) return;
     this.camLast = this.camUse;
     this.camUse = -1;
-    this.camKept.forEach((o) => this.camera.add(o));
-    this.camKept = [];
+    this.camVis.forEach((v, o) => (o.visible = v));
+    this.camVis.clear();
     this.camHud?.remove();
-    this.camHud = undefined;
+    this.camHud = this.camTop = this.camNoise = undefined;
+    this.world?.setWatch(undefined);
   }
   private camLabel() {
     const m = this.world?.maze, c = m?.cams?.[this.camUse];
-    if (!this.camHud || !c) return;
-    this.camHud.innerHTML = `<div>● REC &nbsp; CAM ${String(this.camUse + 1).padStart(2, '0')}/${m!.cams!.length} &nbsp; ${c.name}</div><div style="text-align:center;opacity:.85">◄ A &nbsp; D ► · CLICK: NEXT · E / G: LEAVE &nbsp;(YOU ARE STILL EXPOSED)</div>`;
+    if (this.camTop && c) this.camTop.textContent = `● REC   CAM ${String(this.camUse + 1).padStart(2, '0')}/${m!.cams!.length}   ${c.name}`;
   }
   /** Con la vista en una cámara: cambiar de cámara con A/D o el clic, y ponerla donde está (barriendo). */
   private camFrame(c: Controls) {
@@ -520,15 +531,34 @@ export class BackroomsGame {
     if (this.camUse < 0 || !n) return;
     const ax = c.move.x > 0.5 ? 1 : c.move.x < -0.5 ? -1 : 0, step = ax && ax !== this.camAx ? ax : c.fire ? 1 : 0;
     this.camAx = ax;
-    if (step) ((this.camUse = (this.camUse + step + n) % n), this.camLabel(), this.audio?.click());
+    if (step) ((this.camUse = (this.camUse + step + n) % n), (this.camStatic = 0.4), this.camLabel(), this.audio?.click());
   }
-  private camPlace() {
+  private camPlace(dt = 0.016) {
     const v = this.world?.vents;
     if (this.camUse < 0 || !v) return;
     const p = v.camPose(this.camUse, this.t);
     this.camera.position.set(p.x, p.y, p.z);
     this.camera.quaternion.setFromEuler(_eu.set(p.pitch, p.yaw, 0, 'YXZ'));
     this.camera.updateMatrixWorld(true);
+    this.camera.children.forEach((o) => (o.visible = false)); // (cada fotograma: el Player los vuelve a poner)
+    // la estática entre cámaras
+    const n = this.camNoise;
+    if (n) {
+      this.camStatic = Math.max(0, this.camStatic - dt);
+      n.style.opacity = String(Math.min(1, this.camStatic / 0.25));
+      if (this.camStatic > 0) {
+        const g = n.getContext('2d')!, im = g.createImageData(160, 90);
+        for (let i = 0; i < im.data.length; i += 4) (im.data[i] = im.data[i + 1] = im.data[i + 2] = 40 + Math.random() * 190), (im.data[i + 3] = 255);
+        g.putImageData(im, 0, 0);
+      }
+    }
+  }
+  /** Mirando las cámaras, todas las entidades se vuelven hacia ti (saben dónde estás) sin dejar de moverse. */
+  private camWatch() {
+    const p = this.player;
+    if (this.camUse < 0 || !p) return;
+    for (const e of this.entities) if (e.alive) e.rig.root.rotation.y = Math.atan2(p.pos.x - e.pos.x, p.pos.z - e.pos.z);
+    this.world?.setWatch(p.pos);
   }
   /** Las Suites: las rejillas de ventilación (E ante una te lleva a donde da) y el terminal de la sala de control (restaura el EEH). */
   private ventAct(cc: Controls): Controls {
@@ -1188,9 +1218,9 @@ export class BackroomsGame {
     // Las Suites: en los conductos se va siempre agachado; mirando las cámaras el cuerpo se queda quieto
     const pp = this.player, duct = !!pp && !!this.world?.vents?.inDuct(Math.floor(pp.pos.x / CELL), Math.floor(pp.pos.z / CELL));
     const pc = this.camUse >= 0 ? { ...c, move: _none, look: _none, run: false, jump: false, crouch: true, fire: false, grab: false, flash: false, swap: false, slot: -1, wheel: 0, use: false, aim: false, zoom: 0 } : duct ? { ...c, crouch: true, run: false, jump: false } : c;
-    if (pp) (pp.duckMin = duct ? 0.9 : 0), (pp.maxEye = Infinity); // (en el conducto, agachado casi al paso de andar)
+    if (pp) (pp.duckMin = duct ? 0.9 : 0), (pp.maxEye = Infinity), (pp.camFwd = duct ? 0.32 : 0); // (en el conducto, agachado casi al paso de andar y con la vista adelantada: el pecho no se mete en la cámara)
     if (!this.spectating || this.player?.dead) this.player?.update(dt, pc);
-    this.camPlace();
+    this.camPlace(dt);
     if (this.caps.hotel && this.player) {
       // Las Suites: el pasillo se cierra sobre sí mismo (shared/src/suites.ts). Quien acaba de entrar del vestíbulo NO salta: la puerta se cierra a su espalda y recorre la última copia
       // (igual que las demás); el salto empieza al pasar a la anterior
@@ -1288,6 +1318,7 @@ export class BackroomsGame {
     if (!this.mp) this.soloTick();
     this.hideFrame(dt, c.hold);
     this.monsters(dt);
+    this.camWatch();
     if (this.shopOpen && !this.bagOpen) this.shopOpen = false; // (cualquier cosa que cierre la mochila —una pausa, la muerte, un reinicio— cierra la tienda)
     if (this.shopOpen && (this.dying >= 0 || this.winning)) this.closeBag();
     if (this.shopOpen || this.shopT > 0) this.shopCam(dt);
@@ -1382,15 +1413,15 @@ export class BackroomsGame {
     if (!p || this.run) return out;
     const now = performance.now(), dead = p.dead || this.spectating;
     if (!dead) {
-      if (p.pillOn) out.push({ id: 'pills', icon: 'speed', label: 'PILLS', kind: 'good', frac: (p.pillsUntil - performance.now()) / (PILLS.time * 1000) });
-      if (p.glassesOn) out.push({ id: 'glasses', icon: 'speed', label: 'X-RAY', kind: 'good', frac: p.glassesLeft / GLASSES.time });
+      if (p.pillOn) out.push({ id: 'pills', icon: 'pills', label: 'PILLS', kind: 'good', frac: (p.pillsUntil - performance.now()) / (PILLS.time * 1000) });
+      if (p.glassesOn) out.push({ id: 'glasses', icon: 'glasses', label: 'X-RAY', kind: 'good', frac: p.glassesLeft / GLASSES.time });
       if (p.buffT > 0) out.push({ id: 'monster', icon: 'speed', label: 'MONSTER', kind: 'good', frac: p.buffT / (MONSTER.time * boostOf(perks, 'monster')) });
       if (now < this.immuneUntil) out.push({ id: 'immune', icon: 'shield', label: 'IMMUNE', kind: 'good', frac: (this.immuneUntil - now) / REVIVE_IMMUNE });
       if (p.concealed) out.push({ id: 'hide', icon: 'hide', label: 'HIDDEN', kind: 'good' });
       if (p.stunLeft > 0) out.push({ id: 'stun', icon: 'stun', label: 'STUNNED', kind: 'bad', frac: p.stunLeft / 3 });
       else if (p.wetLeft > 0) out.push({ id: 'wet', icon: 'wet', label: 'SOAKED', kind: 'bad', frac: p.wetLeft / 4 });
       if (p.winded) out.push({ id: 'tired', icon: 'tired', label: 'WINDED', kind: 'bad' });
-      if (this.inGas()) out.push({ id: 'gas', icon: 'panic', label: 'TOXIC GAS', kind: 'bad', frac: 1 });
+      if (this.inGas()) out.push({ id: 'gas', icon: 'gas', label: 'TOXIC GAS', kind: 'bad', frac: 1 });
       if (!this.pool && p.sanity < 0.35) out.push({ id: 'panic', icon: 'panic', label: 'PANIC', kind: 'bad', frac: p.sanity / 0.35 });
       if (pl && pl.o2 < 0.4) out.push({ id: 'air', icon: 'air', label: 'LOW AIR', kind: 'bad', frac: pl.o2 / 0.4 });
       if (pl && pl.jam > 0) out.push({ id: 'jam', icon: 'nosignal', label: 'NO SIGNAL', kind: 'bad' });
@@ -2528,7 +2559,7 @@ export class BackroomsGame {
     if (!fs.length) this.staffMad = false;
     else if (mad && !this.staffMad) {
       this.staffMad = true;
-      const why = w.vengeance ? 'SOMEONE KILLED ONE OF THEM' : w.eeh || this.mission?.kind === 'eeh' ? 'THE EVAPORATOR FAILED' : 'THE STAFF SPOTTED YOU';
+      const why = w.vengeance ? 'SOMEONE KILLED ONE OF THEM' : w.eeh || isEeh(this.mission?.kind) ? 'THE EVAPORATOR FAILED' : 'THE STAFF SPOTTED YOU';
       this.note = { text: `${why} · THE STAFF IS HUNTING YOU · HIDE IN A WARDROBE (E) AND HOLD YOUR BREATH`, until: performance.now() + 6000 };
       this.audio?.cue('hurt');
     }
@@ -3489,7 +3520,7 @@ fps ${(1 / Math.max(dt, 1e-3)).toFixed(0)}`;
   private staffMad = false;
   private eehVeil?: HTMLElement;
   private eehCheck() {
-    const m = this.mission, fail = m?.kind === 'eeh' && m.progress >= m.goal - EEH_HOLD;
+    const m = this.mission, fail = isEeh(m?.kind) && m!.progress >= m.goal - EEH_HOLD;
     const on = !(this.dying >= 0 || this.run || this.player?.dead) && (this.eehSnap || (fail && !m!.done)); // (muerto o en el nivel rojo, la sirena se calla)
     if (on !== this.eehRed) {
       (this.eehRed = on), this.audio?.alarm(on); // la sirena suena mientras dure el fallo
@@ -3712,6 +3743,7 @@ server-synced inv ${JSON.stringify(this.mp.inv)}` : ''}`);
     (this.eehVeil?.remove(), (this.eehVeil = undefined), (this.eehRed = false));
     this.audio?.alarm(false);
     this.camOff();
+    this.world?.setWatch(undefined);
     this.endRun();
     this.endPool();
     this.totemOpen = false;

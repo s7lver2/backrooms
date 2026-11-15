@@ -3,7 +3,7 @@ import {
   type Difficulty, type Inventory, type Ups, type Look, type Mission, type HideState, type EntState, type ItemSpot, type Kind, type Maze, type Noise, type PlayerState, type SimTarget, type WorldSnapshot,
 } from '@backrooms/shared';
 import { ParkingMatch } from './parking-match';
-import { POOL_CELL, poolFloorY, parkingSurface, type PoolMap } from '@backrooms/shared';
+import { isEeh, POOL_CELL, poolFloorY, parkingSurface, type PoolMap } from '@backrooms/shared';
 
 /*
  * Lo que el servidor sabe de una partida en marcha: el mapa de la semilla, los objetos que quedan, las
@@ -286,7 +286,7 @@ export class Match {
   }
 
   private raw(m: Mission) {
-    return m.kind === 'photos' ? this.photos : m.kind === 'tapes' || m.kind === 'soaps' ? this.tapes : m.kind === 'eeh' && this.eehFixed ? this.base + m.goal : m.kind === 'survive' || m.kind === 'eeh' ? Math.floor(this.age) : m.kind === 'power' ? [...this.taken].filter((id) => id[0] === 'e').length : m.kind === 'order' ? this.delivered : this.tvOff.size;
+    return m.kind === 'photos' ? this.photos : m.kind === 'tapes' || m.kind === 'soaps' ? this.tapes : (m.kind === 'eeh' || m.kind === 'eehfix') && this.eehFixed ? this.base + m.goal : m.kind === 'eehfix' ? Math.min(Math.floor(this.age), this.base + m.goal - 1) : m.kind === 'survive' || isEeh(m.kind) ? Math.floor(this.age) : m.kind === 'power' ? [...this.taken].filter((id) => id[0] === 'e').length : m.kind === 'order' ? this.delivered : this.tvOff.size;
   }
 
   /** Apagar la televisión `i`: hay que estar cerca de ella. */
@@ -368,7 +368,7 @@ export class Match {
       if (b.patrol) w.patrol = b.patrol;
     }
     // misión EEH: el evaporador falla a su hora y entran las entidades (partygoers y una bacteria, por los arranques más lejanos)
-    if (!this.eehOn && !this.eehFixed && ((this.mission?.kind === 'eeh' && this.age - this.base >= this.mission.goal - EEH_HOLD) || (this.eehAt > 0 && this.age >= this.eehAt))) {
+    if (!this.eehOn && !this.eehFixed && ((isEeh(this.mission?.kind) && this.age - this.base >= this.mission.goal - EEH_HOLD) || (this.eehAt > 0 && this.age >= this.eehAt))) {
       this.eehOn = true;
       for (const q of this.ents) q.sim.kind === 'faceling' && q.sim.rage(); // el evaporador falla: el personal, que estaba en paz, va a por todos
     }

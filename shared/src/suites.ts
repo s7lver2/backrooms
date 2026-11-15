@@ -270,6 +270,14 @@ export function suitesMaze(seed: number, floor = 1): Maze {
     const n = node(i, j), d = DIR4.findIndex(([dx, dy]) => open[at(n.x + dx, n.y + dy)]);
     if (d >= 0) addCam(`VENT ${cams.filter((c) => c.name.startsWith('VENT')).length + 1}`, (n.x + 0.5) * CELL, 1.6, (n.y + 0.5) * CELL, YAW[d]);
   }
+  // y de vez en cuando, cámaras de más en sitios al azar (cambian con la semilla)
+  for (let k = 0, n = 3 + ((rv() * 3) | 0); k < n; k++) {
+    if (rv() < 0.5) addCam(`AUX ${k + 1}`, (SUITE_L + 1 + rv() * (SUITE_L - 2)) * CELL, 2.7, 9 * CELL, rv() < 0.5 ? Math.PI / 2 : -Math.PI / 2);
+    else {
+      const u = (rv() * 4) | 0, north = rv() < 0.5;
+      addCam(`AUX ${k + 1}`, (SUITE_L + u * UNIT + 1.5 + rv() * 2) * CELL, 2.7, north ? 6.8 * CELL : 11.2 * CELL, north ? 0 : Math.PI);
+    }
+  }
   addCam('CONTROL', (control.x + 4) * CELL, 4.4, (CY + 0.3) * CELL, 0);
   // el pasillo: enchufes en las paredes y alguna rejilla de aire en el techo
   for (let x = 0; x < CW; x++) {
@@ -300,8 +308,11 @@ export function suitesMaze(seed: number, floor = 1): Maze {
   const [camera] = take(1), [pistol] = take(1);
   const lamps: Cell[] = [];
   for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) if (open[at(x, y)] && x % 2 === 0 && y % 2 === 0 && y < 18) lamps.push(cell(x, y)); // (los conductos y la sala de control, sin lámparas: la sala lleva sus propias luces)
+  // (los conductos, a oscuras; la sala de control, con luz: a oscuras la cordura se va)
+  const litMap = new Uint8Array(W * H).fill(1).fill(0, 18 * W);
+  for (let y = control.y; y < control.y + control.h; y++) for (let x = control.x; x < control.x + control.w; x++) litMap[at(x, y)] = 1;
   return {
-    floor, span: [SUITE_L, 2 * SUITE_L], w: W, h: H, open, lit: new Uint8Array(W * H).fill(1).fill(0, 18 * W), zone: new Uint8Array(W * H), voids: [],
+    floor, span: [SUITE_L, 2 * SUITE_L], w: W, h: H, open, lit: litMap, zone: new Uint8Array(W * H), voids: [],
     start: cell(CW + 10, 12), stairs: cell(SUITE_L + 1, 1), gens, elevator, camera, pistol, extraGuns: [],
     tapes: take(8), flashlights: take(4), spawns: [cell(SUITE_L + 4, 8), cell(SUITE_L + 5, 9), cell(SUITE_L + 15, 9)],
     lamps, props, hides, rooms, vents, gas, control, cams, fans, duct: { x0: VX, y0: VY, x1: VX + 14, y1: RY + 1 },

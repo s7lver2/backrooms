@@ -52,7 +52,7 @@ export const poolMissions = (seed: number, round: number): Mission[] => {
  */
 export const suitesMissions = (seed: number, round: number, floor = 1): Mission[] => {
   const r = rng(seed ^ Math.imul(round + 1, 0x9e3779b1)), f = floor - 1;
-  const pool: MissionKind[] = ['power', 'order', 'tapes', 'eeh'];
+  const pool: MissionKind[] = ['power', 'order', 'tapes', 'eeh', 'eehsurv', 'eehfix'];
   for (let i = pool.length - 1; i > 0; i--) { const j = Math.floor(r() * (i + 1)); [pool[i], pool[j]] = [pool[j], pool[i]]; }
   const panels = suitesMaze(seed, floor).gens?.length || 3;
   return (['survive', pool[0], pool[1]] as MissionKind[]).map((k, i) => {
@@ -334,7 +334,9 @@ export const DROP_GAP = 250;
 
 // ── misiones ─────────────────────────────────────────────────────────────
 
-export type MissionKind = 'photos' | 'tapes' | 'soaps' | 'survive' | 'tvs' | 'generators' | 'power' | 'order' | 'eeh' | 'climb' | 'contract';
+/** Las tres misiones del evaporador: las dos a la vez (`eeh`), solo aguantar (`eehsurv`) o solo reiniciarlo (`eehfix`). */
+export const isEeh = (k?: string) => k === 'eeh' || k === 'eehsurv' || k === 'eehfix';
+export type MissionKind = 'photos' | 'tapes' | 'soaps' | 'survive' | 'tvs' | 'generators' | 'power' | 'order' | 'eeh' | 'eehsurv' | 'eehfix' | 'climb' | 'contract';
 /** Las Suites, misión EEH: segundos que hay que aguantar con el Evaporador de Entidades Hostiles roto (falla a los `goal - EEH_HOLD` s de partida). */
 export const EEH_HOLD = 90;
 export interface Mission {
@@ -382,6 +384,8 @@ export function missionText(kind: MissionKind, goal: number) {
   if (kind === 'power') return `SWITCH ON ${goal} POWER PANELS`;
   if (kind === 'order') return `HAND ${goal} ARTIFACTS TO THE STAFF`;
   if (kind === 'eeh') return 'SURVIVE AND REBOOT THE EEH';
+  if (kind === 'eehsurv') return 'SURVIVE THE EEH FAILURE';
+  if (kind === 'eehfix') return 'REBOOT THE EEH';
   if (kind === 'climb') return 'CLIMB TO FLOOR 5 BY THE SERVICE STAIRS';
   if (kind === 'contract') return `${goal} JOBS`;
   return `TURN OFF ${goal} TVS`;
@@ -397,7 +401,9 @@ export function missionHint(kind: MissionKind) {
     generators: 'FIND AND ACTIVATE THE GENERATORS',
     power: 'FIND THE ELECTRIC PANELS ON THE WALLS AND SWITCH THEM ON (G)',
     order: 'FIND ARTIFACTS AND HAND THEM TO ANY FACELING IN THE HALL (G)',
-    eeh: 'THE ENTITY EVAPORATOR (EEH) KEEPS THE STAFF CALM. WHEN THE FIRST TIMER ENDS IT FAILS: ALARM, RED LIGHTS, AND THE STAFF HUNTS YOU. HIDE IN A WARDROBE (E) OR CRAWL THROUGH THE VENTS TO THE SECURITY ROOM AND REBOOT THE EEH (G AT THE TERMINAL); SURVIVING UNTIL THE SECOND TIMER ENDS ALSO COUNTS',
+    eeh: 'THE EEH WILL FAIL. SURVIVE, OR REBOOT IT AT THE SECURITY ROOM TERMINAL (G)',
+    eehsurv: 'THE EEH WILL FAIL AND THE STAFF WILL HUNT YOU. HIDE IN A WARDROBE (E)',
+    eehfix: 'THE EEH WILL FAIL. CRAWL THROUGH THE VENTS TO THE SECURITY ROOM AND REBOOT IT (G)',
     contract: 'COMPLETE JOBS ON ANY FLOOR, THEN TAKE THE ELEVATOR TO -1',
     climb: 'USE THE BACK STAIRS TO REACH FLOOR 5. STAIR DOORS OPEN ONLY ONCE A MISSION IS DONE',
   }[kind];
@@ -408,10 +414,10 @@ export function missionLine(m: Pick<ActiveMission, 'kind' | 'goal' | 'progress'>
     const left = Math.max(0, m.goal - m.progress);
     return `SURVIVE ${Math.floor(left / 60)}:${String(Math.floor(left % 60)).padStart(2, '0')}`;
   }
-  if (m.kind === 'eeh') {
+  if (isEeh(m.kind)) {
     // antes del fallo, la cuenta atrás; después, lo que falta por aguantar (el progreso son los segundos de partida)
     const fail = m.goal - EEH_HOLD, t = m.progress < fail ? fail - m.progress : Math.max(0, m.goal - m.progress);
-    return `${m.progress < fail ? 'EVAPORATOR FAILS IN' : 'STAFF LOOSE · REBOOT THE EEH OR SURVIVE'} ${Math.floor(t / 60)}:${String(Math.floor(t % 60)).padStart(2, '0')}`;
+    return `${m.progress < fail ? 'EVAPORATOR FAILS IN' : (m.kind === 'eehfix' ? 'STAFF LOOSE · REBOOT THE EEH' : m.kind === 'eehsurv' ? 'STAFF LOOSE · SURVIVE' : 'STAFF LOOSE · REBOOT THE EEH OR SURVIVE')} ${Math.floor(t / 60)}:${String(Math.floor(t % 60)).padStart(2, '0')}`;
   }
   return `${{ photos: 'PHOTOS', tapes: 'TAPES', soaps: 'SOAPS', tvs: 'TVS', generators: 'GENERATORS', power: 'PANELS', order: 'ORDER', climb: 'CLIMB', contract: 'JOBS' }[m.kind]} ${Math.min(m.progress, m.goal)}/${m.goal}`;
 }
@@ -440,7 +446,7 @@ export function makeMission(kind: MissionKind, r: () => number, id: string, tvs:
   else if (kind === 'generators') (goal = 5), (reward = 0);
   else if (kind === 'power') (goal = 3), (reward = 90 + 40 * goal);
   else if (kind === 'order') (goal = 2), (reward = 70 + 70 * goal);
-  else if (kind === 'eeh') (goal = 60 + EEH_HOLD), (reward = 400);
+  else if (isEeh(kind)) (goal = 60 + EEH_HOLD), (reward = 400);
   else if (kind === 'climb') (goal = 1), (reward = 600);
   else (goal = Math.min(between(r, 3, 5), tvs)), (reward = 70 + 80 * goal);
   return { id, kind, text: missionText(kind, goal), goal, reward: round10(reward * MISSION_PAY) };
