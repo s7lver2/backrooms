@@ -10,6 +10,7 @@ import { MeshoptDecoder } from 'three/examples/jsm/libs/meshopt_decoder.module.j
 import { compileGently } from './compile';
 import { emoteGate } from './emotes';
 import { CELL, SUITE_L, generateMaze, suitesMaze, wrapX } from './maze';
+import { mazeHash, stateHash } from '@backrooms/shared';
 import { World, center, HEIGHT } from './world';
 import { FLASH } from './lightmap';
 import { Input, type Controls } from './input';
@@ -2210,6 +2211,7 @@ export class BackroomsGame {
     await tick();
     new World(maze, a, hotel).dispose();
     await tick();
+    return mazeHash(maze); // (el servidor la compara con la suya)
   }
 
   closeComputer() {
@@ -2797,6 +2799,11 @@ export class BackroomsGame {
     this.sentX = at.x;
     const socket = reliable ? this.mp.sock : this.mp.sock.volatile;
     socket.emit('state', { victory: emoteGate.victory, x: at.x, tp: this.tp, y: at.y, z: at.z, yaw: at.yaw, pitch: at.pitch, anim: 'Neutral Idle', dance: p.dancing || undefined, variant: p.variant || undefined, light: p.lightOn, duck: p.duck, tank: pl ? p.tankWorn : undefined, held: p.concealed || p.hand === 'watergun' ? 'none' : p.hand, jam: pl ? Math.round(pl.jam) : undefined, hiding: p.concealed, holding: this.holding, t: performance.now() });
+  }
+
+  /** Desarrollo (consola: `__game.stateHash()`): huellas FNV-1a del mapa y de las entidades (posiciones a 1 cm) para comparar a ojo entre dos ejecuciones o dos clientes. */
+  stateHash() {
+    return { maze: this.world ? mazeHash(this.world.maze) : null, ents: stateHash(this.entities.map((e) => ({ id: e.id, x: e.pos.x, z: e.pos.z }))) };
   }
 
   /** Estado de la red para depurar (consola: `__game.netInfo()`): ping, jitter y retraso de dibujo de cada jugador y del mundo. */

@@ -1,9 +1,28 @@
 {
   "$schema": "https://biomejs.dev/schemas/2.6.8/schema.json",
-  "vcs": { "enabled": true, "clientKind": "git", "useIgnoreFile": true },
-  "files": { "includes": ["client/src/**", "server/src/**", "shared/src/**", "tools/**/*.mjs"] },
-  "formatter": { "enabled": false },
-  "assist": { "actions": { "source": { "organizeImports": "off" } } },
+  "vcs": {
+    "enabled": true,
+    "clientKind": "git",
+    "useIgnoreFile": true
+  },
+  "files": {
+    "includes": [
+      "client/src/**",
+      "server/src/**",
+      "shared/src/**",
+      "tools/**/*.mjs"
+    ]
+  },
+  "formatter": {
+    "enabled": false
+  },
+  "assist": {
+    "actions": {
+      "source": {
+        "organizeImports": "off"
+      }
+    }
+  },
   "linter": {
     "rules": {
       "preset": "recommended",
@@ -26,9 +45,29 @@
         "useIterableCallbackReturn": "off",
         "noControlCharactersInRegex": "warn"
       },
-      "complexity": { "noCommaOperator": "off", "noImportantStyles": "off" },
-      "style": { "noNonNullAssertion": "off", "useTemplate": "off", "useImportType": "off", "useNodejsImportProtocol": "off", "useExponentiationOperator": "off", "noDescendingSpecificity": "off" },
+      "complexity": {
+        "noCommaOperator": "off",
+        "noImportantStyles": "off"
+      },
+      "style": {
+        "noNonNullAssertion": "off",
+        "useTemplate": "off",
+        "useImportType": "off",
+        "useNodejsImportProtocol": "off",
+        "useExponentiationOperator": "off",
+        "noDescendingSpecificity": "off"
+      },
       "a11y": "off"
     }
-  }
+  },
+  "overrides": [
+    {
+      "includes": [
+        "shared/src/**"
+      ],
+      "plugins": [
+        "./tools/biome/shared-determinismo.grit"
+      ]
+    }
+  ]
 }

@@ -5,6 +5,7 @@ export * from './pools';
 export * from './suites';
 export * from './lockers';
 export * from './sim';
+export * from './sync';
 export * from './behaviors';
 export * from './progress';
 export * from './missions';
@@ -390,8 +391,8 @@ export interface ClientToServer {
   snap: () => void;
   /** Solo invitados: su color (uno de los gratis). Con cuenta, el aspecto sale de la cuenta. */
   look: (color: string) => void;
-  /** Listo / no listo en la sala de espera. En la fase `starting` (votación): `true` = este cliente ya tiene el nivel cargado. */
-  ready: (on: boolean) => void;
+  /** Listo / no listo en la sala de espera. En la fase `starting` (votación): `true` = este cliente ya tiene el nivel cargado; `mazeHash` (opcional) es la huella del mapa que ha generado, para que el servidor avise de desincronización. */
+  ready: (on: boolean, mazeHash?: number) => void;
   /** Terminar un tramo de cinta (el servidor le pone id y dueño y lo reparte). */
   strip: (pts: number[], y?: number) => void;
   /** Quitar un tramo (el de cualquiera). */

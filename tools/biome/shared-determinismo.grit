@@ -1,0 +1,9 @@
+language js;
+
+// shared/ ha de ser determinista (la misma simulación y los mismos mapas en cliente y servidor): ver docs/DECISIONES.md
+or {
+  `Math.random()` as $x,
+  `Date.now()` as $x
+} where {
+  register_diagnostic(span = $x, message = "shared/ debe ser determinista: nada de Math.random() ni Date.now() (usa la semilla / el dt que llega).", severity = "warn")
+}

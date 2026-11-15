@@ -613,7 +613,7 @@ export default function Backrooms({ onQuit, onWin }: { onQuit: () => void; onWin
     const ph = net.room?.phase;
     if (!ascend || !room || !sock || ph !== 'starting') return;
     let alive = true;
-    const done = () => alive && sock.emit('ready', true);
+    const done = (h?: unknown) => alive && sock.emit('ready', true, typeof h === 'number' ? h : undefined); // (h: la huella del mapa, para el aviso [desync] del servidor)
     game.current!.warmLevel(room.seed, room.players.length, room.levelId, room.floor).then(done, done);
     return () => void (alive = false);
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -774,7 +774,7 @@ export default function Backrooms({ onQuit, onWin }: { onQuit: () => void; onWin
     input.suspend = input.noLock = true; // el cursor, para votar: suelto, y nada lo vuelve a capturar hasta que acabe
     input.unlock();
     let alive = true;
-    const done = () => alive && sock.emit('ready', true);
+    const done = (h?: unknown) => alive && sock.emit('ready', true, typeof h === 'number' ? h : undefined); // (h: la huella del mapa, para el aviso [desync] del servidor)
     game.current!.warmLevel(room.seed, room.players.length, room.levelId, room.floor).then(done, done);
     return () => void ((alive = false), (input.suspend = input.noLock = false));
     // eslint-disable-next-line react-hooks/exhaustive-deps

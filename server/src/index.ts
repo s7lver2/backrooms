@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs';
 import { Server } from 'socket.io';
 import {
   SERVER_PORT, MAX_PLAYERS, DEFAULT_PLAYERS, DEFAULT_LOOK, cosmetic, lookAllowed, HP_MAX, NAME_MAX, CHAT_MAX, CHAT_GAP, ROOM_NAME_MAX, DIFFICULTY, START_DELAY, VOTE_TIME, LOAD_GRACE, WAIT_HALF, WAIT_SPAWNS, EMOTES, EMOTE_GAP, STRIP_MAX, STRIP_PTS, STRIP_GAP, REVIVE_IMMUNE, REVIVE_MIN,
-  START_BANK, AMMO_PACK, HIT_DAMAGE, START_INV, EMPTY_INV, INV_MAX, ASCENT_GRACE, DROP_MAX, DROP_TTL, DROP_GAP, offerMissions, poolMissions, parkingMissions, parkingSpawn, parkingFits, suitesMissions, isEeh, contractOffers, SUITE_FLOORS, SUITE_FALL, pickLevel, tvCount, generateMaze, cleanInv, addItem, canHold, hasItem, removeItem, purchase, shopItem, penaltyOf, ITEM_IDS, LEVELS, centerOf,
+  START_BANK, AMMO_PACK, HIT_DAMAGE, START_INV, EMPTY_INV, INV_MAX, ASCENT_GRACE, DROP_MAX, DROP_TTL, DROP_GAP, offerMissions, poolMissions, parkingMissions, parkingSpawn, parkingFits, suitesMissions, isEeh, contractOffers, SUITE_FLOORS, SUITE_FALL, pickLevel, tvCount, generateMaze, suitesMaze, mazeHash, cleanInv, addItem, canHold, hasItem, removeItem, purchase, shopItem, penaltyOf, ITEM_IDS, LEVELS, centerOf,
   type ItemId, type ToolFx, flight, FLIGHT_DT, BALL_KINDS, CELL, type Maze, type Inventory, type Mission, type MissionOffer, type RoundResult, type Fate, type Drop, type ActiveMission,
   type AdminAction, type AdminInfo, type AdminReply, type ClientToServer, type ServerToClient, type Status, type PlayerState, type Room, type RoomView, type RoomInfo, type Look, type Strip,
 } from '@backrooms/shared';
@@ -693,12 +693,17 @@ io.on('connection', (sock) => {
     push(r);
   });
 
-  sock.on('ready', (on) => {
+  sock.on('ready', (on, hash) => {
     const r = roomOf(sock.id), p = r?.players.get(sock.id);
     if (!r || !p) return;
     if (r.phase === 'starting') {
       // durante la votación: este cliente ya tiene el nivel cargado
       if (on) (r.loaded.add(sock.id), push(r));
+      // el cliente dice qué mapa ha generado: si no es el del servidor (misma semilla, mismos jugadores), los dos han derivado cosas distintas
+      if (on && typeof hash === 'number' && r.levelId !== 'parking' && !levelCaps(r.levelId).pool) {
+        const mine = mazeHash(levelCaps(r.levelId).hotel ? suitesMaze(r.seed, r.floor) : generateMaze(r.seed, r.players.size));
+        if (mine !== hash) console.warn(`[desync] mapa distinto: nivel=${r.levelId} semilla=${r.seed} planta=${r.floor} jugadores=${r.players.size} servidor=${mine} cliente=${hash} sala=${r.code}`);
+      }
       return;
     }
     if (r.phase !== 'lobby') return;
