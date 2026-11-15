@@ -267,6 +267,14 @@ export default function SettingsPane({ muted, toggleSound, onBack }: { muted: bo
                     <input type="range" className="br-range" aria-label={r.label} min={0} max={PRESETS.length} step={1} value={pv} onChange={(e) => applyPreset(Number(e.target.value))} />
                     <output className="br-row__v">{PRESETS[pv]?.[0] ?? 'CUSTOM'}</output>
                   </span>
+                ) : r.num?.labels ? (
+                  <span className="br-row__c br-row__c--seg" role="radiogroup" aria-label={r.label}>
+                    {r.num.labels.map((l, i) => (
+                      <button key={l} type="button" className="br-seg" role="radio" aria-checked={Math.round(s[r.num!.k]) === i} onClick={() => setSetting(r.num!.k, i)}>
+                        {l}
+                      </button>
+                    ))}
+                  </span>
                 ) : r.num ? (
                   <span className="br-row__c">
                     <input type="range" className="br-range" aria-label={r.label} min={r.num.min} max={r.num.max} step={r.num.step} value={s[r.num.k]} onChange={(e) => setSetting(r.num!.k, Number(e.target.value))} />

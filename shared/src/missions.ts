@@ -229,7 +229,7 @@ export const ITEMS: Record<ItemId, ItemDef> = {
   nokia: { name: 'NOKIA', price: 400, info: 'Call any teammate and talk as if they were next to you. The battery runs out while you talk.', slot: 'nokia', hot: true, boost: 'BATTERY', level: 'suites' },
   bat: { name: 'BASEBALL BAT', price: 350, info: 'Knocks entities and teammates far back. It can break.', slot: 'bat', hot: true, boost: 'KNOCKBACK', level: 'suites' },
   totem: { name: 'TOTEM OF LIFE', price: 650, info: 'Brings back a fallen teammate.', slot: 'totem', hot: true },
-  glasses: { name: 'X-RAY GLASSES', price: 400, info: 'Wear them in your off hand and toggle with F, like the flashlight (one or the other). Warden-style vision shows pickups, generators, the exit, entities and teammates through walls. 20 seconds in total, spend them as you like; at 0 they break.', slot: 'glasses', hot: true, level: 'parking' },
+  glasses: { name: 'X-RAY GLASSES', price: 400, info: 'Off hand, toggle with F. See pickups, exit, entities and teammates through walls. 20 s total, then they break.', slot: 'glasses', hot: true, level: 'parking' },
   pills: { name: 'PILLS', price: 260, info: 'Three doses. Each costs 25% of your current health and gives 30 seconds of +10% speed, +8% stamina and +5% jump; when it wears off you regain double the health it took.', slot: 'pills', pack: 3, hot: true, level: 'parking' },
   steelcard: { name: 'STEEL CARD', price: 240, info: 'Roll for a shop item. A 5% chance speeds up entities by 0.5 m/s instead.', slot: 'steelcard', hot: true, level: 'parking' },
   beer: { name: 'BEER BOTTLE', price: 100, info: 'Throw to lure entities to the impact. A direct hit deals 5% health damage to a player.', slot: 'beer', hot: true, level: 'parking' },
