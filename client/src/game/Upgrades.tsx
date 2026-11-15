@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { ITEMS, ITEM_IDS, LEVELS, UPGRADES, UP_IDS, upCost, upLevel, type ItemId, type UpId, type Ups } from '@backrooms/shared';
+import { ITEMS, ITEM_IDS, LEVELS, UPGRADES, UP_IDS, boughtBefore, upCost, upLevel, type ItemId, type UpId, type Ups } from '@backrooms/shared';
 import type { Assets } from './game';
 import { gearIcons } from './invIcons';
 import ItemView from './ItemView';
@@ -43,7 +43,12 @@ const NODES = UP_IDS.flatMap((id) => {
   });
 });
 const node = (k: NodeKey) => NODES.find((n) => n.key === k)!;
-const PH = Math.max(...NODES.map((n) => n.row)) + 2; // (las fases son las filas 0…PH-2)
+/** Las columnas del árbol, de izquierda a derecha: fases (las filas de UPGRADES) y, entre ellas, las puertas (los nodos que abren un nivel). */
+const COLS: { gate?: UpId; rows: number[]; label: string }[] = [
+  { rows: [0], label: 'PHASE I' }, { rows: [1], label: 'PHASE II' }, { rows: [2], label: 'PHASE III' },
+  { gate: 'pool', rows: [], label: 'GATE' }, { rows: [3, 4], label: 'PHASE IV' },
+  { gate: 'parking', rows: [], label: 'GATE' }, { gate: 'suites', rows: [], label: 'GATE' }, { rows: [7], label: 'PHASE V' },
+];
 const nameOf = (k: NodeKey) => {
   const n = node(k), d = UPGRADES[n.id];
   return d.stages.length > 1 ? `${d.name} ${ROMAN[n.i]}` : d.name;
@@ -85,8 +90,9 @@ export default function Upgrades({ bank, ups, sock, assets }: { bank: number; up
   const state = (k: NodeKey) => {
     const nd = node(k), d = UPGRADES[nd.id], L = upLevel(ups, nd.id), lv = Math.max(0, Math.min(nd.n, L - nd.from));
     const need = d.stages[nd.i].needs?.find(([n, k]) => upLevel(ups, n) < k), needOk = !need;
-    const locked = L < nd.from || !needOk, done = lv >= nd.n, cost = locked || done ? null : (upCost(ups, nd.id) ?? null);
-    return { nd, d, lv, max: nd.n, cost, locked, done, poor: cost !== null && bank < cost, need: needOk ? undefined : need };
+    const any = d.stages[nd.i].any, have = any ? boughtBefore(ups, nd.row) : 0, anyOk = !any || have >= any;
+    const locked = L < nd.from || !needOk || !anyOk, done = lv >= nd.n, cost = locked || done ? null : (upCost(ups, nd.id) ?? null);
+    return { nd, d, lv, max: nd.n, cost, locked, done, poor: cost !== null && bank < cost, need: needOk ? undefined : need, any: any && !anyOk ? { have, any } : undefined };
   };
   const shown = hover ?? sel, s = state(shown);
   const best = NODES.filter((n) => { const t = state(n.key); return !t.locked && !t.done && !t.poor; }).sort((x, y) => (state(x.key).cost ?? 0) - (state(y.key).cost ?? 0))[0]?.key;
@@ -107,46 +113,77 @@ export default function Upgrades({ bank, ups, sock, assets }: { bank: number; up
       </p>
       <div className="br-tree">
         <div className="br-tree__scroll">
-          <div className="br-tree__grid" role="tree" aria-label="Upgrades" style={{ gridTemplateRows: `auto repeat(${PH - 1}, minmax(6.2em, auto))` }}>
-            {LANES.map((l, c) => (
-              <p key={l} className="br-tree__lane" style={{ gridColumn: c + 2, gridRow: 1 }}>{l}</p>
-            ))}
-            {LANES.map((_, c) => <i key={c} className="br-tree__rail" style={{ gridColumn: c + 2, gridRow: `2 / ${PH + 1}` }} aria-hidden="true" />)}
-            {Array.from({ length: PH - 1 }, (_, p) => (
-              <p key={p} className="br-tree__ph" style={{ gridColumn: 1, gridRow: p + 2 }}>{ROMAN[p]}</p>
-            ))}
-            {NODES.map(({ key: id, id: up, row }) => {
-              const st = state(id), tag = st.locked ? 'LOCKED' : st.done ? 'MAXED' : `+ $${st.cost}`, buyable = !st.locked && !st.done;
-              return (
-                <button
-                  key={id}
-                  type="button"
-                  role="treeitem"
-                  className="br-tree__node"
-                  data-nav
-                  style={{ gridColumn: UPGRADES[up].col + 2, gridRow: row + 2 }}
-                  aria-selected={shown === id}
-                  aria-label={`${nameOf(id)}, level ${st.lv} of ${st.max}, ${tag}`}
-                  data-locked={st.locked || undefined}
-                  data-done={st.done || undefined}
-                  data-next={(buyable && !st.poor) || undefined}
-                  data-poor={(buyable && st.poor) || undefined}
-                  data-flash={flash === up || undefined}
-                  onClick={() => setSel(id)}
-                  onDoubleClick={() => buyable && !st.poor && buy(up)}
-                  onMouseEnter={() => setHover(id)}
-                  onMouseLeave={() => setHover(null)}
-                  onFocus={() => setSel(id)}
-                >
-                  <span className="br-tree__top">
-                    <Icon d={ICON[up] ?? STAR} />
-                    <span className="br-tree__rn">{nameOf(id)}</span>
-                  </span>
-                  <span className="br-tree__rl">{'▰'.repeat(st.lv)}<span className="off">{'▱'.repeat(st.max - st.lv)}</span></span>
-                  <span className="br-tree__rv">{st.d.fmt(st.d.val[st.nd.from + st.lv])}</span>
-                  <span className="br-tree__tag">{tag}</span>
-                </button>
-              );
+          <div className="br-tree__grid" role="tree" aria-label="Upgrades" style={{ gridTemplateColumns: `5.5em ${COLS.map((c) => (c.gate ? '8.5em' : 'minmax(9em, 1fr)')).join(' ')}` }}>
+            {COLS.map((c, i) => <p key={i} className="br-tree__lane" data-gate={c.gate ? '' : undefined} style={{ gridColumn: i + 2, gridRow: 1 }}>{c.label}</p>)}
+            {LANES.map((l, r) => <p key={l} className="br-tree__ph" style={{ gridColumn: 1, gridRow: r + 2 }}>{l}</p>)}
+            {LANES.map((_, r) => <i key={r} className="br-tree__rail" style={{ gridColumn: `2 / ${COLS.length + 2}`, gridRow: r + 2 }} aria-hidden="true" />)}
+            {COLS.map((c, ci) => {
+              if (c.gate) {
+                const id = NODES.find((n) => n.id === c.gate)!.key, st = state(id), tag = st.done ? 'OPEN' : st.locked ? 'LOCKED' : `+ $${st.cost}`;
+                return (
+                  <button
+                    key={ci}
+                    type="button"
+                    role="treeitem"
+                    className="br-tree__gate"
+                    data-nav
+                    style={{ gridColumn: ci + 2, gridRow: `2 / ${LANES.length + 2}` }}
+                    aria-selected={shown === id}
+                    aria-label={`${nameOf(id)}, ${tag}`}
+                    data-locked={st.locked || undefined}
+                    data-done={st.done || undefined}
+                    data-next={(!st.locked && !st.done && !st.poor) || undefined}
+                    data-poor={(!st.locked && !st.done && st.poor) || undefined}
+                    data-flash={flash === c.gate || undefined}
+                    onClick={() => setSel(id)}
+                    onDoubleClick={() => !st.locked && !st.done && !st.poor && buy(c.gate!)}
+                    onMouseEnter={() => setHover(id)}
+                    onMouseLeave={() => setHover(null)}
+                    onFocus={() => setSel(id)}
+                  >
+                    <Icon d={ICON[c.gate] ?? STAR} />
+                    <b>{nameOf(id)}</b>
+                    <span>{st.done ? 'UNLOCKED' : st.any ? `${st.any.have}/${st.any.any} UPGRADES` : st.need ? `NEEDS ${UPGRADES[st.need[0]].name}` : 'READY'}</span>
+                    <span className="br-tree__tag">{tag}</span>
+                  </button>
+                );
+              }
+              return LANES.map((_, li) => (
+                <div key={`${ci}-${li}`} className="br-tree__cell" style={{ gridColumn: ci + 2, gridRow: li + 2 }}>
+                  {NODES.filter((n) => !UPGRADES[n.id].level && UPGRADES[n.id].col === li && c.rows.includes(n.row)).map(({ key: id, id: up }) => {
+                    const st = state(id), tag = st.locked ? 'LOCKED' : st.done ? 'MAXED' : `+ $${st.cost}`, buyable = !st.locked && !st.done;
+                    return (
+                      <button
+                        key={id}
+                        type="button"
+                        role="treeitem"
+                        className="br-tree__node"
+                        data-nav
+                        aria-selected={shown === id}
+                        aria-label={`${nameOf(id)}, level ${st.lv} of ${st.max}, ${tag}`}
+                        data-locked={st.locked || undefined}
+                        data-done={st.done || undefined}
+                        data-next={(buyable && !st.poor) || undefined}
+                        data-poor={(buyable && st.poor) || undefined}
+                        data-flash={flash === up || undefined}
+                        onClick={() => setSel(id)}
+                        onDoubleClick={() => buyable && !st.poor && buy(up)}
+                        onMouseEnter={() => setHover(id)}
+                        onMouseLeave={() => setHover(null)}
+                        onFocus={() => setSel(id)}
+                      >
+                        <span className="br-tree__top">
+                          <Icon d={ICON[up] ?? STAR} />
+                          <span className="br-tree__rn">{nameOf(id)}</span>
+                        </span>
+                        <span className="br-tree__rl">{'▰'.repeat(st.lv)}<span className="off">{'▱'.repeat(st.max - st.lv)}</span></span>
+                        <span className="br-tree__rv">{st.d.fmt(st.d.val[st.nd.from + st.lv])}</span>
+                        <span className="br-tree__tag">{tag}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+              ));
             })}
           </div>
         </div>
@@ -201,7 +238,7 @@ export default function Upgrades({ bank, ups, sock, assets }: { bank: number; up
             </>
           )}
           <button type="button" className="br-opt" data-nav disabled={s.locked || s.done || s.poor || busy} onClick={() => (setSel(shown), buy(s.nd.id))}>
-            {s.locked ? (s.need ? `NEEDS ${UPGRADES[s.need[0]].name} ${s.need[1]}` : 'FINISH THE PREVIOUS PHASE') : s.done ? 'MAXED OUT' : s.poor ? `$${s.cost} · NO FUNDS` : `UPGRADE · $${s.cost}`}
+            {s.locked ? (s.any ? `BUY ${s.any.any - s.any.have} MORE UPGRADES FIRST (${s.any.have}/${s.any.any})` : s.need ? `NEEDS ${UPGRADES[s.need[0]].name} ${s.need[1]}` : 'FINISH THE PREVIOUS STEP') : s.done ? 'MAXED OUT' : s.poor ? `$${s.cost} · NO FUNDS` : `UPGRADE · $${s.cost}`}
           </button>
           <p className="br-lobby__sub" role={msg.bad ? 'alert' : 'status'} data-bad={msg.bad || undefined}>
             {msg.t || 'PICK A NODE. DOUBLE CLICK BUYS.'}
