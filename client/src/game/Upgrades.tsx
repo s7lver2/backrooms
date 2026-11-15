@@ -30,6 +30,7 @@ const ICON: Partial<Record<UpId, string>> = {
 const STAR = 'M12 3l2.7 5.6 6.1.8-4.5 4.2 1.1 6-5.4-3-5.4 3 1.1-6L3.2 9.4l6.1-.8z';
 const YOU = 'M12 4a3 3 0 1 0 0 6 3 3 0 0 0 0-6zM5 21v-3a5 5 0 0 1 5-5h4a5 5 0 0 1 5 5v3';
 
+const LANES = ['CARRY', 'TOOLS', 'HEALTH', 'MOVE'];
 const ROMAN = ['I', 'II', 'III', 'IV', 'V', 'VI', 'VII', 'VIII'];
 /** Los nodos: cada mejora se reparte en tramos (UPGRADES[id].stages); un nodo es un tramo con sus niveles (`from`: el nivel de la mejora en el que empieza). */
 type NodeKey = string;
@@ -69,12 +70,14 @@ export default function Upgrades({ bank, ups, sock, assets }: { bank: number; up
   const [hover, setHover] = useState<NodeKey | null>(null);
   const [msg, setMsg] = useState<{ t: string; bad: boolean }>({ t: '', bad: false });
   const [busy, setBusy] = useState(false);
+  const [flash, setFlash] = useState<UpId | null>(null); // la mejora recién comprada: su casilla destella
   const buy = (id: UpId) => {
     if (!sock || busy) return;
     setBusy(true);
     sock.emit('upgrade', id, (r) => {
       setBusy(false);
       sound(r.ok ? 'upgrade' : 'denied');
+      if (r.ok) (setFlash(id), setTimeout(() => setFlash(null), 1400));
       setMsg(r.ok ? { t: `${UPGRADES[id].name} UPGRADED`, bad: false } : { t: (r.error ?? 'COULD NOT UPGRADE').toUpperCase(), bad: true });
     });
     setTimeout(() => setBusy(false), 2000); // sin respuesta del servidor no se queda bloqueado
@@ -86,6 +89,7 @@ export default function Upgrades({ bank, ups, sock, assets }: { bank: number; up
     return { nd, d, lv, max: nd.n, cost, locked, done, poor: cost !== null && bank < cost, need: needOk ? undefined : need };
   };
   const shown = hover ?? sel, s = state(shown);
+  const best = NODES.filter((n) => { const t = state(n.key); return !t.locked && !t.done && !t.poor; }).sort((x, y) => (state(x.key).cost ?? 0) - (state(y.key).cost ?? 0))[0]?.key;
   return (
     <div className="br-shop">
       <p className="br-shop__bank">
@@ -93,50 +97,59 @@ export default function Upgrades({ bank, ups, sock, assets }: { bank: number; up
         <b>${bank}</b>
         <span className="br-lobby__dim br-shop__note">UPGRADES ARE YOURS, IN THIS ROOM</span>
       </p>
+      <p className="br-tree__best">
+        {best ? (
+          <button type="button" className="br-opt" data-nav onClick={() => setSel(best)}>NEXT BEST BUY: {nameOf(best)} · ${state(best).cost}</button>
+        ) : (
+          <span className="br-lobby__dim">NOTHING YOU CAN AFFORD RIGHT NOW</span>
+        )}
+        <span className="br-lobby__dim">GREEN = BUY NOW · DIM = LOCKED · DOUBLE CLICK BUYS</span>
+      </p>
       <div className="br-tree">
-        <ul className="br-tree__list" role="tree" aria-label="Upgrades">
-          {Array.from({ length: PH - 1 }, (_, p) => {
-            const here = NODES.filter((n) => n.row === p).sort((x, y) => UPGRADES[x.id].col - UPGRADES[y.id].col), got = here.reduce((n, x) => n + state(x.key).lv, 0), all = here.reduce((n, x) => n + x.n, 0);
-            return (
-              <li key={p} className="br-tree__grp">
-                <p className="br-tree__gh">
-                  <span>PHASE {ROMAN[p]}</span>
-                  <span>{got}/{all}</span>
-                </p>
-                <ul>
-                  {here.map(({ key: id, id: up }) => {
-                    const st = state(id), tag = st.locked ? 'LOCKED' : st.done ? 'MAX' : `$${st.cost}`;
-                    return (
-                      <li key={id}>
-                        <button
-                          type="button"
-                          role="treeitem"
-                          className="br-tree__row"
-                          data-nav
-                          aria-selected={shown === id}
-                          aria-label={`${nameOf(id)}, level ${st.lv} of ${st.max}, ${tag}`}
-                          data-locked={st.locked || undefined}
-                          data-done={st.done || undefined}
-                          data-poor={(!st.locked && !st.done && st.poor) || undefined}
-                          onClick={() => setSel(id)}
-                          onDoubleClick={() => !st.locked && !st.done && !st.poor && buy(up)}
-                          onMouseEnter={() => setHover(id)}
-                          onMouseLeave={() => setHover(null)}
-                          onFocus={() => setSel(id)}
-                        >
-                          <Icon d={ICON[up] ?? STAR} />
-                          <span className="br-tree__rn">{nameOf(id)}</span>
-                          <span className="br-tree__rl">{'▰'.repeat(st.lv)}<span className="off">{'▱'.repeat(st.max - st.lv)}</span></span>
-                          <span className="br-tree__tag">{tag}</span>
-                        </button>
-                      </li>
-                    );
-                  })}
-                </ul>
-              </li>
-            );
-          })}
-        </ul>
+        <div className="br-tree__scroll">
+          <div className="br-tree__grid" role="tree" aria-label="Upgrades" style={{ gridTemplateRows: `auto repeat(${PH - 1}, minmax(6.2em, auto))` }}>
+            {LANES.map((l, c) => (
+              <p key={l} className="br-tree__lane" style={{ gridColumn: c + 2, gridRow: 1 }}>{l}</p>
+            ))}
+            {LANES.map((_, c) => <i key={c} className="br-tree__rail" style={{ gridColumn: c + 2, gridRow: `2 / ${PH + 1}` }} aria-hidden="true" />)}
+            {Array.from({ length: PH - 1 }, (_, p) => (
+              <p key={p} className="br-tree__ph" style={{ gridColumn: 1, gridRow: p + 2 }}>{ROMAN[p]}</p>
+            ))}
+            {NODES.map(({ key: id, id: up, row }) => {
+              const st = state(id), tag = st.locked ? 'LOCKED' : st.done ? 'MAXED' : `+ $${st.cost}`, buyable = !st.locked && !st.done;
+              return (
+                <button
+                  key={id}
+                  type="button"
+                  role="treeitem"
+                  className="br-tree__node"
+                  data-nav
+                  style={{ gridColumn: UPGRADES[up].col + 2, gridRow: row + 2 }}
+                  aria-selected={shown === id}
+                  aria-label={`${nameOf(id)}, level ${st.lv} of ${st.max}, ${tag}`}
+                  data-locked={st.locked || undefined}
+                  data-done={st.done || undefined}
+                  data-next={(buyable && !st.poor) || undefined}
+                  data-poor={(buyable && st.poor) || undefined}
+                  data-flash={flash === up || undefined}
+                  onClick={() => setSel(id)}
+                  onDoubleClick={() => buyable && !st.poor && buy(up)}
+                  onMouseEnter={() => setHover(id)}
+                  onMouseLeave={() => setHover(null)}
+                  onFocus={() => setSel(id)}
+                >
+                  <span className="br-tree__top">
+                    <Icon d={ICON[up] ?? STAR} />
+                    <span className="br-tree__rn">{nameOf(id)}</span>
+                  </span>
+                  <span className="br-tree__rl">{'▰'.repeat(st.lv)}<span className="off">{'▱'.repeat(st.max - st.lv)}</span></span>
+                  <span className="br-tree__rv">{st.d.fmt(st.d.val[st.nd.from + st.lv])}</span>
+                  <span className="br-tree__tag">{tag}</span>
+                </button>
+              );
+            })}
+          </div>
+        </div>
         <aside className="br-tree__card" aria-live="polite">
           <div className="br-tree__head">
             <span className="br-tree__badge" data-got={s.lv > 0 || undefined}>
@@ -151,7 +164,17 @@ export default function Upgrades({ bank, ups, sock, assets }: { bank: number; up
             {'▰'.repeat(s.lv)}
             <span className="br-lobby__dim">{'▱'.repeat(s.max - s.lv)}</span>
           </p>
-          <p className="br-tree__val">
+          {s.d.val.length > 2 && (() => {
+            const lo = s.d.val[0], hi = s.d.val[s.d.val.length - 1], f = (v: number) => (v - lo) / (hi - lo || 1), cur = s.d.val[s.nd.from + s.lv], nxt = s.d.val[s.nd.from + s.lv + 1];
+            const bars = (x: number) => (<>{'▮'.repeat(Math.round(f(x) * 12))}<span className="off">{'▮'.repeat(12 - Math.round(f(x) * 12))}</span></>);
+            return (
+              <p className="br-tree__cmp" data-flash={flash === s.nd.id || undefined}>
+                <span>NOW {bars(cur)}</span>
+                {!s.done && nxt !== undefined && <span className="br-tree__after">NEXT {bars(nxt)}</span>}
+              </p>
+            );
+          })()}
+          <p className="br-tree__val" data-flash={flash === s.nd.id || undefined}>
             {s.d.fmt(s.d.val[s.nd.from + s.lv])}
             {!s.done && <span className="br-lobby__dim"> → {s.d.fmt(s.d.val[s.nd.from + s.lv + 1])}</span>}
           </p>
