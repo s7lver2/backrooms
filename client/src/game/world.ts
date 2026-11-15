@@ -1410,6 +1410,53 @@ export class World implements Terrain {
       this.root.add(this.dust);
     }
 
+    // los conductos de ventilación (Las Suites): rejillas en las suites, en las entradas del laberinto y en la sala de control; fugas de gas; el terminal del EEH
+    if (maze.vents?.length) {
+      const tex = (() => {
+        const c = Object.assign(document.createElement('canvas'), { width: 128, height: 96 }), g = c.getContext('2d')!;
+        g.fillStyle = '#7d8280', g.fillRect(0, 0, 128, 96);
+        g.fillStyle = '#0a0b0b';
+        for (let y = 10; y < 90; y += 11) g.fillRect(10, y, 108, 6);
+        g.strokeStyle = '#4d5150', g.lineWidth = 4, g.strokeRect(2, 2, 124, 92);
+        const t = new THREE.CanvasTexture(c);
+        t.colorSpace = THREE.SRGBColorSpace;
+        return t;
+      })();
+      const gm = new THREE.MeshStandardMaterial({ map: tex, metalness: 0.5, roughness: 0.5 });
+      lightmapped(gm);
+      const gg = new THREE.PlaneGeometry(0.8, 0.6);
+      for (const v of maze.vents) {
+        const m = new THREE.Mesh(gg, gm), [nx, nz] = DIRS[v.face] ?? DIRS[0];
+        m.position.set(v.x + nx * 0.02, 0.45, v.z + nz * 0.02);
+        m.rotation.y = Math.atan2(nx, nz);
+        this.root.add(m);
+      }
+    }
+    if (maze.gas?.length) {
+      this.gasMat = new THREE.MeshBasicMaterial({ color: 0x7bd84a, transparent: true, opacity: 0.2, depthWrite: false, side: THREE.DoubleSide });
+      const gb = new THREE.BoxGeometry(CELL * 0.98, 1.7, CELL * 0.98);
+      for (const c of maze.gas) {
+        const m = new THREE.Mesh(gb, this.gasMat), p = center(c);
+        m.position.set(p.x, 0.9, p.z);
+        this.root.add(m);
+      }
+    }
+    if (maze.control) {
+      const k = maze.control.console, cv = Object.assign(document.createElement('canvas'), { width: 256, height: 112 });
+      this.eehTex = new THREE.CanvasTexture(cv);
+      this.eehTex.colorSpace = THREE.SRGBColorSpace;
+      const grp = new THREE.Group(), [nx, nz] = DIRS[k.face] ?? DIRS[0];
+      grp.position.set(k.x, 0, k.z);
+      grp.rotation.y = Math.atan2(nx, nz);
+      const base = new THREE.Mesh(new THREE.BoxGeometry(1.6, 0.9, 0.5), new THREE.MeshStandardMaterial({ color: 0x2b2e2d, metalness: 0.5, roughness: 0.5 }));
+      base.position.set(0, 0.45, -0.28);
+      const scr = new THREE.Mesh(new THREE.PlaneGeometry(1.3, 0.57), new THREE.MeshBasicMaterial({ map: this.eehTex }));
+      scr.position.set(0, 1.2, -0.1);
+      grp.add(base, scr);
+      this.root.add(grp);
+      this.eehScreen(true);
+    }
+
     // el ascensor: su celda (un callejón) es la cabina, de metal; las puertas, en la boca de la celda
     // mirando afuera, con pared a los lados y encima. El modelo trae dos puertas juntas: se queda con una
     const exits = maze.props.filter((p) => p.kind === 'exit'), e = exits.find((p) => p.cell.x === maze.elevator.x && p.cell.y === maze.elevator.y) ?? exits[0];
@@ -1629,7 +1676,24 @@ export class World implements Terrain {
   private cullable?: THREE.InstancedMesh[];
   private doorGroups: THREE.Object3D[] = [];
   private roomDoor?: Map<number, (typeof this.doors)[number]>;
+  private gasMat?: THREE.MeshBasicMaterial;
+  private eehTex?: THREE.CanvasTexture;
+  private eehShown: boolean | null = null;
+  /** El terminal de la sala de control: `down` = el EEH está roto (se puede restaurar). */
+  eehScreen(down: boolean) {
+    if (!this.eehTex || down === this.eehShown) return;
+    this.eehShown = down;
+    const c = this.eehTex.image as HTMLCanvasElement, g = c.getContext('2d')!;
+    g.fillStyle = '#050806', g.fillRect(0, 0, 256, 112);
+    g.textAlign = 'center', g.textBaseline = 'middle';
+    g.fillStyle = down ? '#ff4a3a' : '#5dff8a';
+    g.font = 'bold 22px monospace', g.fillText('E.E.H. · EVAPORATOR', 128, 26);
+    g.font = 'bold 30px monospace', g.fillText(down ? 'OFFLINE' : 'ONLINE', 128, 62);
+    g.font = '14px monospace', g.fillText(down ? 'PRESS E TO RESTORE' : 'ALL SYSTEMS NOMINAL', 128, 92);
+    this.eehTex.needsUpdate = true;
+  }
   update(t: number, dt: number) {
+    if (this.gasMat) this.gasMat.opacity = 0.17 + 0.06 * Math.sin(t * 2.1);
     const v = this.viewer;
     if (v) {
       this.cullable ??= this.root.children.filter((o) => o.userData.cull) as THREE.InstancedMesh[];

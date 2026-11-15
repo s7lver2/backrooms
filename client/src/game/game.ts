@@ -481,6 +481,38 @@ export class BackroomsGame {
   /** Las Suites: la planta en la que se está (el ascensor y la escalera solo suben a la siguiente) y el rayo con el que se apunta a los botones. */
   private floorNo = 1;
   private readonly aimRay = new THREE.Raycaster();
+  /** Las Suites: las rejillas de ventilación (E ante una te lleva a donde da) y el terminal de la sala de control (restaura el EEH). */
+  private ventAct(cc: Controls): Controls {
+    const p = this.player, w = this.world;
+    if (!p || !w) return cc;
+    const m = w.maze, x = p.pos.x, z = p.pos.z, fx = -Math.sin(p.yaw), fz = -Math.cos(p.yaw), D = [[1, 0], [-1, 0], [0, 1], [0, -1]];
+    for (const v of m.vents ?? []) {
+      const dx = v.x - x, dz = v.z - z, d = Math.hypot(dx, dz), [nx, nz] = D[v.face];
+      if (d > 1.6 || (dx * fx + dz * fz) / (d || 1) < 0.45 || (x - v.x) * nx + (z - v.z) * nz < 0) continue; // cerca, mirándola y por su lado
+      this.doorAct = v.to.z > 19 * CELL ? 'ENTER THE VENT' : 'CLIMB OUT';
+      if (cc.grab) {
+        this.audio?.click();
+        p.spawn(new THREE.Vector3(v.to.x, 0, v.to.z), v.to.yaw);
+        return { ...cc, grab: false };
+      }
+      return cc;
+    }
+    const k = m.control?.console;
+    if (k && Math.hypot(k.x - x, k.z - z) < 2) {
+      this.doorAct = this.eehSnap ? 'RESTORE THE EEH' : 'EEH ONLINE';
+      if (cc.grab && this.eehSnap)
+        this.mp?.sock.emit('eehRestore', (ok) => (this.note = { text: ok ? 'EEH RESTORED · THE STAFF CALMS DOWN' : 'COULD NOT RESTORE THE EEH', until: performance.now() + 4000 }));
+      return cc.grab ? { ...cc, grab: false } : cc;
+    }
+    return cc;
+  }
+  /** ¿Estoy en una celda de los conductos con gas? */
+  private inGas() {
+    const w = this.world, p = this.player;
+    if (!w || !p || !w.maze.gas?.length) return false;
+    const cx = Math.floor(p.pos.x / CELL), cy = Math.floor(p.pos.z / CELL);
+    return w.maze.gas.some((c) => c.x === cx && c.y === cy);
+  }
   /** Se ha pulsado el botón de la planta `f` en la cabina: sube. */
   pickFloor(f: number) {
     if (!this.items) return;
@@ -1166,6 +1198,8 @@ export class BackroomsGame {
           if (!it.powered) this.doorAct = `ELEVATOR HAS NO POWER · SWITCH ON THE PANELS ${gs.on}/${gs.n}`;
           else if (!it.ready) this.doorAct = 'ELEVATOR OFFLINE · FINISH THE MISSION';
         }
+        if (!this.doorAct) cc = this.ventAct(cc);
+        this.world.eehScreen(this.eehSnap);
       }
       this.items?.update(this.t, dt, cc);
       if (cc.drop) this.dropSelected();
@@ -1275,6 +1309,7 @@ export class BackroomsGame {
       if (p.stunLeft > 0) out.push({ id: 'stun', icon: 'stun', label: 'STUNNED', kind: 'bad', frac: p.stunLeft / 3 });
       else if (p.wetLeft > 0) out.push({ id: 'wet', icon: 'wet', label: 'SOAKED', kind: 'bad', frac: p.wetLeft / 4 });
       if (p.winded) out.push({ id: 'tired', icon: 'tired', label: 'WINDED', kind: 'bad' });
+      if (this.inGas()) out.push({ id: 'gas', icon: 'panic', label: 'TOXIC GAS', kind: 'bad', frac: 1 });
       if (!this.pool && p.sanity < 0.35) out.push({ id: 'panic', icon: 'panic', label: 'PANIC', kind: 'bad', frac: p.sanity / 0.35 });
       if (pl && pl.o2 < 0.4) out.push({ id: 'air', icon: 'air', label: 'LOW AIR', kind: 'bad', frac: pl.o2 / 0.4 });
       if (pl && pl.jam > 0) out.push({ id: 'jam', icon: 'nosignal', label: 'NO SIGNAL', kind: 'bad' });

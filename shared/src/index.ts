@@ -362,6 +362,8 @@ export interface ClientToServer {
   deliver: (cb: (ok: boolean) => void) => void;
   /** Suites: un Faceling ofrece otra misión tras cumplir la actual. `pick` < 0 solo pregunta cuántas quedan (n); `pick` ≥ 0 elige a ciegas una de ellas (n = las que había; 0 = ninguna). */
   nextMission: (pick: number, cb: (n: number) => void) => void;
+  /** Las Suites: restaurar el EEH desde el terminal de la sala de videovigilancia. */
+  eehRestore: (cb: (ok: boolean) => void) => void;
   /** Votación (fase `starting`, tras la entrada): votar una misión por su id (cambia el voto anterior; '' lo quita). */
   vote: (missionId: string) => void;
   /**

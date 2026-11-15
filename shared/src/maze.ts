@@ -23,6 +23,12 @@ export interface Maze {
   span?: [number, number];
   /** Las Suites: la celda del descansillo de arriba de la escalera de servicio (la de verdad, en la copia del medio): al llegar con la misión hecha, se sube de planta. */
   stairs?: Cell;
+  /** Las Suites: las rejillas de ventilación (en cada suite, en el laberinto de conductos y en la sala de control): `E` ante una lleva a `to`. `face`: índice de DIRS hacia donde da (hacia dentro de la sala). */
+  vents?: { x: number; z: number; face: number; to: { x: number; z: number; yaw: number } }[];
+  /** Las Suites: celdas de los conductos con una fuga de gas que hace daño. */
+  gas?: Cell[];
+  /** Las Suites: la sala de videovigilancia (al final de los conductos): su zona y el terminal donde se restaura el EEH. */
+  control?: { x: number; y: number; w: number; h: number; console: { x: number; z: number; face: number } };
   /** Las Suites: los cuadros eléctricos que hay que activar (en la copia del medio) para que el ascensor tenga corriente. */
   gens?: Cell[];
   start: Cell;

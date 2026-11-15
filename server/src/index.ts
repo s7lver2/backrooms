@@ -1056,6 +1056,17 @@ io.on('connection', (sock) => {
     if (typeof cb === 'function') cb(ok);
   });
 
+  // el terminal de la sala de videovigilancia (Suites): restaura el EEH
+  sock.on('eehRestore', (cb) => {
+    const r = roomOf(sock.id), p = r?.players.get(sock.id);
+    const ok = !!r?.match && !!p && r.phase === 'playing' && r.match.restoreEeh(p);
+    if (ok) {
+      rlog(r!, `${p!.name} restored the EEH`);
+      push(r!);
+    }
+    if (typeof cb === 'function') cb(ok);
+  });
+
   // un Faceling da otra misión (Suites): la primera de la pizarra sin cumplir, y la de subir a la planta 5 al final; no si ya hay quien ha subido
   sock.on('nextMission', (pick, cb) => {
     const r = roomOf(sock.id), p = r?.players.get(sock.id);

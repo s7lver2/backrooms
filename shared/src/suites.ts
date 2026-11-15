@@ -14,7 +14,8 @@ export const SUITE_L = 16;
 export const SUITE_COPIES = 3;
 export const SUITE_UNIT = 4;
 const UNIT = SUITE_UNIT; // una suite: 3 de interior (4,5 m) + 1 de tabique; 6 de fondo (9 m)
-const CW = SUITE_L * SUITE_COPIES, W = CW + 13, H = 18; // CW: el pasillo (las copias); detrás, la puerta doble (columna CW) y el vestíbulo (12 columnas), fuera del bucle
+const CW = SUITE_L * SUITE_COPIES, W = CW + 13, H = 36; // CW: el pasillo (las copias); detrás, la puerta doble (columna CW) y el vestíbulo (12 columnas), fuera del bucle
+// (las filas 18-35 son los conductos de ventilación —un laberinto— y la sala de videovigilancia, solo en la copia del medio; ver `vents`)
 // filas: 0 pared · 1-6 suites norte · 7 puertas · 8-9 pasillo · 10 puertas (y ascensores) · 11-16 suites sur · 17 pared
 const NORTH = { back: 1, door: 7, rot: 2, wall: 3 }, SOUTH = { back: 16, door: 10, rot: 3, wall: 2 }; // `rot`: hacia el pasillo; `wall`: hacia la pared del fondo
 
@@ -75,6 +76,37 @@ export function suitesMaze(seed: number, floor = 1): Maze {
     open[at(c.x, c.y)] = 1;
     props.push({ cell: c, kind: 'exit', rot: 3 });
   }
+  // los conductos de ventilación: un laberinto oscuro bajo el hotel (solo en la copia del medio: `wrapX` no lo toca), con una fuga de gas en algunas celdas y,
+  // al fondo, la sala de videovigilancia. Cada suite tiene una rejilla que lleva a una de sus 7 entradas (por la parte de arriba del laberinto).
+  const vents: NonNullable<Maze['vents']> = [], gas: Cell[] = [], rv = mulberry32(seed ^ 0xbe47), VX = SUITE_L + 1, VY = 20, NX = 7, NY = 5;
+  const YAW = [-Math.PI / 2, Math.PI / 2, Math.PI, 0]; // yaw de quien mira hacia DIRS[i]
+  const node = (i: number, j: number) => cell(VX + 2 * i, VY + 2 * j);
+  {
+    const seen = new Set<number>(), stack: [number, number][] = [[0, 0]], idx = (i: number, j: number) => j * NX + i;
+    open[at(node(0, 0).x, node(0, 0).y)] = 1;
+    seen.add(0);
+    while (stack.length) {
+      const [i, j] = stack[stack.length - 1];
+      const next = ([[1, 0], [-1, 0], [0, 1], [0, -1]] as const).map(([a, b]) => [i + a, j + b, a, b] as const).filter(([a, b]) => a >= 0 && b >= 0 && a < NX && b < NY && !seen.has(idx(a, b)));
+      if (!next.length) { stack.pop(); continue; }
+      const [a, b, da, db] = next[(rv() * next.length) | 0], n = node(a, b), m = node(i, j);
+      open[at(n.x, n.y)] = open[at((n.x + m.x) / 2, (n.y + m.y) / 2)] = 1;
+      seen.add(idx(a, b));
+      stack.push([a, b]);
+    }
+    // unos pocos atajos (el laberinto no es perfecto: da vueltas)
+    for (let k = 0; k < 5; k++) {
+      const a = node((rv() * (NX - 1)) | 0, (rv() * NY) | 0);
+      open[at(a.x + 1, a.y)] = 1;
+    }
+    // al fondo, un paso a la sala de videovigilancia (filas 30-34, a todo lo ancho del laberinto)
+    const last = node(NX - 1, NY - 1);
+    for (let y = last.y + 1; y <= 29; y++) open[at(last.x, y)] = 1;
+    for (let y = 30; y <= 34; y++) for (let x = VX; x < VX + 14; x++) open[at(x, y)] = 1;
+    // las fugas: en pasadizos y nudos del laberinto (no en las entradas ni junto a la sala de control)
+    for (let y = VY + 1; y < 29; y++) for (let x = VX; x < VX + 13; x++) if (open[at(x, y)] && rv() < 0.17 && !(x === last.x && y > last.y - 2)) gas.push(cell(x, y));
+  }
+  const ventIn = Array.from({ length: NX }, (_, i) => ({ x: (node(i, 0).x + 0.5) * CELL, z: (node(i, 0).y + 0.5) * CELL, yaw: Math.PI })), ventBack: ({ x: number; z: number; yaw: number } | undefined)[] = [];
   // las suites: el mismo moblaje en las de cada posición de cada copia (por el hueco, no por la copia), así el bucle es perfecto.
   // Cada una es una suite de hotel de verdad: cama contra el fondo, sofá y escritorio con espejo en las paredes de los lados, maleta, planta y papelera.
   // `t` son metros desde la pared del fondo hacia la puerta; las piezas se ponen por metros (`off`) y miran hacia donde `rot` (índice de DIRS).
@@ -136,6 +168,15 @@ export function suitesMaze(seed: number, floor = 1): Maze {
         if (chance(0.5)) props.push({ cell: cell(colB, row(dr)), kind: 'crt', rot: faceA });
         else put('tlamp', wallB(0.35), td, faceB);
         put('mirror', wallB(0.025), td, faceB);
+        // la rejilla de ventilación (lleva a los conductos): contra una pared, donde quepa
+        {
+          const tB = spot(busyB, 0.8), tv = tB ?? spot(busyA, 0.8);
+          if (tv !== null) {
+            const face = tB !== null ? faceB : faceA, X = tB !== null ? wallB(0.03) : wallA(0.03), Z = zAt(tv), e = (side * 4 + slot) % NX, [nx, nz] = [[1, 0], [-1, 0], [0, 1], [0, -1]][face];
+            vents.push({ x: X, z: Z, face, to: ventIn[e] });
+            if (k === 1) ventBack[e] ??= { x: X + nx * 0.9, z: Z + nz * 0.9, yaw: YAW[face] };
+          }
+        }
         const sid = side * 3 + slot - 1;
         if (sid === g0 || sid === g1) {
           const gc = put('panel', wallB(0.12), spot(busyB, 0.7) ?? 8.2, faceB);
@@ -163,6 +204,15 @@ export function suitesMaze(seed: number, floor = 1): Maze {
         if (chance(0.6)) put('luggage', bx + rr(-0.4, 0.4), rr(2.7, 3.2), chance(0.5) ? faceA : faceB, 0.3); // a los pies de la cama
         if (k === 1) for (let d = 0; d < 6; d++) for (let i = 1; i <= 3; i++) free.push(cell(x0 + i, row(d)));
       }
+  // los conductos: la rejilla de vuelta en cada entrada (a la suite de donde sale; si no hay, al pasillo) y la sala de videovigilancia (mesas con pantallas, el terminal del EEH y la rejilla al pasillo)
+  const hall = { x: (SUITE_L + 4 + 0.5) * CELL, z: 9 * CELL, yaw: 0 };
+  for (let i = 0; i < NX; i++) vents.push({ x: (node(i, 0).x + 0.5) * CELL, z: (node(i, 0).y) * CELL + 0.03, face: 2, to: ventBack[i] ?? hall });
+  for (let i = 0; i < 4; i++) {
+    const x = VX + 1 + i * 3;
+    props.push({ cell: cell(x, 30), kind: 'desk', rot: 3 }, { cell: cell(x, 30), kind: 'crt', rot: 3 }, { cell: cell(x, 31), kind: 'chair2', rot: 3 });
+  }
+  const control: NonNullable<Maze['control']> = { x: VX, y: 30, w: 14, h: 5, console: { x: (VX + 7) * CELL, z: 35 * CELL - 0.06, face: 3 } };
+  vents.push({ x: (VX + 14) * CELL - 0.03, z: 32.5 * CELL, face: 1, to: hall });
   // el pasillo: enchufes en las paredes y alguna rejilla de aire en el techo
   for (let x = 0; x < CW; x++) {
     if (x % 8 === 3) props.push({ cell: cell(x, 8), kind: 'socket', rot: 3 });
@@ -191,11 +241,11 @@ export function suitesMaze(seed: number, floor = 1): Maze {
   const take = (n: number) => spots.splice(0, n);
   const [camera] = take(1), [pistol] = take(1);
   const lamps: Cell[] = [];
-  for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) if (open[at(x, y)] && x % 2 === 0 && y % 2 === 0) lamps.push(cell(x, y));
+  for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) if (open[at(x, y)] && x % 2 === 0 && y % 2 === 0 && (y < 18 || y >= 30)) lamps.push(cell(x, y)); // (los conductos, a oscuras)
   return {
-    floor, span: [SUITE_L, 2 * SUITE_L], w: W, h: H, open, lit: new Uint8Array(W * H).fill(1), zone: new Uint8Array(W * H), voids: [],
+    floor, span: [SUITE_L, 2 * SUITE_L], w: W, h: H, open, lit: new Uint8Array(W * H).fill(1).fill(0, 18 * W, 30 * W), zone: new Uint8Array(W * H), voids: [],
     start: cell(CW + 10, 12), stairs: cell(SUITE_L + 1, 1), gens, elevator, camera, pistol, extraGuns: [],
     tapes: take(8), flashlights: take(4), spawns: [cell(SUITE_L + 4, 8), cell(SUITE_L + 5, 9), cell(SUITE_L + 15, 9)],
-    lamps, props, hides, rooms,
+    lamps, props, hides, rooms, vents, gas, control,
   };
 }

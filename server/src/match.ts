@@ -158,6 +158,20 @@ export class Match {
   private eehOn = false;
   /** Las Suites: a qué segundo falla el EEH en esta ronda aunque la misión no sea la suya (0: no falla). Cuanto más arriba, más probable. */
   private eehAt = 0;
+  /** Se restauró el EEH desde la sala de videovigilancia: ya no vuelve a fallar en esta ronda. */
+  private eehFixed = false;
+  /** Las celdas de los conductos con gas (Las Suites). */
+  private gasCells = new Set<number>();
+  /** Restaurar el EEH (hay que estar ante el terminal de la sala de control). true si lo arregla. */
+  restoreEeh(p: Player) {
+    const c = this.maze.control;
+    if (!this.hotel || !c || !this.eehOn || p.dead || p.boarded || Math.hypot(p.st.x - c.console.x, p.st.z - c.console.z) > 2.4) return false;
+    this.eehOn = false;
+    this.eehFixed = true;
+    this.eehAt = 0;
+    this.calmStaff();
+    return true;
+  }
   /** Admin: las entidades se quedan quietas. */
   frozen = false;
 
@@ -190,6 +204,7 @@ export class Match {
     }
     this.hotel = !!caps.hotel;
     this.maze = caps.hotel ? suitesMaze(seed, floor) : caps.pool ? poolMaze(seed) : generateMaze(seed, players);
+    this.gasCells = new Set((this.maze.gas ?? []).map((c) => c.y * this.maze.w + c.x));
     this.maze.totem = this.noEnts ? null : totemSpot(this.maze, seed, players);
     this.hides = hideStates(this.maze);
     const D = DIFFICULTY[difficulty];
@@ -353,7 +368,7 @@ export class Match {
       if (b.patrol) w.patrol = b.patrol;
     }
     // misión EEH: el evaporador falla a su hora y entran las entidades (partygoers y una bacteria, por los arranques más lejanos)
-    if (!this.eehOn && ((this.mission?.kind === 'eeh' && this.age - this.base >= this.mission.goal - EEH_HOLD) || (this.eehAt > 0 && this.age >= this.eehAt))) {
+    if (!this.eehOn && !this.eehFixed && ((this.mission?.kind === 'eeh' && this.age - this.base >= this.mission.goal - EEH_HOLD) || (this.eehAt > 0 && this.age >= this.eehAt))) {
       this.eehOn = true;
       for (const q of this.ents) q.sim.kind === 'faceling' && q.sim.rage(); // el evaporador falla: el personal, que estaba en paz, va a por todos
     }
@@ -371,6 +386,13 @@ export class Match {
     const targets: SimTarget[] = [];
     this.smokes = this.smokes.filter((q) => q.until > this.age);
     const fogAt = (x: number, z: number) => this.smokes.reduce((f, q) => (this.far({ x, z }, q) < q.r ? Math.max(f, q.fog) : f), 0);
+    // los conductos: el gas hace daño (unos 9 por segundo) a quien lo pisa
+    if (this.gasCells.size)
+      for (const p of players) {
+        if (p.dead || p.boarded || !this.gasCells.has(Math.floor(p.st.z / CELL) * this.maze.w + Math.floor(p.st.x / CELL))) continue;
+        p.hp = Math.max(0, p.hp - 9 * dt);
+        if (p.hp <= 0) ((p.dead = true), caught(p, -1));
+      }
     this.hiding(dt, players);
     const hidden = this.age > this.grace ? this.hides.filter((h) => h.occ) : [];
     if (this.age > this.grace) {

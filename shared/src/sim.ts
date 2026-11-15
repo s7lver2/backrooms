@@ -393,7 +393,7 @@ export class EntitySim {
     for (let i = 0; i < 40; i++) {
       const a = Math.random() * TAU, r = r0 + Math.random() * (r1 - r0);
       const c = { x: Math.round(me.x + Math.cos(a) * r), y: Math.round(me.y + Math.sin(a) * r) }, k = c.y * m.w + c.x;
-      if (c.x < 0 || c.y < 0 || c.x >= m.w || c.y >= m.h || !m.open[k] || this.blocked.has(k)) continue;
+      if (c.x < 0 || c.y < 0 || c.x >= m.w || c.y >= m.h || !m.open[k] || this.blocked.has(k) || (m.control && c.y >= 18)) continue; // (Las Suites: los conductos no se recorren a pie desde el hotel)
       const s = (m.lit[k] ? 0 : 2) + Math.random();
       if (s > score) (score = s), (best = c);
     }
