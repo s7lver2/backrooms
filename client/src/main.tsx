@@ -12,6 +12,9 @@ installErrLog(); // lo primero: los shaders que no compilan y los fallos de carg
 // desarrollo: /?anim abre la herramienta de animaciones (árbol, bailes, variantes, IK; dev/AnimTool.tsx)
 if (DEV_LOCAL && new URLSearchParams(location.search).has('anim')) {
   import('./dev/AnimTool').then(({ default: AnimTool }) => createRoot(document.getElementById('root')!).render(<AnimTool />));
+} else if (DEV_LOCAL && new URLSearchParams(location.search).has('mapviewer')) {
+  // desarrollo: /?mapviewer&seed=N&level=level0|suites|poolrooms[&floor=N] dibuja el mapa de `shared` en 2D (dev/MapViewer.ts)
+  import('./dev/MapViewer');
 } else createRoot(document.getElementById('root')!).render(
   <Terms>
     <App />
