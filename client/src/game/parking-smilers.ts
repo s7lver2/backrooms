@@ -6,6 +6,7 @@ import { ParkingSmilerAI,SMILER_DARK,type DarkSection,type Smiler } from './park
 
 /** Cara del Smiler sobre el humo, orientada hacia el jugador. */
 export class ParkingSmilers {
+  hide(){this.group.visible=false;}
   readonly ai:ParkingSmilerAI;
   private networkTime=0;
   private network=false;
