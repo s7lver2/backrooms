@@ -1136,6 +1136,7 @@ export class BackroomsGame {
     // en una sala la pausa no detiene el mundo (los demás siguen jugando): solo se sueltan los mandos
     if (this.paused && (!this.mp || this.run)) return;
     const c = this.input.read();
+    if ((this.run || this.dying >= 0) && this.eehRed) this.eehCheck(); // (la sirena del nivel -20 se calla al morir o llegar al nivel rojo)
     this.itemEffects();
     if (this.fxList.length) this.fxList = this.fxList.filter((f) => f(dt));
     if (this.player?.charging || this.arc) this.arcFrame();
@@ -3479,7 +3480,7 @@ fps ${(1 / Math.max(dt, 1e-3)).toFixed(0)}`;
   private eehVeil?: HTMLElement;
   private eehCheck() {
     const m = this.mission, fail = m?.kind === 'eeh' && m.progress >= m.goal - EEH_HOLD;
-    const on = this.eehSnap || (fail && !m!.done);
+    const on = !(this.dying >= 0 || this.run || this.player?.dead) && (this.eehSnap || (fail && !m!.done)); // (muerto o en el nivel rojo, la sirena se calla)
     if (on !== this.eehRed) {
       (this.eehRed = on), this.audio?.alarm(on); // la sirena suena mientras dure el fallo
       // las luces rojas: un velo rojo que late sobre toda la pantalla
@@ -3699,6 +3700,7 @@ server-synced inv ${JSON.stringify(this.mp.inv)}` : ''}`);
     this.renderer.setAnimationLoop(null);
     this.endParking();
     (this.eehVeil?.remove(), (this.eehVeil = undefined), (this.eehRed = false));
+    this.audio?.alarm(false);
     this.camOff();
     this.endRun();
     this.endPool();

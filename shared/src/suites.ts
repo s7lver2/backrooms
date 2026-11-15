@@ -242,7 +242,7 @@ export function suitesMaze(seed: number, floor = 1): Maze {
         if (chance(0.65)) { const t = spot(busyB, 0.6); if (t !== null) put('bistro', wallB(0.5), t, faceB, 0.3); }
         if (chance(0.5)) { const t = spot(busyB, 0.4); if (t !== null) put('bin', wallB(0.3), t, faceB); }
         if (chance(0.6)) put('plant', bx < Xc ? Xe - 0.45 : Xw + 0.45, 0.55, inward, 0.3); // en el rincón, del lado donde sobra sitio
-        if (chance(0.6)) put('luggage', bx + rr(-0.4, 0.4), rr(2.7, 3.2), chance(0.5) ? faceA : faceB, 0.3); // a los pies de la cama
+        if (chance(0.6)) { const lt = rr(2.7, 3.2); if (Math.abs(lt - td) > 1.2) put('luggage', Xc + rr(-0.15, 0.15), lt, chance(0.5) ? faceA : faceB, 0.3); } // a los pies de la cama, en el centro: ni contra la silla del escritorio ni donde se sale de un armario
         if (k === 1) for (let d = 0; d < 6; d++) for (let i = 1; i <= 3; i++) free.push(cell(x0 + i, row(d)));
       }
   // los conductos: la rejilla de vuelta en cada entrada (a la suite de donde sale; si no hay, al pasillo) y la sala de videovigilancia (mesas con pantallas, el terminal del EEH y la rejilla al pasillo)
