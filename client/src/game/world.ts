@@ -791,7 +791,15 @@ export class World implements Terrain {
       else if (p.kind === 'exit') continue; // va con el ascensor
       else if (p.kind === 'stairs') { stairsAt.push(c); continue; }
       else if (p.kind === 'cart') {
-        const g = serviceProp(p.kind);
+        // el carro de limpieza: el modelo (suites/cart.glb), de 1,15 m de alto, con su lado largo a lo largo de x
+        const g = new THREE.Group(), m = assets.gltf['suites/cart'].scene.clone(true), cb = new THREE.Box3().setFromObject(m), cs = cb.getSize(new THREE.Vector3()), k = 1.15 / cs.y;
+        const own = (x: THREE.Material) => { const c = x.clone(); lightmapped(c); return c; };
+        m.traverse((o) => { const me = o as THREE.Mesh; if (me.isMesh) ((me.castShadow = me.receiveShadow = true), (me.material = Array.isArray(me.material) ? me.material.map(own) : own(me.material))); });
+        m.scale.setScalar(k);
+        m.position.set(-(cb.min.x + cb.max.x) / 2 * k, -cb.min.y * k, -(cb.min.z + cb.max.z) / 2 * k);
+        const wrap = new THREE.Group().add(m);
+        if (cs.z > cs.x) wrap.rotation.y = Math.PI / 2;
+        g.add(wrap);
         g.position.set(c.x + (p.off?.[0] ?? 0), 0, c.z + (p.off?.[1] ?? 0));
         g.rotation.y = Math.atan2(dx, dy);
         this.root.add(g);

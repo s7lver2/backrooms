@@ -34,3 +34,16 @@ This work is based on "Bar Table" (https://sketchfab.com/3d-models/bar-table-451
 faceling.glb
 This work is based on "Backrooms Faceling PS1/PSX style" (https://sketchfab.com/3d-models/backrooms-faceling-ps1psx-style-76ff872b6d12402ba6d363c6d16f64c7) by TacoModels (https://sketchfab.com/TacoModels) licensed under CC-BY-4.0 (http://creativecommons.org/licenses/by/4.0/)
 Changes: the texture was repainted (red jacket, white shirt, black trousers and shoes) and reduced to 512x512 (tools/pack_glb.py).
+
+==== cart
+Model Information:
+* title:	Cleaning Cart
+* source:	https://sketchfab.com/3d-models/cleaning-cart-ea42d30fb06443988f443459593cb2af
+* author:	sui (https://sketchfab.com/jjosh.wwashington)
+
+Model License:
+* license type:	CC-BY-4.0 (http://creativecommons.org/licenses/by/4.0/)
+* requirements:	Author must be credited. Commercial use is allowed.
+
+If you use this 3D model in your project be sure to copy paste this credit wherever you share it:
+This work is based on "Cleaning Cart" (https://sketchfab.com/3d-models/cleaning-cart-ea42d30fb06443988f443459593cb2af) by sui (https://sketchfab.com/jjosh.wwashington) licensed under CC-BY-4.0 (http://creativecommons.org/licenses/by/4.0/)
