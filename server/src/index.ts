@@ -282,7 +282,7 @@ function finish(r: RoomState) {
     if (hotel) r.floor = carry ? r.toFloor! : 1;
     if (hotel && !carry) (r.quota = undefined), (r.jobs = 0), (r.bonus = 0);
     r.toFloor = undefined;
-    const result: RoundResult = { won, completed: r.done, mission: r.chosen ?? null, reward, penalty, bank: r.bank, fates, ...(hotel && { floor: r.floor, fell }) };
+    const result: RoundResult = { won, completed: r.done, mission: r.chosen ?? null, reward, penalty, bank: r.bank, fates, victory: Object.fromEntries(back.map((p) => [p.id, p.st.victory ?? 0])), ...(hotel && { floor: r.floor, fell }) };
     io.to(r.code).emit('over', result);
     backToLobby(r, ps);
     if (carry) setTimeout(() => rooms.get(r.code) === r && r.phase === 'lobby' && begin(r), 4000); // (siguiente planta del contrato: entra sola)
@@ -633,7 +633,7 @@ io.on('connection', (sock) => {
     const st: PlayerState = {
       tp: Math.max(0, n(s.tp)), x: n(s.x), y: n(s.y), z: n(s.z), yaw: n(s.yaw), pitch: n(s.pitch),
       anim: String(s.anim ?? '').slice(0, 40), light: !!s.light, held: s.held === 'camera' || s.held === 'gun' ? s.held : 'none',
-      duck: !!s.duck, tank: !!s.tank, dance: /^\w{1,24}$/.test(String(s.dance)) ? String(s.dance) : undefined, variant: /^\w{1,24}$/.test(String(s.variant)) ? String(s.variant) : undefined, jam: Math.max(0, Math.min(20000, n(s.jam))),
+      duck: !!s.duck, tank: !!s.tank, dance: /^\w{1,24}$/.test(String(s.dance)) ? String(s.dance) : undefined, variant: /^\w{1,24}$/.test(String(s.variant)) ? String(s.variant) : undefined, jam: Math.max(0, Math.min(20000, n(s.jam))), victory: Number.isInteger(s.victory) && s.victory! >= 0 && s.victory! < EMOTES.length ? s.victory : 0,
       hiding: !!s.hiding, holding: !!s.holding, // el escondite lo valida Match (ver hiding)
       t: n(s.t), // el reloj del emisor: se reenvía tal cual para que los demás reconstruyan su ritmo
     };

@@ -510,6 +510,8 @@ export interface RoundResult {
   /** El saldo común después de la ronda. */
   bank: number;
   fates: Record<string, Fate>;
+  /** La pose de victoria (emote 1…) elegida por cada jugador que subió al ascensor. */
+  victory?: Record<string, number>;
   /** Las Suites: la planta de la ronda que viene, y si el ascensor falló y cayó a la 1. */
   floor?: number;
   fell?: boolean;

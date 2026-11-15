@@ -77,6 +77,8 @@ export interface PlayerState {
   jam?: number;
   /** Solo en la sala de espera: 0 nada, 1 saludar, 2 señalar, 3 aplaudir, 4 sentarse. */
   emote?: number;
+  /** El emote (1…) que esta persona ha elegido como pose de victoria en el armario; 0 = ninguno. */
+  victory?: number;
   /** Baile de victoria que está bailando (id de client/src/game/anim/dances.json); vacío = ninguno. */
   dance?: string;
   /** Variante de animación que lleva puesta (cosmético: id de anim/variants.json). */
@@ -97,6 +99,8 @@ export interface PlayerState {
 /** Emotes de la sala de espera (teclas 1–4) y los ms mínimos entre dos cambios de uno. */
 export const EMOTES: readonly string[] = ['', ...EMOTE_DEFS.map((e) => e.name)];
 export const EMOTE_GAP = 200;
+/** Cuántos bailes/emotes se pueden llevar equipados a la vez (se eligen en el armario). */
+export const EMOTE_SLOTS = 5;
 
 /** `starting`: el propietario ha pulsado el botón y la puerta se abre (START_DELAY ms) antes de que empiece la partida. */
 export type Phase = 'lobby' | 'starting' | 'playing' | 'over';

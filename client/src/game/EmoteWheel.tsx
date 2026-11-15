@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { ACHIEVEMENTS, EMOTE_DEFS, emoteOpen } from '@backrooms/shared';
+import { emoteGate } from './emotes';
 
 /*
  * La rueda de emotes (mantener B en la sala de espera): el puntero se suelta mientras está abierta; el emote bajo el puntero se hace al soltar B
@@ -48,11 +49,12 @@ function EmoteIcon({ name }: { name: string }) {
 const need = (key: string | null) => ACHIEVEMENTS.find((a) => a.key === key)?.name ?? '';
 
 export default function EmoteWheel({ have, onPick }: { have: ReadonlySet<string>; onPick: (n: number) => void }) {
+  const list = emoteGate.equipped; // (solo los equipados en el armario)
   const [hot, setHot] = useState(0);
   const cur = useRef(0);
   cur.current = hot;
   useEffect(() => {
-    const up = (e: KeyboardEvent) => e.code === 'KeyB' && onPick(cur.current && emoteOpen(cur.current, have) ? cur.current : 0);
+    const up = (e: KeyboardEvent) => e.code === 'KeyB' && onPick(cur.current && emoteGate.equipped.includes(cur.current) && emoteOpen(cur.current, have) ? cur.current : 0);
     const esc = (e: KeyboardEvent) => e.code === 'Escape' && (e.preventDefault(), e.stopImmediatePropagation(), onPick(0));
     addEventListener('keyup', up);
     addEventListener('keydown', esc, true);
@@ -62,20 +64,20 @@ export default function EmoteWheel({ have, onPick }: { have: ReadonlySet<string>
   return (
     <div className="br-wheel" role="menu" aria-label="Emotes">
       <div className="br-wheel__ring">
-        {EMOTE_DEFS.map((d, i) => {
-          const a = (i / N) * Math.PI * 2 - Math.PI / 2, open = emoteOpen(i + 1, have);
+        {list.map((n, i) => {
+          const d = EMOTE_DEFS[n - 1], a = (i / list.length) * Math.PI * 2 - Math.PI / 2;
           return (
             <button
               key={d.name}
               type="button"
               role="menuitem"
               className="br-wheel__it"
-              data-open={open || undefined}
-              data-hot={hot === i + 1 || undefined}
+              data-open
+              data-hot={hot === n || undefined}
               style={{ '--x': Math.cos(a).toFixed(3), '--y': Math.sin(a).toFixed(3) } as React.CSSProperties}
-              onPointerEnter={() => setHot(i + 1)}
-              onPointerLeave={() => setHot((h) => (h === i + 1 ? 0 : h))}
-              onClick={() => open && onPick(i + 1)}
+              onPointerEnter={() => setHot(n)}
+              onPointerLeave={() => setHot((h) => (h === n ? 0 : h))}
+              onClick={() => onPick(n)}
             >
               <EmoteIcon name={d.name} />
               {d.name}
@@ -89,7 +91,7 @@ export default function EmoteWheel({ have, onPick }: { have: ReadonlySet<string>
               <span className="br-lobby__dim">{emoteOpen(hot, have) ? 'RELEASE [B] TO PLAY' : `LOCKED · ${need(e.need)}`}</span>
             </>
           ) : (
-            <span className="br-lobby__dim">EMOTES</span>
+            <span className="br-lobby__dim">{list.length ? 'EMOTES' : 'EQUIP EMOTES IN THE WARDROBE'}</span>
           )}
         </div>
       </div>

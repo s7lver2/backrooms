@@ -553,7 +553,7 @@ export class WaitingRoom {
    * moverse también. Con tiempo (1–3) se acaban solos. Los demás lo ven por `PlayerState.emote`.
    */
   doEmote(n: number) {
-    if (this.mode !== 'free' || this.blend > 0 || this.seat === 'chair' || n < 1 || n > EMOTE_DEFS.length || !emoteOpen(n, emoteGate.have) || this.age - this.emoteAt < EMOTE_GAP * 1.5e-3) return;
+    if (this.mode !== 'free' || this.blend > 0 || this.seat === 'chair' || n < 1 || n > EMOTE_DEFS.length || !emoteGate.equipped.includes(n) || this.age - this.emoteAt < EMOTE_GAP * 1.5e-3) return;
     this.emoteAt = this.age;
     if (this.emote === n) return this.endEmote();
     this.emote = n;

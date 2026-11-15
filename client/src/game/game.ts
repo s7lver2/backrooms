@@ -8,6 +8,7 @@ import { perks } from './perks';
 import { GLTFLoader, type GLTF } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { MeshoptDecoder } from 'three/examples/jsm/libs/meshopt_decoder.module.js';
 import { compileGently } from './compile';
+import { emoteGate } from './emotes';
 import { CELL, SUITE_L, generateMaze, suitesMaze, wrapX } from './maze';
 import { World, center, HEIGHT } from './world';
 import { FLASH } from './lightmap';
@@ -45,7 +46,7 @@ import { ANISO, FPS_CAPS, settings } from '../settings';
 import { watchCanvas } from '../errlog';
 import { gearIcons } from './invIcons';
 import { prepAvatar } from './InvAvatar';
-import { WAIT_HALF, type Sold } from '@backrooms/shared';
+import { WAIT_HALF, EMOTE_DEFS, type RoundResult, type Sold } from '@backrooms/shared';
 import { type LockerItem, RIFLE_MAG, canHold, ITEM_IDS, START_INV, type AdminFx, makeMission, missionLine, tvCount, type ActiveMission, type Inventory, type ItemId, type MissionKind, type Maze, type LevelCaps, levelCaps, NOISE_RUN, NOISE_SHOT, NOISE_PHOTO, type Noise } from '@backrooms/shared';
 import { Explosion } from './explosion';
 import { Breath, HEIGHT as ENT_HEIGHT, DEFAULT_LOOK, EEH_HOLD, HIT_DAMAGE, HP_MAX, MONSTER, PILLS, GLASSES, SUITE_FLOORS, REVIVE_IMMUNE, boostOf, totemSpot, type Look, hideStates, tickHides, startOffset, type HideState, type PlayerState, type RoomView, type ToolFx, type WorldSnapshot, FLIGHT_DT, flight } from '@backrooms/shared';
@@ -1046,6 +1047,8 @@ export class BackroomsGame {
     const realDt = this.clock.getDelta();
     const dt = Math.min(realDt, 0.05) * (this.mp ? 1 : this.cheats.slow); // (cámara lenta: solo en solitario)
     this.lastFrame = performance.now();
+    if (this.epi) return this.epiFrame(dt);
+    if (this.player && !this.winning && this.dying < 0) (this.liveAt.copy(this.player.pos), (this.liveYaw = this.player.yaw));
     // en una sala la pausa no detiene el mundo (los demás siguen jugando): solo se sueltan los mandos
     if (this.paused && (!this.mp || this.run)) return;
     const c = this.input.read();
@@ -1573,6 +1576,78 @@ export class BackroomsGame {
     pl.tank = p.tankWorn;
   }
 
+  /** El final de una ronda ganada: seguimos en el nivel, de pie en fila con la pose de victoria de cada uno y las entidades bailando. */
+  private epi?: { c: THREE.Vector3; face: number; g: THREE.Vector3; order: string[]; victory: Record<string, number>; me: string; ents: Entity[] };
+  private liveAt = new THREE.Vector3();
+  private liveYaw = 0;
+  /** Monta el final (false: este nivel no lo admite, se sigue con la pantalla de siempre). Solo en el laberinto (nivel 0 y Las Suites). */
+  epilogue(r: RoundResult, me: string): boolean {
+    const w = this.world, pl = this.player;
+    if (!w || !pl || !this.mp || this.parking || this.pool || !r.victory) return false;
+    const solid = (x: number, z: number) => w.solid(this.caps.hotel ? wrapX(x) : x, z);
+    const c = this.liveAt.clone().setY(0);
+    // hacia donde hay sitio: una hilera (los pasillos son estrechos) por delante de donde se estaba, de la cámara hacia dentro
+    let face = this.liveYaw;
+    for (let k = 0; k < 16; k++) {
+      const yaw = this.liveYaw + (k * Math.PI) / 8, fx = -Math.sin(yaw), fz = -Math.cos(yaw);
+      let ok = true;
+      for (let d = 0.5; d <= 7; d += 0.5) if (solid(c.x + fx * d, c.z + fz * d)) ((ok = false), (d = 99));
+      if (ok) {
+        face = yaw;
+        break;
+      }
+    }
+    const f = new THREE.Vector3(-Math.sin(face), 0, -Math.cos(face));
+    const order = [me, ...Object.keys(r.victory).filter((id) => id !== me && this.remotes.has(id))].slice(0, 4);
+    const ents = this.entities.filter((e) => e.alive);
+    // los jugadores en fila delante de la cámara; las entidades, detrás de ellos, donde no haya pared
+    order.forEach((id, i) => {
+      const at = c.clone().addScaledVector(f, 2.4 + i * 1.25);
+      const rem = this.remotes.get(id);
+      if (rem) {
+        rem.root.visible = true;
+        rem.set({ x: at.x, y: 0, z: at.z, yaw: face + Math.PI, pitch: 0, anim: 'Neutral Idle', light: false, held: 'none', emote: r.victory![id] || 1 } as PlayerState);
+      }
+    });
+    const g = c.clone().addScaledVector(f, 2.4 + (order.length - 1) * 0.6);
+    ents.forEach((e, i) => {
+      const at = c.clone().addScaledVector(f, 2.4 + order.length * 1.25 + 0.8 + i * 1.1);
+      e.rig.root.visible = !solid(at.x, at.z);
+      if (e.balloon) e.balloon.visible = e.rig.root.visible;
+      e.pos.copy(at);
+      e.dance(g);
+    });
+    this.epi = { c, face, g, order, victory: r.victory, me, ents };
+    this.winning = true;
+    this.black = 0;
+    this.vhs.uniforms.uBlack.value = 0;
+    this.vhs.enabled = false;
+    this.flash.intensity = 0;
+    this.input.unlock();
+    this.input.suspend = true;
+    return true;
+  }
+  private epiFrame(dt: number) {
+    const e = this.epi!, w = this.world, pl = this.player;
+    this.t += dt;
+    if (!w || !pl) return;
+    w.update(this.t, dt);
+    const f = new THREE.Vector3(-Math.sin(e.face), 0, -Math.cos(e.face));
+    // yo: mi cuerpo con mi pose de victoria (la de los demás la hacen sus clones)
+    const mine = EMOTE_DEFS[(e.victory[e.me] || 1) - 1].clip;
+    pl.showEmote(mine, _feet.copy(e.c).addScaledVector(f, 2.4), e.face + Math.PI, dt);
+    for (const id of e.order) this.remotes.get(id)?.update(dt);
+    for (const en of e.ents) en.update(dt, e.g, e.g, null, false, true);
+    // la cámara, donde se acabó, mirando a la fila y moviéndose despacio de lado a lado
+    const side = new THREE.Vector3(-f.z, 0, f.x), sway = Math.sin(this.t * 0.35) * 0.35;
+    this.camera.position.copy(e.c).setY(1.45).addScaledVector(side, sway);
+    this.camera.lookAt(e.g.x, 1.05, e.g.z);
+    this.camera.updateMatrixWorld(true);
+    this.flash.intensity = 0;
+    this.vhs.uniforms.uTime.value = this.film.uniforms.uTime.value = this.t;
+    this.composer.render(dt);
+  }
+
   /** Dentro del ascensor: las puertas se cierran, la grabación se corta a negro y «Noclip». */
   private viaStairs = false;
   private win(stairs = false, floor?: number) {
@@ -1763,12 +1838,13 @@ export class BackroomsGame {
       const onPlayers = (all: Record<string, PlayerState & { name: string; dead: boolean }>) => this.waitPhase !== 'playing' && this.syncRemotes(all, mp.id, wr.scene);
       mp.sock.on('players', onPlayers);
       const beat = setInterval(() => performance.now() - this.lastFrame > 150 && this.waitSend(), 1000 / 15);
-      // las teclas 1–4 son los emotes (no mientras se escribe)
+      // las teclas 1–5 son los emotes equipados (no mientras se escribe)
       const emoteKey = (e: KeyboardEvent) => {
-        if (e.repeat || (e.target as HTMLElement | null)?.tagName === 'INPUT' || !/^Digit[1-4]$/.test(e.code)) return;
+        if (e.repeat || (e.target as HTMLElement | null)?.tagName === 'INPUT' || !/^Digit[1-5]$/.test(e.code)) return;
         const n = Number(e.code.slice(5)), lp = this.player, id = lp?.hot[n - 1];
         if (this.lobbyP && id && HOT[id]?.have(lp!.own)) return; // una ranura con objeto: la usa el Player; solo las vacías son emotes
-        wr.doEmote(n);
+        const em = emoteGate.equipped[n - 1];
+        if (em) wr.doEmote(em);
       };
       addEventListener('keydown', emoteKey);
       const onLDrops = (list: { id: string; kind: string; x: number; z: number; q?: { r: number } }[]) => this.syncLobbyDrops(list);
@@ -2193,6 +2269,7 @@ export class BackroomsGame {
 
   /** Los demás jugadores según lo que dice el servidor: se crean (con un clon reutilizado, en `parent`), se mueven y se quitan los que ya no están. */
   private syncRemotes(all: Record<string, PlayerState & { name: string; dead: boolean }>, me: string, parent: THREE.Object3D) {
+    if (this.epi) return; // (el final de ronda coloca a cada uno él mismo)
     const seen = new Set<string>();
     for (const [id, st] of Object.entries(all)) {
       if (id === me) continue;
@@ -2428,7 +2505,7 @@ export class BackroomsGame {
     if (Math.abs(at.x - this.sentX) > 10) this.tp++; // (un teletransporte —Uno Reverse, admin, bucle de Las Suites— se cuenta aparte: el servidor no lo recorta)
     this.sentX = at.x;
     const socket = reliable ? this.mp.sock : this.mp.sock.volatile;
-    socket.emit('state', { x: at.x, tp: this.tp, y: at.y, z: at.z, yaw: at.yaw, pitch: at.pitch, anim: 'Neutral Idle', dance: p.dancing || undefined, variant: p.variant || undefined, light: p.lightOn, duck: p.duck, tank: pl ? p.tankWorn : undefined, held: p.concealed || p.hand === 'watergun' ? 'none' : p.hand, jam: pl ? Math.round(pl.jam) : undefined, hiding: p.concealed, holding: this.holding, t: performance.now() });
+    socket.emit('state', { victory: emoteGate.victory, x: at.x, tp: this.tp, y: at.y, z: at.z, yaw: at.yaw, pitch: at.pitch, anim: 'Neutral Idle', dance: p.dancing || undefined, variant: p.variant || undefined, light: p.lightOn, duck: p.duck, tank: pl ? p.tankWorn : undefined, held: p.concealed || p.hand === 'watergun' ? 'none' : p.hand, jam: pl ? Math.round(pl.jam) : undefined, hiding: p.concealed, holding: this.holding, t: performance.now() });
   }
 
   /** Estado de la red para depurar (consola: `__game.netInfo()`): ping, jitter y retraso de dibujo de cada jugador y del mundo. */
@@ -3449,6 +3526,7 @@ server-synced inv ${JSON.stringify(this.mp.inv)}` : ''}`);
 
   /** Saca al jugador de la partida (la sala vuelve al lobby): se para todo y queda el lienzo en negro. */
   stop() {
+    this.epi = undefined;
     this.clearXray();
     this.xray.removeFromParent();
     for (const shot of this.throws) shot.mesh.removeFromParent();

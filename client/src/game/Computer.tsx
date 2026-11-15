@@ -134,6 +134,8 @@ function Thumb({ hub, spec, dark }: { hub?: Thumbs; spec: ThumbSpec; dark: boole
 const SLOTS: [Slot, string][] = [['color', 'COLOR'], ['head', 'HEAD'], ['back', 'BACK']];
 const need = (c: CosmeticDef) => ACHIEVEMENTS.find((a) => a.key === c.need)?.name ?? '';
 
+import EmoteLoadout from './EmoteLoadout';
+
 function Wardrobe({ gltf, reduced, acct, sock }: { gltf?: GLTF; reduced: boolean; acct: Account; sock?: Sock }) {
   const signed = acct.status === 'user';
   const [look, setLook] = useState<Look>(() => (acct.me ? cleanLook(acct.me.loadout) : guestLook()));
@@ -220,6 +222,7 @@ function Wardrobe({ gltf, reduced, acct, sock }: { gltf?: GLTF; reduced: boolean
             </div>
           );
         })}
+        <EmoteLoadout />
         <p className="br-lobby__sub" role={bad ? 'alert' : 'status'} data-bad={bad || undefined}>
           {info || msg || (signed ? 'PICK WHAT YOU WEAR. THE OTHERS IN THE ROOM SEE IT.' : 'GUEST: ONLY THE FREE COLORS. SIGN IN TO UNLOCK MORE.')}
         </p>

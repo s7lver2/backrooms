@@ -838,3 +838,18 @@
 .br-tree__zoom small { min-width: 3.2em; text-align: center; color: var(--br-dim); }
 .br .br-tree__zoom .br-opt { padding: 0.1em 0.5em; }
 .br .br-tree__zoom .br-opt::before { display: none; }
+
+.br-emotes { display: grid; grid-template-columns: repeat(auto-fill, minmax(8.5em, 1fr)); gap: 0.4em; }
+.br-emo { display: flex; border: 1px solid #5d5b53; }
+.br-emo[data-on] { border-color: var(--br-ink); background: rgba(242, 241, 234, 0.1); }
+.br-emo[data-locked] { opacity: 0.45; border-style: dashed; }
+.br .br-emo__b { flex: 1; display: flex; flex-direction: column; align-items: flex-start; padding: 0.3em 0.5em; text-align: left; cursor: var(--br-hand, pointer); }
+.br .br-emo__b span { letter-spacing: 0.06em; }
+.br .br-emo__b small { color: var(--br-dim); font-size: 0.7em; }
+.br .br-emo__s { padding: 0 0.5em; font-size: 1.2em; cursor: var(--br-hand, pointer); }
+.br .br-emo__b:hover, .br .br-emo__b:focus-visible, .br .br-emo__s:hover, .br .br-emo__s:focus-visible { background: rgba(242, 241, 234, 0.18); outline: none; }
+.br-epi { position: absolute; left: 0; right: 0; bottom: 6vh; z-index: 6; display: flex; flex-direction: column; align-items: center; gap: 0.8em; text-align: center; pointer-events: none; }
+.br-epi > * { pointer-events: auto; }
+.br-epi__t { margin: 0; font-size: 2em; letter-spacing: 0.2em; text-shadow: 0 2px 8px #000; }
+.br-epi__row { display: flex; gap: 1.6em; flex-wrap: wrap; justify-content: center; }
+.br-epi p { margin: 0; text-shadow: 0 2px 6px #000; }

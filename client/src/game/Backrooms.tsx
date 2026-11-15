@@ -40,7 +40,7 @@ import LockerGame from './LockerGame';
 import Dialogue from './Dialogue';
 import ElevatorPanel from './ElevatorPanel';
 import EmoteWheel from './EmoteWheel';
-import { emoteGate } from './emotes';
+import { emoteGate, refreshEmotes } from './emotes';
 
 /*
  * El caparazón del juego de las backrooms: la carga de los 90 (letra blanca, barra de bloques), el
@@ -48,7 +48,7 @@ import { emoteGate } from './emotes';
  * cámara, la pausa y el cuelgue falso. El juego en sí (game.ts) no sabe de React.
  */
 
-type Screen = 'load' | 'menu' | 'settings' | 'achv' | 'friends' | 'play' | 'pause' | 'dead' | 'crash' | 'lobby' | 'wait' | 'waitpause' | 'over';
+type Screen = 'load' | 'menu' | 'settings' | 'achv' | 'friends' | 'epilogue' | 'play' | 'pause' | 'dead' | 'crash' | 'lobby' | 'wait' | 'waitpause' | 'over';
 type WaitHud = BackroomsGame['waitHud'];
 const NO_WAIT: WaitHud = { ready: false, hint: null, label: '', notice: '', computer: false, board: false, entering: false, locked: false, free: true };
 
@@ -359,7 +359,7 @@ export default function Backrooms({ onQuit, onWin }: { onQuit: () => void; onWin
   // la rueda de emotes (mantener B en la sala de espera) y los emotes que abren mis logros
   const [wheel, setWheel] = useState(false);
   const haveAch = useMemo(() => new Set(Object.keys(acct.me?.achievements ?? {})), [acct.me?.achievements]);
-  useEffect(() => void (emoteGate.have = haveAch), [haveAch]);
+  useEffect(() => ((emoteGate.have = haveAch), refreshEmotes()), [haveAch]);
   const pickEmote = useCallback((n: number) => {
     setWheel(false);
     game.current?.setLockerUi(false);
@@ -560,6 +560,13 @@ export default function Backrooms({ onQuit, onWin }: { onQuit: () => void; onWin
 
   // el final de una partida de sala: se para el juego y sale la pantalla de siempre; INSERT TAPE vuelve al lobby de la sala
   endRef.current = (r: RoundResult) => {
+    // ronda ganada en el laberinto: volvemos a aparecer en el nivel con la pose de victoria; la pantalla de siempre queda para el resto
+    if (r.won && game.current?.epilogue(r, net.me)) {
+      setChat(false);
+      setWon(true);
+      setResult(r);
+      return void setScreen('epilogue');
+    }
     game.current?.stop();
     setChat(false);
     setWon(r.won);
@@ -1001,6 +1008,16 @@ export default function Backrooms({ onQuit, onWin }: { onQuit: () => void; onWin
             </li>
           </ul>
         </div>
+      )}
+      {screen === 'epilogue' && (
+        <aside className="br-epi" role="dialog" aria-label="Round complete">
+          <p className="br-epi__t">ROUND COMPLETE</p>
+          {result && <p>{result.reward ? `+$${result.reward} · ` : ''}BANK ${result.bank}</p>}
+          <p className="br-epi__row">
+            <button type="button" className="br-opt" autoFocus onClick={() => (game.current?.stop(), setScreen('lobby'))}>CONTINUE · ANOTHER ROUND</button>
+            <button type="button" className="br-opt" onClick={() => leaveMp()}>SAVE AND EXIT</button>
+          </p>
+        </aside>
       )}
       {screen === 'over' && <End win={won} result={result} me={net.me} onInsert={() => setScreen('lobby')} />}
       {(screen === 'play' || screen === 'pause') && hud?.aiming && <Osd hud={hud} />}
