@@ -1,4 +1,5 @@
 import { fuse, fuseAll } from './fuse';
+import { settings } from '../settings';
 import * as THREE from 'three';
 import { ElevatorCab } from './elevator';
 import type { Terrain } from './terrain';
@@ -605,6 +606,7 @@ export class World implements Terrain {
       this.rf.rotation.x = -Math.PI / 2;
       this.rf.position.set((cw * CELL) / 2, 0.003, 13.5);
       this.rf.renderOrder = 1;
+      this.rf.visible = settings.quality !== 1; // (en calidad baja, sin reflejo: es una segunda pasada de todo el mundo)
       this.root.add(this.rf);
     } else inst(floorG, floorMat, floors).receiveShadow = true;
     if (narrow.length) {
