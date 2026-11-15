@@ -1,0 +1,9 @@
+pre-commit:
+  commands:
+    staged-files:
+      run: python tools/check_staged_files.py
+    lint:
+      glob: "*.{ts,tsx,js,mjs,css}"
+      run: npx biome lint --staged --no-errors-on-unmatched
+    typecheck:
+      run: npm run typecheck

@@ -12,9 +12,11 @@
     "build": "python tools/build.py --build",
     "start": "npm run start -w server",
     "typecheck": "npm run typecheck -w client && npm run typecheck -w server",
-    "lint": "biome lint ."
+    "lint": "biome lint .",
+    "prepare": "lefthook install"
   },
   "devDependencies": {
-    "@biomejs/biome": "2.6.8"
+    "@biomejs/biome": "2.6.8",
+    "lefthook": "2.2.2"
   }
 }
