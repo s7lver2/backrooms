@@ -89,7 +89,7 @@ export default function LockerGame({ id, sock, onOpen, onClose, onPicked }: { id
     <div className="br-modal br-locker" role="dialog" aria-label="Locker" data-bad={bad || undefined}>
       {phase === 'pick' && (
         <div className="br-locker__box" onPointerDown={press}>
-          <p className="br-locker__t">LOCKED · {hits}/{HITS}</p>
+          <p className="br-locker__t"><span>LOCK PICK</span><span>{hits}/{HITS}</span></p>
           <svg viewBox="0 0 100 100" className="br-locker__dial" data-ok={ok || undefined} aria-hidden="true">
             <defs>
               <radialGradient id="lk-metal" cx="50%" cy="38%" r="70%">
@@ -123,7 +123,7 @@ export default function LockerGame({ id, sock, onOpen, onClose, onPicked }: { id
             <circle cx="50" cy="50" r="2" className="br-locker__hub2" />
           </svg>
           <p className="br-lobby__dim">SPACE WHEN THE TIP CROSSES THE ORANGE</p>
-          <p className="br-locker__pips" aria-label={`${hits} of ${HITS}`}>{Array.from({ length: HITS }, (_, i) => <i key={i} data-on={i < hits || undefined} />)}</p>
+          <p className="br-locker__pips" aria-label={`${hits} of ${HITS}`}>{'▮'.repeat(hits)}<span className="off">{'▮'.repeat(HITS - hits)}</span></p>
           <button type="button" className="br-opt" onPointerDown={(e) => e.stopPropagation()} onClick={onClose}>LEAVE [ESC]</button>
         </div>
       )}
