@@ -119,5 +119,49 @@
     "rx": -32,
     "ry": 112,
     "rz": 28
+  },
+  "saw_hat": {
+    "slot": "head",
+    "size": 0.5,
+    "scale": 1,
+    "up": 0.2,
+    "fwd": 0,
+    "side": 0,
+    "rx": 0,
+    "ry": 0,
+    "rz": 0
+  },
+  "frierens_staff": {
+    "slot": "back",
+    "size": 1.4,
+    "scale": 1,
+    "up": -0.05,
+    "fwd": -0.13,
+    "side": 0,
+    "rx": -32,
+    "ry": 112,
+    "rz": 28
+  },
+  "staff_of_homa": {
+    "slot": "back",
+    "size": 1.6,
+    "scale": 1,
+    "up": -0.05,
+    "fwd": -0.13,
+    "side": 0,
+    "rx": -32,
+    "ry": 112,
+    "rz": 28
+  },
+  "villager_chad": {
+    "slot": "back",
+    "size": 0.55,
+    "scale": 1,
+    "up": -0.05,
+    "fwd": -0.2,
+    "side": 0,
+    "rx": 0,
+    "ry": 0,
+    "rz": 0
   }
 }

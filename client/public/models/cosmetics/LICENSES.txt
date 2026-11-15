@@ -126,3 +126,49 @@ Model License:
 
 If you use this 3D model in your project be sure to copy paste this credit wherever you share it:
 This work is based on "Fubuki Shirakami Sukonbu" (https://sketchfab.com/3d-models/fubuki-shirakami-sukonbu-f4eda326e94f4614b3e7f5aec57816a2) by Ikxi (https://sketchfab.com/Ikxi) licensed under CC-BY-NC-4.0 (http://creativecommons.org/licenses/by-nc/4.0/)
+==== frierens_staff
+Model Information:
+* title:	Frieren's Staff
+* source:	https://sketchfab.com/3d-models/frierens-staff-ca57e76f13bf4dbbb449d6531e7391fd
+* author:	Noah Finlay Klein (https://sketchfab.com/snowflake2020)
+
+Model License:
+* license type:	SKETCHFAB Standard (https://sketchfab.com/licenses)
+* requirements:	Under basic restrictions, use worldwide, on all types of media, commercially or not, and in all types of derivative works
+
+==== staff_of_homa
+Model Information:
+* title:	Staff of Homa
+* source:	https://sketchfab.com/3d-models/staff-of-homa-92e8a0d7e9f34567bca568965ededdb2
+* author:	drei (https://sketchfab.com/drkehowler)
+
+Model License:
+* license type:	CC-BY-4.0 (http://creativecommons.org/licenses/by/4.0/)
+* requirements:	Author must be credited. Commercial use is allowed.
+
+If you use this 3D model in your project be sure to copy paste this credit wherever you share it:
+This work is based on "Staff of Homa" (https://sketchfab.com/3d-models/staff-of-homa-92e8a0d7e9f34567bca568965ededdb2) by drei (https://sketchfab.com/drkehowler) licensed under CC-BY-4.0 (http://creativecommons.org/licenses/by/4.0/)
+==== saw_hat
+Model Information:
+* title:	Jojo's Bizarre Adventure Speedwagon's Saw Hat
+* source:	https://sketchfab.com/3d-models/jojos-bizarre-adventure-speedwagons-saw-hat-d99caf8f3d5140ec98c30cf1f5b7562d
+* author:	Stoinercraft (https://sketchfab.com/furkanshieldd)
+
+Model License:
+* license type:	CC-BY-4.0 (http://creativecommons.org/licenses/by/4.0/)
+* requirements:	Author must be credited. Commercial use is allowed.
+
+If you use this 3D model in your project be sure to copy paste this credit wherever you share it:
+This work is based on "Jojo's Bizarre Adventure Speedwagon's Saw Hat" (https://sketchfab.com/3d-models/jojos-bizarre-adventure-speedwagons-saw-hat-d99caf8f3d5140ec98c30cf1f5b7562d) by Stoinercraft (https://sketchfab.com/furkanshieldd) licensed under CC-BY-4.0 (http://creativecommons.org/licenses/by/4.0/)
+==== villager_chad
+Model Information:
+* title:	Villager Chad
+* source:	https://sketchfab.com/3d-models/villager-chad-8e589cb114ab43de87df78178f36f4fe
+* author:	kencanbreath (https://sketchfab.com/Kenmarmelade)
+
+Model License:
+* license type:	CC-BY-4.0 (http://creativecommons.org/licenses/by/4.0/)
+* requirements:	Author must be credited. Commercial use is allowed.
+
+If you use this 3D model in your project be sure to copy paste this credit wherever you share it:
+This work is based on "Villager Chad" (https://sketchfab.com/3d-models/villager-chad-8e589cb114ab43de87df78178f36f4fe) by kencanbreath (https://sketchfab.com/Kenmarmelade) licensed under CC-BY-4.0 (http://creativecommons.org/licenses/by/4.0/)

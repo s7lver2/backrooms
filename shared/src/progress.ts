@@ -154,6 +154,10 @@ export const COSMETICS: CosmeticDef[] = [
   { slot: 'back', id: 'battery', name: 'BATTERY PACK', need: 'trigger_happy' },
   { slot: 'back', id: 'teto_plush', name: 'TETO PLUSH', need: 'archivist' },
   { slot: 'back', id: 'scythe', name: 'SCYTHE', need: 'exterminator' },
+  { slot: 'head', id: 'saw_hat', name: 'SAW HAT', need: 'veteran' },
+  { slot: 'back', id: 'frierens_staff', name: "FRIEREN'S STAFF", need: 'second_chance' },
+  { slot: 'back', id: 'staff_of_homa', name: 'STAFF OF HOMA', need: 'all_levels' },
+  { slot: 'back', id: 'villager_chad', name: 'VILLAGER CHAD', need: 'safecracker' },
 ];
 export const cosmetic = (slot: Slot, id: string) => COSMETICS.find((c) => c.slot === slot && c.id === id);
 
