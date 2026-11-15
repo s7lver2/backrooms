@@ -69,6 +69,15 @@ const MIGRATIONS = [
      discord_id TEXT PRIMARY KEY,
      user_id INTEGER NOT NULL UNIQUE REFERENCES users(id) ON DELETE CASCADE
    );`,
+  // amigos: `a` pidió a `b`; `accepted` 0 = pendiente, 1 = amigos
+  `CREATE TABLE friends (
+     a INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+     b INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+     accepted INTEGER NOT NULL DEFAULT 0,
+     created_at INTEGER NOT NULL,
+     PRIMARY KEY (a, b)
+   );
+   CREATE INDEX friends_b ON friends(b);`,
 ];
 const version = Number(db.prepare('PRAGMA user_version').get()?.user_version ?? 0);
 for (let v = version; v < MIGRATIONS.length; v++) {
@@ -231,6 +240,30 @@ export function writeSave(code: string, owner: number, data: unknown) {
   qs.trim.run(owner, owner, MAX_SAVES);
 }
 export const deleteSave = (code: string, owner: number) => Number(qs.del.run(code, owner).changes) > 0;
+
+// amigos
+export const joinedOf = (id: number) => Number(db.prepare('SELECT created_at FROM users WHERE id = ?').get(id)?.created_at ?? 0);
+/** Qué es `other` para `me`: amigo, solicitud recibida (otro me pidió), enviada (yo le pedí) o nada. */
+export function relation(me: number, other: number): 'friend' | 'incoming' | 'outgoing' | 'none' {
+  const r = db.prepare('SELECT a, accepted FROM friends WHERE (a = ? AND b = ?) OR (a = ? AND b = ?)').get(me, other, other, me);
+  return !r ? 'none' : r.accepted ? 'friend' : Number(r.a) === me ? 'outgoing' : 'incoming';
+}
+/** Pide amistad; si el otro ya había pedido, se aceptan los dos. false si ya había relación o hay demasiados amigos/solicitudes. */
+export function requestFriend(me: number, other: number) {
+  const rel = relation(me, other);
+  if (rel === 'incoming') return acceptFriend(me, other);
+  if (rel !== 'none') return false;
+  if (Number(db.prepare('SELECT COUNT(*) AS n FROM friends WHERE a = ? OR b = ?').get(me, me)?.n ?? 0) >= 100) return false;
+  db.prepare('INSERT INTO friends (a, b, accepted, created_at) VALUES (?, ?, 0, ?)').run(me, other, Date.now());
+  return true;
+}
+export const acceptFriend = (me: number, other: number) => Number(db.prepare('UPDATE friends SET accepted = 1 WHERE a = ? AND b = ? AND accepted = 0').run(other, me).changes) > 0;
+/** Borra la relación sea cual sea (quitar un amigo, rechazar o cancelar una solicitud). */
+export const removeFriend = (me: number, other: number) => Number(db.prepare('DELETE FROM friends WHERE (a = ? AND b = ?) OR (a = ? AND b = ?)').run(me, other, other, me).changes) > 0;
+export function friendLinks(me: number) {
+  const rows = db.prepare('SELECT f.a, f.b, f.accepted, u.id AS oid, u.username FROM friends f JOIN users u ON u.id = CASE WHEN f.a = ? THEN f.b ELSE f.a END WHERE f.a = ? OR f.b = ? ORDER BY u.username_lower').all(me, me, me);
+  return rows.map((r) => ({ id: Number(r.oid), username: String(r.username), rel: (r.accepted ? 'friend' : Number(r.a) === me ? 'outgoing' : 'incoming') as 'friend' | 'incoming' | 'outgoing' }));
+}
 
 export const saveLoadout =(id: number, l: Look) => void q.setLoadout.run(id, l.color, l.head, l.back);
 

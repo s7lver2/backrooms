@@ -25,3 +25,7 @@
 .ach__facts dt { color: var(--br-dim); }
 .ach__facts dd { margin: 0; }
 @media (max-width: 760px) { .ach { grid-template-columns: 1fr; grid-template-rows: none; height: auto; } .ach__det { border-left: 0; border-top: 2px solid var(--br-ink); padding: 12px 0 0; } .ach__bar { display: none; } }
+.ach__who { display: flex; align-items: center; gap: 1em; }
+.ach__who p { margin: 0; }
+.ach .br-avatar { flex: none; }
+.ach__sum label { display: flex; align-items: center; gap: 0.6em; }

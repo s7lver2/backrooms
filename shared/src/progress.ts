@@ -179,6 +179,23 @@ export function cleanLook(x: unknown): Look {
 }
 
 // ── lo que devuelve la API ───────────────────────────────────────────────
+/** El perfil público de una cuenta (lo que ve otro jugador): foto, cosméticos puestos, estadísticas y logros. `rel`: qué es para quien mira. */
+export interface Profile {
+  username: string;
+  avatar: string;
+  loadout: Look;
+  stats: Partial<Record<StatKey, number>>;
+  achievements: Record<string, number>;
+  joined: number;
+  rel: 'self' | 'friend' | 'incoming' | 'outgoing' | 'none';
+}
+/** La lista de amigos de quien mira: aceptados y solicitudes (recibidas y enviadas). */
+export interface Friends {
+  friends: { username: string; avatar: string }[];
+  incoming: { username: string; avatar: string }[];
+  outgoing: { username: string; avatar: string }[];
+}
+
 export interface Me {
   username: string;
   /** Es la cuenta de admin (solo para MOSTRAR la consola: el servidor vuelve a comprobarlo en cada acción). */

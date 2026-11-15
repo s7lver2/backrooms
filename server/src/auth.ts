@@ -3,7 +3,7 @@ import { createHash, randomBytes, randomInt } from 'node:crypto';
 import { hash, verify } from '@node-rs/argon2';
 import {
   ACHIEVEMENT_KEYS, ADMIN_USER, SERVER_PORT, AVATAR_MAX, AVATAR_PX, AVATAR_TYPES, BODY_MAX, CLIENT_PORT, COSMETICS, PASS_MAX, PASS_MIN, USER_RE, cosmetic, lookAllowed,
-  type Look, type Me, type Slot,
+  type Friends, type Look, type Me, type Profile, type Slot,
 } from '@backrooms/shared';
 import * as db from './db';
 import { award, hooks } from './progress';
@@ -175,6 +175,28 @@ export function meOf(uid: number, username: string): Me {
     loadout: db.loadoutOf(uid),
     unlocked: COSMETICS.filter((c) => !c.need || have.has(c.need)).map((c) => `${c.slot}:${c.id}`),
     rarity: db.rarity(),
+  };
+}
+
+/** El perfil público de `uid` visto por `viewer` (0: nadie). */
+function profileOf(uid: number, username: string, viewer: number): Profile {
+  return { username, avatar: db.avatarRef(uid), loadout: db.loadoutOf(uid), stats: db.statsOf(uid), achievements: db.achievementsOf(uid), joined: db.joinedOf(uid), rel: viewer === uid ? 'self' : viewer ? db.relation(viewer, uid) : 'none' };
+}
+function friendsOf(uid: number): Friends {
+  const l = db.friendLinks(uid).map((f) => ({ ...f, avatar: db.avatarRef(f.id) }));
+  const pick = (rel: string) => l.filter((f) => f.rel === rel).map(({ username, avatar }) => ({ username, avatar }));
+  return { friends: pick('friend'), incoming: pick('incoming'), outgoing: pick('outgoing') };
+}
+/** Acciones de amistad: pedir, aceptar, quitar/rechazar/cancelar. */
+function friendAct(kind: 'add' | 'accept' | 'remove') {
+  return (req: IncomingMessage, b: Record<string, unknown>): Out => {
+    const s = userFromCookie(req.headers.cookie);
+    if (!s) throw new HttpErr(401, 'Not signed in');
+    const other = db.userByName(str(b.username, 40));
+    if (!other || other.id === s.user.id) throw new HttpErr(404, 'No such player');
+    const ok = kind === 'add' ? db.requestFriend(s.user.id, other.id) : kind === 'accept' ? db.acceptFriend(s.user.id, other.id) : db.removeFriend(s.user.id, other.id);
+    if (!ok) throw new HttpErr(409, kind === 'add' ? 'Already friends or requested' : 'Nothing to change');
+    return { body: friendsOf(s.user.id) };
   };
 }
 
@@ -487,6 +509,17 @@ export function handleApi(req: IncomingMessage, res: ServerResponse): boolean {
         const extra: Record<string, string> = s?.slid ? { 'set-cookie': cookieStr(s.sid, SESSION_TTL / 1000) } : {};
         return send(res, 200, { me: s ? meOf(s.user.id, s.user.username) : null }, { ...cors, ...extra });
       }
+      if (req.method === 'GET' && path === '/api/friends') {
+        const s = userFromCookie(req.headers.cookie);
+        if (!s) throw new HttpErr(401, 'Not signed in');
+        return send(res, 200, friendsOf(s.user.id), cors);
+      }
+      const prof = req.method === 'GET' ? /^\/api\/profile\/([^/]{1,40})$/.exec(path) : null;
+      if (prof) {
+        const u = db.userByName(decodeURIComponent(prof[1])), s = userFromCookie(req.headers.cookie);
+        if (!u) throw new HttpErr(404, 'No such player');
+        return send(res, 200, { profile: profileOf(u.id, u.username, s?.user.id ?? 0) }, cors);
+      }
       // la foto de cualquiera es pública (como su nombre en la sala); la URL lleva la versión, así que se cachea para siempre
       const av = req.method === 'GET' ? /^\/api\/avatar\/(\d{1,9})$/.exec(path) : null;
       if (av) {
@@ -506,7 +539,7 @@ export function handleApi(req: IncomingMessage, res: ServerResponse): boolean {
         return send(res, 200, out.body, cors);
       }
       const routes: Record<string, (req: IncomingMessage, b: Record<string, unknown>) => Promise<Out> | Out> = {
-        '/api/register': register, '/api/login': login, '/api/recover': recover, '/api/loadout': loadout, '/api/rename': rename, '/api/import': importLegacy, '/api/avatar-remove': removeAvatar,
+        '/api/register': register, '/api/login': login, '/api/recover': recover, '/api/loadout': loadout, '/api/rename': rename, '/api/import': importLegacy, '/api/avatar-remove': removeAvatar, '/api/friend-add': friendAct('add'), '/api/friend-accept': friendAct('accept'), '/api/friend-remove': friendAct('remove'),
       };
       const isPost = req.method === 'POST';
       if (path === '/api/logout' ? !isPost : !(path in routes && isPost)) throw new HttpErr(path in routes || path === '/api/logout' ? 405 : 404, 'Not found');

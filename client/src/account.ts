@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { AVATAR_MAX, AVATAR_PX, AVATAR_TYPES, type Me, type Look } from '@backrooms/shared';
+import { AVATAR_MAX, AVATAR_PX, AVATAR_TYPES, type Me, type Look, type Friends, type Profile } from '@backrooms/shared';
 import { SERVER_URL } from './net';
 
 /*
@@ -150,3 +150,8 @@ export function useAccount() {
   };
 }
 export type Account = ReturnType<typeof useAccount>;
+
+/** Amigos y perfiles (necesitan sesión salvo el perfil, que es público). */
+export const getFriends = () => call<Friends>('friends');
+export const getProfile = async (name: string) => (await call<{ profile: Profile }>(`profile/${encodeURIComponent(name)}`)).profile;
+export const friendAct = (kind: 'add' | 'accept' | 'remove', username: string) => call<Friends>(`friend-${kind}`, { username });

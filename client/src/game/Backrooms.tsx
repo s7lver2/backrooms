@@ -15,6 +15,7 @@ import { setCursors } from './cursors';
 import { RIFLE_MAG, DIFFICULTY, missionHint, levelsOpen, type Inventory as SrvInv, type ItemId, type RoomView, type RoundResult } from '@backrooms/shared';
 import { useNet, useServer } from '../net';
 import { avatarUrl, useAccount } from '../account';
+import { FriendsScreen } from './Friends';
 import { Avatar, AuthScreen, DiscordButton, AccountBox, AccountMenu, AchievementsScreen, Toasts, type AuthMode } from './Account';
 import Frame from './Frame';
 import SettingsPane from './Settings';
@@ -47,7 +48,7 @@ import { emoteGate } from './emotes';
  * cámara, la pausa y el cuelgue falso. El juego en sí (game.ts) no sabe de React.
  */
 
-type Screen = 'load' | 'menu' | 'settings' | 'achv' | 'play' | 'pause' | 'dead' | 'crash' | 'lobby' | 'wait' | 'waitpause' | 'over';
+type Screen = 'load' | 'menu' | 'settings' | 'achv' | 'friends' | 'play' | 'pause' | 'dead' | 'crash' | 'lobby' | 'wait' | 'waitpause' | 'over';
 type WaitHud = BackroomsGame['waitHud'];
 const NO_WAIT: WaitHud = { ready: false, hint: null, label: '', notice: '', computer: false, board: false, entering: false, locked: false, free: true };
 
@@ -474,7 +475,7 @@ export default function Backrooms({ onQuit, onWin }: { onQuit: () => void; onWin
 
   // Esc: en la pantalla de título vuelve al escritorio; en las salas, los logros y los ajustes, a la pantalla de título (sin un popup abierto)
   useEffect(() => {
-    if (!['menu', 'lobby', 'achv', 'settings'].includes(screen) || authMode || acctOpen || welcome) return;
+    if (!['menu', 'lobby', 'achv', 'friends', 'settings'].includes(screen) || authMode || acctOpen || welcome) return;
     const key = (e: KeyboardEvent) => {
       if (e.key !== 'Escape') return;
       if (screen === 'menu') return quitRef.current();
@@ -821,7 +822,7 @@ export default function Backrooms({ onQuit, onWin }: { onQuit: () => void; onWin
 
   return (
     <div ref={root} className="br" data-screen={screen}>
-      {(screen === 'menu' || screen === 'settings' || screen === 'achv' || (screen === 'lobby' && !net.room)) && <Static still={reduced.current} scenes={game.current?.stills ?? []} />}
+      {(screen === 'menu' || screen === 'settings' || screen === 'achv' || screen === 'friends' || (screen === 'lobby' && !net.room)) && <Static still={reduced.current} scenes={game.current?.stills ?? []} />}
       <div ref={gl} className="br-stage" />
       {lvl != null && screen !== 'load' && <BootLoading over title={net.room?.levelId === 'parking' ? 'THE HABITABLE ZONE' : 'POOLROOMS'} label="BUILDING THE LEVEL" progress={lvl} />}
       {screen === 'load' && <BootLoading title="BACKROOMS" label={LOAD_PHASES[loadP.phase].label} progress={loadP.f} error={failed ? 'FAILED TO LOAD' : undefined} />}
@@ -849,6 +850,11 @@ export default function Backrooms({ onQuit, onWin }: { onQuit: () => void; onWin
               </button>
             </li>
             <li>
+              <button type="button" className="br-opt" onClick={() => setScreen('friends')}>
+                PROFILES
+              </button>
+            </li>
+            <li>
               <button type="button" className="br-opt" onClick={() => setScreen('settings')}>
                 SETTINGS
               </button>
@@ -865,6 +871,7 @@ export default function Backrooms({ onQuit, onWin }: { onQuit: () => void; onWin
         </nav>
       )}
       {screen === 'achv' && <AchievementsScreen acct={acct} onSignIn={() => openAuth('signin')} onBack={() => setScreen('menu')} />}
+      {screen === 'friends' && <FriendsScreen acct={acct} onSignIn={() => openAuth('signin')} onBack={() => setScreen('menu')} />}
       {screen === 'settings' && <SettingsPane muted={muted} toggleSound={toggleSound} onBack={() => setScreen('menu')} />}
       {wheel && <EmoteWheel have={haveAch} onPick={pickEmote} />}
       {screen === 'play' && !!hud?.talk && <Dialogue n={hud.talk} onPick={(i) => game.current?.pickMission(i)} onClose={() => game.current?.closeTalk()} />}
