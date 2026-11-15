@@ -52,6 +52,7 @@ export interface Pickup {
 /** Un asset compartido, o una fábrica cuyo modelo procedural pertenece a este objeto. */
 export type PickupModel = [THREE.Object3D, number] | ((rarity?: number) => [THREE.Object3D, number]);
 
+const GEN_HOLD = 1.5; // segundos manteniendo la tecla para accionar un interruptor de la luz
 const LABEL: Record<Pickup['kind'], string> = { tape: 'tape', camera: 'camcorder', gun: 'rifle', flashlight: 'flashlight', water: 'almond water', totem: 'totem of life', radar: 'radar', ammo: 'ammo', caution: 'caution tape', tank: 'diving tank', watergun: 'water gun', loot: 'artifact', uno: 'uno reverse', monster: 'monster', pokeball: 'pokeball', grenade: 'smoke grenade', nokia: 'nokia', bat: 'baseball bat', locker: 'locker', gen: 'power switch', glasses: ITEMS.glasses.name.toLowerCase(), pills: ITEMS.pills.name.toLowerCase(), steelcard: ITEMS.steelcard.name.toLowerCase(), beer: ITEMS.beer.name.toLowerCase() };
 
 export class PickupField {
@@ -114,6 +115,7 @@ export class PickupField {
   /** Para quien quiera saber dónde queda cada objeto del mapa (Las Suites oculta los de las habitaciones con la puerta cerrada). */
   protected onPut?: (g: THREE.Object3D, x: number, z: number) => void;
   private ownMats = new Map<string, THREE.MeshStandardMaterial>();
+  private genHold = 0;
   /** Pone un objeto en el suelo (los del mapa y los soltados). */
   put(id: string, kind: Pickup['kind'], c: Cell, src: THREE.Object3D, size: number, rot = 0, at?: { x: number; z: number; y?: number }, drop?: boolean, rar = spotRarity(id, c), ownSource = false) {
     if (this.disposed) return;
@@ -271,9 +273,14 @@ export class PickupField {
     }
     this.ghostsSync();
     const near = this.nearest();
-    this.hint = near ? this.label(near.kind) : null;
-    if (c.grab && near?.kind === 'locker') this.onLocker?.(near.id);
-    else if (c.grab) {
+    // el interruptor de la luz (cuadro): hay que mantener G un rato; soltar lo cancela
+    const gen = near?.kind === 'gen' && !pl.typeFrac;
+    this.genHold = gen && c.grabHeld ? this.genHold + dt : 0;
+    this.hint = near ? this.label(near.kind) + (this.genHold > 0 ? ` · HOLD ${Math.min(99, Math.round((this.genHold / GEN_HOLD) * 100))}%` : gen ? ' · HOLD G' : '') : null;
+    const grab = gen ? this.genHold >= GEN_HOLD : c.grab;
+    if (grab) this.genHold = 0;
+    if (grab && near?.kind === 'locker') this.onLocker?.(near.id);
+    else if (grab) {
       const p = near, ndx = this.nearDx;
       // la mano baja a por él; es tuyo cuando llega
       const take = (p: Pickup) => {
