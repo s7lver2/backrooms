@@ -851,7 +851,7 @@ export default function Backrooms({ onQuit, onWin }: { onQuit: () => void; onWin
             </li>
             <li>
               <button type="button" className="br-opt" onClick={() => setScreen('friends')}>
-                PROFILES
+                FRIENDS
               </button>
             </li>
             <li>
@@ -871,7 +871,7 @@ export default function Backrooms({ onQuit, onWin }: { onQuit: () => void; onWin
         </nav>
       )}
       {screen === 'achv' && <AchievementsScreen acct={acct} onSignIn={() => openAuth('signin')} onBack={() => setScreen('menu')} />}
-      {screen === 'friends' && <FriendsScreen acct={acct} onSignIn={() => openAuth('signin')} onBack={() => setScreen('menu')} />}
+      {screen === 'friends' && <FriendsScreen acct={acct} assets={game.current?.assets} onSignIn={() => openAuth('signin')} onBack={() => setScreen('menu')} />}
       {screen === 'settings' && <SettingsPane muted={muted} toggleSound={toggleSound} onBack={() => setScreen('menu')} />}
       {wheel && <EmoteWheel have={haveAch} onPick={pickEmote} />}
       {screen === 'play' && !!hud?.talk && <Dialogue n={hud.talk} onPick={(i) => game.current?.pickMission(i)} onClose={() => game.current?.closeTalk()} />}

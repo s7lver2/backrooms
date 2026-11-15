@@ -29,3 +29,9 @@
 .ach__who p { margin: 0; }
 .ach .br-avatar { flex: none; }
 .ach__sum label { display: flex; align-items: center; gap: 0.6em; }
+
+.ach__model { border: 1px solid rgba(242, 241, 234, 0.25); }
+.ach__model .iv-avatar { height: clamp(180px, 30vh, 320px); }
+.ach__badges { display: flex; flex-wrap: wrap; gap: 0.3em; }
+.ach__badge { width: 1.6em; height: 1.6em; display: grid; place-items: center; border: 1px solid #3d3b35; color: #3d3b35; }
+.ach__badge[data-on] { border-color: var(--br-ink); color: var(--br-ink); }
