@@ -187,6 +187,8 @@ export interface RoomInfo {
   name: string;
   tape: number;
   owner: string;
+  /** Los nombres de quienes hay dentro (para ver si hay amigos). */
+  players: string[];
   count: number;
   max: number;
   phase: Phase;

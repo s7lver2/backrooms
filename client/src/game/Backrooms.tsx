@@ -888,7 +888,7 @@ export default function Backrooms({ onQuit, onWin }: { onQuit: () => void; onWin
       {net.room && (screen === 'wait' || screen === 'waitpause' || screen === 'play' || screen === 'pause') && <VoiceHud room={net.room} me={net.me} />}
       {screen === 'lobby' && !net.room && (
         <Frame title="ROOMS" onBack={() => (setMp(false), setScreen('menu'))}>
-          <Lobby net={net} error={notice} server={server} account={acct.me?.username} onSolo={() => (enter(), start())} />
+          <Lobby net={net} error={notice} server={server} account={acct.me?.username} nightmare={'all_levels' in (acct.me?.achievements ?? {})} onSolo={() => (enter(), start())} />
         </Frame>
       )}
       {acctOpen && !authMode && (

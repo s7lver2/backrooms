@@ -12,7 +12,7 @@ import { ACHIEVEMENT_KEYS, WATER_HEAL, NOISE_SHOT, NOISE_DROP, NOISE_PHOTO, NOIS
 import { lockerContents, facelingStock, type LockerItem, ITEMS, PILLS, PARKING_ITEM_IDS, RARITIES, SCALE, UPGRADES, UP_IDS, boostOf, itemOpen, levelsOpen, cleanUps, hasRoom, lootPrice, rarity, rollRarity, sellPrice, spotRarity, statsOf, subOf, upCost, upLevel, wearInv, type Qual, type SaveInfo, type Ups } from '@backrooms/shared';
 import { allowedOrigins, handleApi, isAdminName, originOk, userFromCookie } from './auth';
 import { MONEY_LIMIT, parseAdmin } from './admin';
-import { achievementsOf, avatarRef, deleteSave, loadoutOf, saveOf, savesOf, writeSave } from './db';
+import { achievementsOf, statsOf as dbStats, avatarRef, deleteSave, loadoutOf, saveOf, savesOf, writeSave } from './db';
 import { award, count, hooks } from './progress';
 import { expirePickupReceipts, type PickupReceipt } from './pickup-receipts';
 
@@ -346,6 +346,12 @@ function creditEscape(r: RoomState) {
     if (r.size0 === 1) award(p.uid, 'lone_wolf');
     if (r.size0 >= 6) award(p.uid, 'full_house');
     if (r.levelId === 'poolrooms') award(p.uid, 'deep_end');
+    // escapar de cada nivel al menos una vez abre NIGHTMARE
+    if (['level0', 'parking', 'poolrooms', 'suites'].includes(r.levelId)) {
+      count(p.uid, `clear_${r.levelId}` as 'clear_level0');
+      const st = dbStats(p.uid);
+      if ((st.clear_level0 ?? 0) && (st.clear_parking ?? 0) && (st.clear_poolrooms ?? 0) && (st.clear_suites ?? 0)) award(p.uid, 'all_levels');
+    }
   }
 }
 
@@ -526,7 +532,7 @@ io.on('connection', (sock) => {
     leave(sock.id);
     const d = (sv?.data ?? {}) as Partial<RoomState> & { members?: Record<string, { ups?: unknown; inv?: unknown }> };
     const num = (v: unknown, def: number, lo: number, hi: number) => (Number.isFinite(v) ? Math.min(hi, Math.max(lo, Math.floor(v as number))) : def);
-    const diff = sv ? d.difficulty : a?.difficulty;
+    const diff = (sv ? d.difficulty : a?.difficulty) === 'nightmare' && !('all_levels' in achievementsOf(uid)) ? 'hard' : sv ? d.difficulty : a?.difficulty; // (NIGHTMARE solo con el logro de haber escapado de todos los niveles)
     const r: RoomState = {
       lockers: new Map(), code: code || newCode(), tape: ++tapeNo, name: typeof d.name === 'string' ? d.name.slice(0, ROOM_NAME_MAX) : `SALA ${tapeNo}`, public: sv ? !!d.public : !!a?.public, ownerId: sock.id, max: num(d.max, DEFAULT_PLAYERS, 2, MAX_PLAYERS),
       difficulty: typeof diff === 'string' && Object.hasOwn(DIFFICULTY, diff) ? diff : 'normal', fixedSeed: num(d.fixedSeed, 0, 0, 2 ** 31 - 1), phase: 'lobby', seed: 0, players: new Map(), size0: 0, deaths: 0, strips: [],
@@ -568,7 +574,7 @@ io.on('connection', (sock) => {
     for (const r of rooms.values())
       if (r.public)
         out.push({
-          code: r.code, name: r.name, tape: r.tape, owner: r.players.get(r.ownerId)?.name ?? '', count: r.players.size, max: r.max,
+          code: r.code, name: r.name, tape: r.tape, owner: r.players.get(r.ownerId)?.name ?? '', players: [...r.players.values()].slice(0, 8).map((p) => p.name), count: r.players.size, max: r.max,
           phase: r.phase, difficulty: r.difficulty, seeded: !!r.fixedSeed, age: r.startedAt ? Math.round((Date.now() - r.startedAt) / 1000) : 0,
         });
     cb(out);
@@ -580,7 +586,7 @@ io.on('connection', (sock) => {
     if (typeof a.name === 'string') r.name = a.name.replace(/[\u0000-\u001f\u007f]/g, '').trim().slice(0, ROOM_NAME_MAX) || r.name;
     if (typeof a.public === 'boolean') r.public = a.public;
     if (Number.isFinite(a.max)) r.max = Math.min(MAX_PLAYERS, Math.max(2, r.players.size, Math.round(a.max!)));
-    if (typeof a.difficulty === 'string' && Object.hasOwn(DIFFICULTY, a.difficulty) && a.difficulty !== r.difficulty) (r.difficulty = a.difficulty), prepare(r, r.nextSeed, r.levelId); // mismas semilla y nivel: solo cambia lo que da cada misión
+    if (typeof a.difficulty === 'string' && Object.hasOwn(DIFFICULTY, a.difficulty) && a.difficulty !== r.difficulty && (a.difficulty !== 'nightmare' || (uid && 'all_levels' in achievementsOf(uid)))) (r.difficulty = a.difficulty), prepare(r, r.nextSeed, r.levelId); // mismas semilla y nivel: solo cambia lo que da cada misión
     if (Number.isFinite(a.fixedSeed)) {
       const f = Math.min(2 ** 31 - 1, Math.max(0, Math.floor(a.fixedSeed!)));
       if (f !== r.fixedSeed) (r.fixedSeed = f), prepare(r); // otra semilla: otro mapa y otras misiones

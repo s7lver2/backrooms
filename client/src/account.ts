@@ -58,6 +58,9 @@ export async function cropAvatar(file: File): Promise<Blob> {
   throw new ApiError('Image too complex, try another', 0);
 }
 
+/** ¿Esta cuenta puede elegir NIGHTMARE? (lo lee RoomSettings sin tener que pasar la cuenta por todas partes). */
+export const unlocks = { nightmare: false };
+
 /** loading: aún no se sabe; guest: sin cuenta; user: con sesión; offline: el servidor no responde (se juega de invitado). */
 export type AccountStatus = 'loading' | 'guest' | 'user' | 'offline';
 
@@ -88,6 +91,7 @@ export function useAccount() {
     return () => document.removeEventListener('visibilitychange', vis);
   }, [refresh]);
 
+  unlocks.nightmare = !!me && 'all_levels' in me.achievements;
   const enter = (m: Me) => (setMe(m), setStatus('user'), setExpired(false));
   return {
     status,

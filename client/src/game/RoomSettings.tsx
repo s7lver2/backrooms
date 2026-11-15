@@ -1,4 +1,5 @@
 import { useEffect, useState, type ReactNode } from 'react';
+import { unlocks } from '../account';
 import { DIFFICULTY, MAX_PLAYERS, ROOM_NAME_MAX, type Difficulty, type RoomSettings, type RoomView } from '@backrooms/shared';
 import type { Sock } from '../net';
 
@@ -25,7 +26,7 @@ export default function RoomSettingsPanel({ room, me, sock }: { room: RoomView; 
   const [seedText, setSeedText] = useState('');
   // la semilla escrita sigue a la de la sala (la cambia el propietario)
   useEffect(() => setSeedText(room.fixedSeed ? String(room.fixedSeed) : ''), [room.fixedSeed]);
-  const diffs = Object.keys(DIFFICULTY) as Difficulty[];
+  const diffs = (Object.keys(DIFFICULTY) as Difficulty[]).filter((d) => d !== 'nightmare' || unlocks.nightmare || room.difficulty === 'nightmare');
   return (
     <div className="br-settings">
       {!owner && <p className="br-lobby__sub">READ ONLY · ONLY THE OWNER CAN CHANGE THEM</p>}
@@ -68,7 +69,7 @@ export default function RoomSettingsPanel({ room, me, sock }: { room: RoomView; 
             ◀ {DIFF[room.difficulty]} ▶
           </button>
         ) : DIFF[room.difficulty]}
-        <small className="br-lobby__dim"> MONEY x{DIFFICULTY[room.difficulty].money} · LOOT {Math.round(DIFFICULTY[room.difficulty].loot * 100)}% · {DIFFICULTY[room.difficulty].ents} ENT · DMG x{DIFFICULTY[room.difficulty].dmg}</small>
+        <small className="br-lobby__dim"> MONEY x{DIFFICULTY[room.difficulty].money} · LOOT {Math.round(DIFFICULTY[room.difficulty].loot * 100)}% · {DIFFICULTY[room.difficulty].ents} ENT</small>
       </Setting>
     </div>
   );

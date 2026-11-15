@@ -18,8 +18,8 @@ export const AVATAR_TYPES = ['image/webp', 'image/jpeg'];
 
 // ── logros ───────────────────────────────────────────────────────────────
 /** Contadores de progreso (los lleva el servidor por cuenta). */
-export type StatKey = 'games' | 'escapes' | 'tapes' | 'photos' | 'holds' | 'kills' | 'falls' | 'lockers' | 'unos' | 'monsters';
-export const STAT_LABEL: Record<StatKey, string> = { games: 'GAMES', escapes: 'ESCAPES', tapes: 'TAPES', photos: 'PHOTOS', holds: 'INSPECTIONS HELD', kills: 'KILLS', falls: 'FALLS', lockers: 'LOCKERS OPENED', unos: 'CARDS PLAYED', monsters: 'MONSTERS DRUNK' };
+export type StatKey = 'games' | 'escapes' | 'tapes' | 'photos' | 'holds' | 'kills' | 'falls' | 'lockers' | 'unos' | 'monsters' | 'clear_level0' | 'clear_parking' | 'clear_poolrooms' | 'clear_suites';
+export const STAT_LABEL: Record<StatKey, string> = { games: 'GAMES', escapes: 'ESCAPES', tapes: 'TAPES', photos: 'PHOTOS', holds: 'INSPECTIONS HELD', kills: 'KILLS', falls: 'FALLS', lockers: 'LOCKERS OPENED', unos: 'CARDS PLAYED', monsters: 'MONSTERS DRUNK', clear_level0: 'LEVEL 0 ESCAPES', clear_parking: 'LEVEL 1 ESCAPES', clear_poolrooms: 'LEVEL 37 ESCAPES', clear_suites: 'LEVEL -20 ESCAPES' };
 
 export interface AchievementDef {
   key: string;
@@ -69,6 +69,7 @@ export const ACHIEVEMENTS: AchievementDef[] = [
   // DEPTHS
   { key: 'deep_end', name: 'DEEP END', desc: 'Escape from the Poolrooms.', branch: 'DEPTHS' },
   { key: 'no_u', name: 'NO U', desc: 'Play an Uno Reverse.', stat: 'unos', goal: 1, branch: 'DEPTHS', from: 'deep_end' },
+  { key: 'all_levels', name: 'NO MORE ROOMS', desc: 'Escape from every level. Unlocks NIGHTMARE.', branch: 'DEPTHS' },
   { key: 'caffeinated', name: 'CAFFEINATED', desc: 'Drink 5 Monsters.', stat: 'monsters', goal: 5, branch: 'DEPTHS', from: 'deep_end' },
 ];
 export const ACHIEVEMENT_KEYS = new Set(ACHIEVEMENTS.map((a) => a.key));
