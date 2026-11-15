@@ -1,3 +1,5 @@
+import { report } from './telemetry';
+
 /*
  * Registro de errores de renderizado, para el botón «COPY RENDER ERRORS» de la consola de admin (game/Admin.tsx).
  * Recoge: console.error (three escribe ahí los shaders que no compilan), los console.warn que hablan de three/WebGL/texturas/glb, los errores sin
@@ -55,6 +57,7 @@ function note(kind: string, msg: string) {
   else {
     list.push({ kind, msg: msg.length > MAXLEN ? `${msg.slice(0, MAXLEN)}\n… (${msg.length - MAXLEN} more chars)` : msg, n: 1, first: now, last: now });
     if (list.length > MAX) list.shift();
+    if (kind.startsWith('console.') || kind === 'webgl') report(kind, msg, kind === 'console.warn' ? 'warning' : 'error'); // (los errores sin capturar y las promesas ya los coge el SDK)
   }
   changed();
 }

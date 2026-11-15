@@ -1,3 +1,4 @@
+import { bugWatch, report } from '../telemetry';
 import { DEV_LOCAL } from '../devGate';
 import { claimPickup } from '../pickup-claim';
 import { dlog } from '../dlog';
@@ -1106,6 +1107,7 @@ export class BackroomsGame {
     if (mp?.level === 'parking') {
       void this.startParking(seed, mp).catch(error => {
         console.error('Habitable Zone failed to load', error);
+        report('level', 'level failed to load', 'error');
         this.onLevelError?.();
       });
       return;
@@ -1244,6 +1246,7 @@ export class BackroomsGame {
     this.renderer.shadowMap.autoUpdate = true;
     const realDt = this.clock.getDelta();
     this.adapt(realDt);
+    bugWatch(realDt, this.paused, this.player?.pos);
     const dt = Math.min(realDt, 0.05) * (this.mp ? 1 : this.cheats.slow); // (cámara lenta: solo en solitario)
     this.lastFrame = performance.now();
     if (this.epi) return this.epiFrame(dt);
@@ -3840,10 +3843,19 @@ server-synced inv ${JSON.stringify(this.mp.inv)}` : ''}`);
     else if (canHold(p.inventory, op.item)) p.receive(op.item);
   }
 
+  private gpu?: string;
+  /** El modelo de GPU (tipo de dispositivo; va en los informes de fallo). */
+  private gpuName() {
+    if (this.gpu === undefined) {
+      const gl = this.renderer.getContext(), x = gl.getExtension('WEBGL_debug_renderer_info');
+      this.gpu = String(x ? gl.getParameter(x.UNMASKED_RENDERER_WEBGL) : 'unknown').slice(0, 80);
+    }
+    return this.gpu;
+  }
   /** Lo que acompaña a un informe de fallo (telemetry.ts): nivel, semilla y dónde estaba el jugador. Nada personal. */
   crashContext() {
     const p = this.player?.pos;
-    return { level: this.mp?.level ?? (this.parking ? 'parking' : 'level0'), floor: this.floorNo, seed: this.seed0, pos: p ? [Math.round(p.x * 10) / 10, Math.round(p.y * 10) / 10, Math.round(p.z * 10) / 10] : null };
+    return { level: this.mp?.level ?? (this.parking ? 'parking' : 'level0'), floor: this.floorNo, seed: this.seed0, gpu: this.gpuName(), quality: settings.quality, res: Math.round(this.drs * 100) / 100, renderMs: Math.round(this.renderMs * 10) / 10, mp: !!this.mp, pos: p ? [Math.round(p.x * 10) / 10, Math.round(p.y * 10) / 10, Math.round(p.z * 10) / 10] : null };
   }
 
   /** Solo: lo que enseña el panel de depuración. */
