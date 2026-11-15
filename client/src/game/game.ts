@@ -2739,6 +2739,11 @@ export class BackroomsGame {
       const b = this.pool.freeBox();
       (this.freePos.x = THREE.MathUtils.clamp(this.freePos.x, 0, b.x)), (this.freePos.z = THREE.MathUtils.clamp(this.freePos.z, 0, b.z));
       this.freePos.y = THREE.MathUtils.clamp(this.freePos.y, b.y0, b.y1);
+    } else if (this.parking) {
+      // el parking: varias plantas hacia abajo (y negativas) y su propio tamaño
+      const mp = this.parking.level.map, b = mp.floors[0].bounds, low = mp.floors[mp.floors.length - 1].y;
+      (this.freePos.x = THREE.MathUtils.clamp(this.freePos.x, b.x - 2, b.x + b.w + 2)), (this.freePos.z = THREE.MathUtils.clamp(this.freePos.z, b.z - 2, b.z + b.d + 2));
+      this.freePos.y = THREE.MathUtils.clamp(this.freePos.y, low + 0.3, mp.floors[0].y + PARKING_HEIGHT + 2);
     } else {
       if (m) (this.freePos.x = THREE.MathUtils.clamp(this.freePos.x, 0, m.w * CELL)), (this.freePos.z = THREE.MathUtils.clamp(this.freePos.z, 0, m.h * CELL));
       this.freePos.y = THREE.MathUtils.clamp(this.freePos.y, 0.3, HEIGHT - 0.2);

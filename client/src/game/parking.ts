@@ -610,8 +610,18 @@ export class ParkingLevel {
       const hinge = this.hinges.find(h => h.id === id && h.floor === p.floor);
       if (hinge?.kind === 'locker' && this.lockedFast(id)) return { id, label: 'E · PICK THE LOCK' };
       if (hinge) return { id, label: `E · ${hinge.target ? 'CLOSE' : 'OPEN'} ${hinge.kind === 'room' ? 'ROOM DOOR' : 'LOCKER'}` };
-      return;
     }
+    // una taquilla abierta: mirar su interior (la hoja queda de canto y era casi imposible apuntarle) también la cierra
+    if (id && !id.endsWith('-item')) return;
+    const o = ray.ray.origin, d = ray.ray.direction, fl = this.map.floors[p.floor];
+    for (const room of fl?.rooms ?? [])
+      for (const lk of room.lockers ?? []) {
+        const h = this.hinges.find((x) => x.id === lk.id && x.floor === p.floor);
+        if (!h || h.kind !== 'locker' || !h.target || (h.current ?? 0) < 0.5) continue;
+        const cx = lk.x - o.x, cy = fl.y + 1.05 - o.y, cz = lk.z - o.z, t = cx * d.x + cy * d.y + cz * d.z;
+        if (t < 0 || t > 2.25) continue;
+        if (Math.hypot(cx - d.x * t, cy - d.y * t, cz - d.z * t) < 0.45) return { id: lk.id, label: 'E · CLOSE LOCKER' };
+      }
   }
 
   prompt(camera: THREE.Camera, p: ParkingPoint) { return this.lastTime < this.noticeUntil ? this.notice : this.focus(camera, p)?.label ?? ''; }
