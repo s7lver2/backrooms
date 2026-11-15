@@ -1,6 +1,6 @@
 import * as THREE from 'three';
-import { EntitySim, ENTITIES, type Cell, type EntState, type HideState, type Kind, type Noise, type SimTarget } from '@backrooms/shared';
-import { center, type World } from './world';
+import { EntitySim, ENTITIES, type Cell, type Maze, type EntState, type HideState, type Kind, type Noise, type SimTarget } from '@backrooms/shared';
+import { center } from './world';
 import type { Assets } from './game';
 import type { Target } from './items';
 import { Rig } from './rig';
@@ -40,6 +40,41 @@ export function entityBody(kind: Kind, assets: Assets) {
   return { rig, balloon };
 }
 
+/** Lo que una entidad pide a su mundo: dónde colgar el cuerpo y, si lleva su cabeza de serie (EntitySim), el mapa y las paredes. Cualquier nivel con `root` vale si le pone su propio `Brain`. */
+export interface EntityHost {
+  root: THREE.Object3D;
+  maze?: Maze;
+  solid?: (x: number, z: number) => boolean;
+}
+/**
+ * La cabeza de una entidad: lo que el cuerpo (`Entity`) necesita saber de cualquier IA. `EntitySim` (shared/sim.ts, el laberinto) ya lo cumple tal cual;
+ * una IA de otro nivel (con plantas, por lotes...) se adapta a esto y el cuerpo, los clips, el globo y el baile son los mismos.
+ */
+export interface Brain {
+  x: number;
+  z: number;
+  facing: number;
+  state: EntState['state'];
+  moving: boolean;
+  hp: number;
+  /** Un paso; devuelve algo (el id) el fotograma en que alcanza a un objetivo. */
+  update(dt: number, targets: SimTarget[], god: boolean, hides: HideState[], noises: Noise[]): unknown;
+  /** Un golpe: true si muere. */
+  hit(): boolean;
+  dance(x: number, z: number): void;
+}
+
+/**
+ * Sigue una pose que llega a saltos (red, o una IA que decide por lotes): pone el cuerpo en ella, o se acerca con un pulido corto (`smooth`).
+ * La usan las entidades del parking; con `smooth` falso, salta directo.
+ */
+export function followPose(root: THREE.Object3D, p: { x: number; y: number; z: number; yaw: number }, dt: number, smooth: boolean, rate = 17) {
+  if (!smooth) return void (root.position.set(p.x, p.y, p.z), (root.rotation.y = p.yaw));
+  const a = 1 - Math.exp(-dt * rate);
+  root.position.set(THREE.MathUtils.lerp(root.position.x, p.x, a), THREE.MathUtils.lerp(root.position.y, p.y, a), THREE.MathUtils.lerp(root.position.z, p.z, a));
+  root.rotation.y += Math.atan2(Math.sin(p.yaw - root.rotation.y), Math.cos(p.yaw - root.rotation.y)) * a;
+}
+
 export class Entity implements Target {
   readonly pos = new THREE.Vector3();
   readonly height: number;
@@ -48,7 +83,7 @@ export class Entity implements Target {
   state: EntState['state'] = 'wander';
   balloon?: THREE.Object3D;
   /** La cabeza (solo en solitario). */
-  private sim?: EntitySim;
+  private sim?: Brain;
   private facing = 0;
   /** Hp con el que empezó: la siguiente aguanta uno más. */
   readonly hp0: number;
@@ -67,7 +102,7 @@ export class Entity implements Target {
   hall?: { x: number; span: number };
   private shown?: string;
 
-  constructor(readonly kind: Kind, private world: World, assets: Assets, at: Cell, public speed = 1, public hp = 1, readonly remote = false) {
+  constructor(readonly kind: Kind, host: EntityHost, assets: Assets, at: Cell, public speed = 1, public hp = 1, readonly remote = false, brain?: Brain) {
     this.hp0 = hp;
     this.height = ENTITIES[kind].height;
     const body = entityBody(kind, assets);
@@ -76,9 +111,10 @@ export class Entity implements Target {
     this.pos.copy(center(at));
     this.goal.copy(this.pos);
     this.rig.root.position.copy(this.pos);
-    world.root.add(this.rig.root);
-    if (!remote) this.sim = new EntitySim(kind, world.maze, (x, z) => world.solid(x, z), at, speed, hp, true); // recover: un golpe que no mata, y vuelve a lo suyo
-    if (this.balloon) world.root.add(this.balloon);
+    host.root.add(this.rig.root);
+    if (brain) this.sim = brain;
+    else if (!remote) this.sim = new EntitySim(kind, host.maze!, (x, z) => host.solid!(x, z), at, speed, hp, true); // recover: un golpe que no mata, y vuelve a lo suyo
+    if (this.balloon) host.root.add(this.balloon);
     this.rig.play(CLIPS[kind].walk, 0);
   }
 

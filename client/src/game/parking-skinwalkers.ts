@@ -3,6 +3,7 @@ import { GLTFLoader, type GLTF } from 'three/examples/jsm/loaders/GLTFLoader.js'
 import { MeshoptDecoder } from 'three/examples/jsm/libs/meshopt_decoder.module.js';
 import { HP_MAX, HIT_DAMAGE, parkingContains, type Look, type ParkingPoint } from '@backrooms/shared';
 import { Rig } from './rig';
+import { followPose } from './entity';
 import { Cosmetics } from './cosmetics';
 import { ParkingSkinAI, type SkinAgent, type SkinTarget } from './parking-skinwalker-ai';
 import type { ParkingLevel } from './parking';
@@ -86,15 +87,7 @@ export class ParkingSkinwalkers {
       if (!visible || !s) continue;
       const { x, y, z } = s.pos;
       const position = a.root.position;
-      if (networked && wasVisible && Math.hypot(position.x - x, position.y - y, position.z - z) < 3) {
-        const alpha = 1 - Math.exp(-dt * 17);
-        a.root.position.set(THREE.MathUtils.lerp(a.root.position.x, x, alpha), THREE.MathUtils.lerp(a.root.position.y, y, alpha), THREE.MathUtils.lerp(a.root.position.z, z, alpha));
-        const yawDelta = Math.atan2(Math.sin(s.yaw - a.root.rotation.y), Math.cos(s.yaw - a.root.rotation.y));
-        a.root.rotation.y += yawDelta * alpha;
-      } else {
-        a.root.position.set(x, y, z);
-        a.root.rotation.y = s.yaw;
-      }
+      followPose(a.root, { x, y, z, yaw: s.yaw }, dt, networked && wasVisible && Math.hypot(position.x - x, position.y - y, position.z - z) < 3);
       const blend = s.beast ? 1 : s.state === 'transform' ? Math.min(1, s.transform / 1.15) : 0;
       a.human.root.visible = blend < 1;
       a.beast.root.visible = blend > 0;

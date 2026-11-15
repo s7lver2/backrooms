@@ -26,14 +26,16 @@ Piezas que se escriben **una sola vez** y valen para todos los niveles (nivel 0,
 | `Rig` / `Cosmetics` | sí | sí | sí (skinwalkers) |
 | `ElevatorCab` | sí | sí | sí |
 | `Epilogue` | sí | sí | sí |
-| `entityBody` / `Entity` | sí | sí (entidades del servidor) | **no**: usa sus propios skinwalkers y smilers (`caps.ents = false`) |
+| `entityBody` / `Entity` | sí | sí (entidades del servidor) | **no** (`caps.ents = false`): skinwalkers y smilers propios; comparten `followPose`, `Rig` y `Cosmetics` (ver «Por qué...») |
 | `PickupField` | sí (`Items`) | sí (`PoolPickups`) | **no**: taquillas, objetos y cintas son código propio de `parking.ts` (`storageItems`, `takeItem`, `parkingInteract`); no hay objetos soltados ni `syncDrops` |
 | `Gadgets` | sí | sí | **no** |
 
 Por qué el parking no los usa hoy (revisado a fondo el 15/11/2026):
 - `PickupField` está pensado para celdas planas (`Cell`, `CELL`, suelo a una altura) y para el protocolo `claim` / `lockerTake`. El parking tiene varias plantas (`y`), taquillas con puertas con colisión propia (`parking.ts`, `hinges`) y su protocolo `parkingInteract`. Para unirlos hay que dar altura/planta a `PickupHost` y a los soltados (`Drop` solo lleva `x, z`), y cambiar el servidor.
 - `Gadgets` (cinta, radar, tótem): el servidor **prohíbe** esos objetos en el parking a propósito (`server/src/index.ts`, lista `['gun','ammo','watergun','tank','totem','radar','caution']`) y `parkingInventory` los quita en el cliente. Además las cintas son planas (`x, z`, sin planta). Meterlos es una decisión de diseño, no solo de código.
-- `Entity` / `entityBody`: `Entity` necesita un `World` de laberinto y `EntitySim`; los enemigos del parking (skinwalker humano/bestia y smiler) son otros modelos con su IA sobre el mapa de plantas. No son los mismos monstruos, así que no se pueden sustituir sin cambiar el elenco. Se reutilizan `Rig` y `Cosmetics`.
+- `Entity` / `entityBody`: `Entity` ya no depende de `World` ni de `EntitySim` (acepta un `EntityHost` y un `Brain`, ver sección 7), pero los enemigos del parking **no se han migrado** a él, por dos motivos concretos:
+  - **Skinwalker:** lleva dos `Rig` a la vez (humano y bestia) que se funden por opacidad de materiales, `Cosmetics` del jugador y partículas de transformación; `Entity` es un cuerpo con un solo `Rig` y los clips salen de `ENTITIES[kind]` (`shared/sim.ts`). Además su IA (`ParkingSkinAI`) actualiza **todos** los agentes de golpe y el cliente solo lee su pose (también en red, `syncNetwork`); no es una cabeza por entidad. Migrarlo exigiría un `Kind` nuevo en `shared/sim.ts` con clips humano/bestia y un cuerpo de dos rigs en `entityBody`, y no se puede probar sin navegador. Se comparte solo lo seguro: `followPose` (suavizado de pose) y `Rig`/`Cosmetics`.
+  - **Smiler:** no es un cuerpo: es un velo, una cara aditiva y humo instanciado orientados a la cámara. No hay `Rig` que reutilizar.
 
 ---
 
@@ -88,7 +90,9 @@ El armario, el perfil y los avatares remotos lo recogen solos.
 **Uso**
 - Si solo necesitas **ver** una entidad (menú, final, minijuego): `entityBody`, sin `Entity` ni `World`.
 - Clips por entidad: `CLIPS[kind]` (`walk`, `dances`...), salen de `ENTITIES` (`shared/sim.ts`).
-- `Entity` necesita un `World`; no la uses fuera del laberinto.
+- `Entity(kind, host, assets, celda, velocidad, hp, remote?, brain?)`: `host` es un `EntityHost` (`root` donde colgar el cuerpo; `maze` y `solid` solo si va a llevar la cabeza de serie, `EntitySim`). `World` lo cumple.
+- Una IA nueva (con plantas, por lotes...) se adapta a `Brain` (`x`, `z`, `facing`, `state`, `moving`, `hp`, `update`, `hit`, `dance`; `EntitySim` ya lo cumple) y se pasa como `brain`; el cuerpo, los clips, el globo y el baile son los mismos. Los clips siguen saliendo de `ENTITIES[kind]`: un monstruo nuevo necesita su `Kind` en `shared/sim.ts`.
+- `followPose(root, pose, dt, smooth)`: pone un cuerpo en una pose que llega a saltos (red o IA por lotes), con un pulido corto si `smooth`. Lo usan los skinwalkers del parking.
 
 ## 8. `ElevatorCab`
 La cabina de salida: geometría y texturas procedurales (sin modelos).
