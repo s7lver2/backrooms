@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { ACHIEVEMENTS, EMOTE_DEFS, EMOTE_SLOTS, emoteOpen } from '@backrooms/shared';
-import { emoteGate, onEmotes, setVictory, toggleEmote } from './emotes';
+import { emoteGate, onEmotes, previewEmote, setVictory, toggleEmote } from './emotes';
 
 /*
  * El armario, parte de los bailes: de todos los emotes solo se llevan EMOTE_SLOTS equipados (los de la rueda B y las teclas 1–5) y uno de ellos es la
@@ -16,7 +16,7 @@ export default function EmoteLoadout() {
   return (
     <div className="br-ward__row">
       <p className="br-ward__h">
-        <span>EMOTES</span>
+        <span>EMOTES · CLICK TO PREVIEW</span>
         <span className="br-lobby__dim">{eq.length}/{EMOTE_SLOTS} EQUIPPED · ★ = VICTORY POSE</span>
       </p>
       <div className="br-boxes br-emotes" role="group" aria-label="Emotes">
@@ -30,7 +30,7 @@ export default function EmoteLoadout() {
                 aria-pressed={on}
                 aria-disabled={!open || undefined}
                 title={open ? (on ? 'Unequip' : 'Equip') : `LOCKED · EARN ${need(d.need)}`}
-                onClick={() => setMsg(!open ? `LOCKED · EARN ${need(d.need)}` : toggleEmote(n) ? '' : `ONLY ${EMOTE_SLOTS} AT A TIME · UNEQUIP ONE FIRST`)}
+                onClick={() => (open && previewEmote(n), setMsg(!open ? `LOCKED · EARN ${need(d.need)}` : toggleEmote(n) ? '' : `ONLY ${EMOTE_SLOTS} AT A TIME · UNEQUIP ONE FIRST`))}
               >
                 <span>{d.name}</span>
                 <small>{open ? (on ? `SLOT ${eq.indexOf(n) + 1}` : 'FREE') : 'LOCKED'}</small>

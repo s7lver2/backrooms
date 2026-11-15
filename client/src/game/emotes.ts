@@ -5,7 +5,7 @@ import { EMOTE_DEFS, EMOTE_SLOTS, emoteOpen } from '@backrooms/shared';
  * son lo que sale en la rueda y en las teclas 1–5) y cuál es su pose de victoria (una de las equipadas). Lo equipado se guarda en este navegador.
  * Lo rellena Backrooms.tsx desde la cuenta; un invitado solo tiene los gratis.
  */
-export const emoteGate = { have: new Set<string>(), equipped: [] as number[], victory: 0 };
+export const emoteGate = { have: new Set<string>(), equipped: [] as number[], victory: 0, /** El emote que se está previsualizando en el armario (0: ninguno). */ preview: 0 };
 const listeners = new Set<() => void>();
 /** Avisa cuando cambia lo equipado (el armario se repinta). */
 export const onEmotes = (f: () => void) => (listeners.add(f), () => void listeners.delete(f));
@@ -51,3 +51,8 @@ export function setVictory(n: number) {
   refreshEmotes();
 }
 refreshEmotes();
+/** Previsualiza el emote `n` en el personaje del armario (0 lo para). */
+export function previewEmote(n: number) {
+  emoteGate.preview = n;
+  listeners.forEach((f) => f());
+}

@@ -3,7 +3,7 @@ import { useEffect, useRef, useState, type KeyboardEvent } from 'react';
 import * as THREE from 'three';
 import { clone } from 'three/examples/jsm/utils/SkeletonUtils.js';
 import type { GLTF } from 'three/examples/jsm/loaders/GLTFLoader.js';
-import { ACHIEVEMENTS, COSMETICS, DEFAULT_LOOK, cleanLook, cosmetic, levelsOpen, type CosmeticDef, type Look, type RoomView, type Slot } from '@backrooms/shared';
+import { ACHIEVEMENTS, COSMETICS, EMOTE_DEFS, DEFAULT_LOOK, cleanLook, cosmetic, levelsOpen, type CosmeticDef, type Look, type RoomView, type Slot } from '@backrooms/shared';
 import type { Inventory } from '@backrooms/shared';
 import type { Sock } from '../net';
 import type { Assets } from './game';
@@ -12,6 +12,8 @@ import Upgrades from './Upgrades';
 import type { Account } from '../account';
 import RoomSettingsPanel from './RoomSettings';
 import { Cosmetics } from './cosmetics';
+import { Rig } from './rig';
+import { emoteGate } from './emotes';
 import { Thumbs, type ThumbSpec } from './wardThumbs';
 
 /*
@@ -70,31 +72,38 @@ function Preview({ gltf, look, reduced }: { gltf?: GLTF; look: Look; reduced: bo
     key.position.set(2, 3, 3);
     scene.add(key);
     const pivot = new THREE.Group();
-    const root = clone(gltf.scene);
-    root.traverse((o) => void ((o as THREE.Mesh).isMesh && (o.frustumCulled = false)));
+    const rig = new Rig(gltf); // el mismo cuerpo que en el juego: con el paquete de animaciones puede bailar cualquier emote
+    const An = rig.useAnimator(), root = rig.root;
     const cos = new Cosmetics(root); // los accesorios van en el mundo, junto al cuerpo: dentro del mismo pivote
     pivot.add(root);
     scene.add(cos.root); // coordenadas de mundo: fuera del pivote que gira
     pivot.rotation.y = -0.5;
     scene.add(pivot);
     if (DEV_LOCAL) Object.assign(window, { __pivot: pivot });
-    const mixer = new THREE.AnimationMixer(root);
-    const clip = gltf.animations.find((c) => c.name === 'Neutral Idle') ?? gltf.animations[0];
-    if (clip) mixer.clipAction(clip).play();
+    if (!An) rig.play('Neutral Idle', 0);
+    let dance = '';
+    const sync = () => {
+      const want = emoteGate.preview ? EMOTE_DEFS[emoteGate.preview - 1]?.clip ?? '' : '';
+      if (want === dance) return;
+      dance = want;
+      if (want) An?.playOverClip(want, 1);
+      else An?.stopOver();
+    };
     const draw = () => {
       cos.set(lookRef.current);
       pivot.updateMatrixWorld(true);
       cos.update(0);
       r.render(scene, cam);
     };
-    mixer.update(0.01);
+    rig.update(0.01);
     draw();
     let raf = 0, last = performance.now();
     const loop = (now: number) => {
       raf = requestAnimationFrame(loop);
       const dt = Math.min(0.05, (now - last) / 1000);
       last = now;
-      mixer.update(dt);
+      sync();
+      rig.update(dt);
       if (!reduced) pivot.rotation.y += dt * 0.7;
       draw();
     };
@@ -102,7 +111,8 @@ function Preview({ gltf, look, reduced }: { gltf?: GLTF; look: Look; reduced: bo
     return () => {
       cancelAnimationFrame(raf);
       ro.disconnect();
-      mixer.stopAllAction();
+      emoteGate.preview = 0;
+      rig.mixer.stopAllAction();
       cos.dispose(); // sus materiales son copias; la geometría y las texturas son del juego
       r.dispose();
       r.forceContextLoss();
