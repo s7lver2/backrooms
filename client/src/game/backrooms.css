@@ -804,3 +804,6 @@
 .br-chain svg rect { fill: var(--br-ink); }
 .br-chain svg circle { fill: #060605; stroke: none; }
 @media (max-width: 760px) { .br-board__grid--diff { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+
+.br-count { margin: 0 0 0.6em; padding: 0.4em 0.8em; border: 2px solid var(--br-ink); letter-spacing: 0.12em; animation: br-next 1s ease-in-out infinite; }
+.br-count b { font-size: 1.8em; font-weight: 400; margin-left: 0.3em; }

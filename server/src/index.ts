@@ -50,7 +50,7 @@ const http = createServer((req, res) => {
 // latido corto (por defecto 25 s + 20 s): si un túnel no pasa el cierre de la pestaña, el jugador fantasma desaparece en ≤ 13 s, no en 45
 const io = new Server<ClientToServer, ServerToClient>(http, { pingInterval: 10000, pingTimeout: 25000, cors: { origin: process.env.CLIENT_ORIGIN ? allowedOrigins : true, credentials: true } });
 
-interface RoomState extends Omit<Room, 'floor' | 'caps' | 'offers' | 'leading' | 'mission' | 'ascent' | 'vote'> {
+interface RoomState extends Omit<Room, 'floor' | 'caps' | 'offers' | 'leading' | 'mission' | 'ascent' | 'vote' | 'startIn'> {
   players: Map<string, Player>;
   /** Las Suites: la planta de la ronda que viene (1-5). */
   floor: number;
@@ -84,6 +84,8 @@ interface RoomState extends Omit<Room, 'floor' | 'caps' | 'offers' | 'leading' |
   doneIds: string[];
   boardAt?: number;
   readyTimer?: ReturnType<typeof setTimeout>;
+  /** Cuándo empieza sola la ronda (todos listos): lo que enseña la cuenta atrás. */
+  startAt?: number;
   lastProgress: number;
   /** Admin: la salida de la cuenta atrás de START_DELAY que vale (si se reinicia la ronda, la anterior no hace nada). */
   tok?: number;
@@ -121,6 +123,7 @@ const view = (r: RoomState): RoomView => {
   return {
     code: r.code, tape: r.tape, name: r.name, public: r.public, ownerId: r.ownerId, max: r.max, difficulty: r.difficulty, fixedSeed: r.fixedSeed, phase: r.phase, seed: r.seed,
     bank: r.bank, round: r.round, levelId: r.levelId, openLevels: [...openOf(r)], floor: r.floor, quota: r.quota ?? 0, jobs: r.jobs, caps: levelCaps(r.levelId), ...(r.phase === 'starting' ? offers(r) : { offers: [], leading: '' }), mission: lobby ? null : active(r),
+    startIn: r.phase === 'lobby' && r.startAt ? Math.max(0, r.startAt - Date.now()) : 0,
     vote: r.phase === 'starting' && r.voteEnd ? { left: r.chosen ? 0 : Math.max(0, r.voteEnd - Date.now()), loaded: [...r.loaded].filter((s) => r.players.has(s)) } : null,
     ascent: r.boardAt ? { left: Math.max(0, Math.round(ASCENT_GRACE - (Date.now() - r.boardAt) / 1000)), boarded } : null,
     players: [...r.players.values()].map((p) => ({ id: p.id, name: p.name, dead: p.dead, look: p.look, avatar: avatarRef(p.uid), ready: !!p.ready, boarded: !!p.boarded, ups: p.ups })),
@@ -172,9 +175,18 @@ function addPlayer(r: RoomState, id: string, name: string, uid: number) {
 /** Todos listos en el lobby: a los 10 s empieza la partida aunque el propietario no pulse; si alguien se desmarca o se va, se cancela. */
 function autoStart(r: RoomState) {
   const all = r.phase === 'lobby' && r.players.size > 0 && [...r.players.values()].every((p) => p.ready);
-  if (!all) return void (clearTimeout(r.readyTimer), (r.readyTimer = undefined));
-  r.readyTimer ??= setTimeout(() => {
+  if (!all) {
+    clearTimeout(r.readyTimer);
     r.readyTimer = undefined;
+    if (r.startAt) (r.startAt = undefined), push(r);
+    return;
+  }
+  if (r.readyTimer) return;
+  r.startAt = Date.now() + 10_000;
+  push(r);
+  r.readyTimer = setTimeout(() => {
+    r.readyTimer = undefined;
+    r.startAt = undefined;
     if (rooms.get(r.code) === r && r.phase === 'lobby' && r.players.size && [...r.players.values()].every((p) => p.ready)) begin(r);
   }, 10_000);
 }

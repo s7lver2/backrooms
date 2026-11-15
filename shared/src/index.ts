@@ -160,6 +160,8 @@ export interface Room extends RoomSettings {
   /** `starting`: la misión que ganaría ahora (la más votada; sin votos, la primera). El empate real se sortea al cerrar la votación. */
   leading: string;
   /** `starting`, ya abierta la votación (acabada la entrada por la puerta): ms que le quedan (cuenta atrás local desde este valor; 0 = cerrada, el servidor espera a la carga) y quiénes ya han cargado el nivel. Null si no. */
+  /** Ms que faltan para que empiece sola la ronda (todos listos); 0 si no hay cuenta atrás. */
+  startIn: number;
   vote: { left: number; loaded: string[] } | null;
   /** La misión elegida (al cerrarse la votación) con su progreso; `done` = el ascensor está abierto. Null en el lobby y mientras se vota. */
   mission: ActiveMission | null;

@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type { RoomView } from '@backrooms/shared';
 import type { Sock } from '../net';
 import { avatarUrl } from '../account';
@@ -26,12 +26,24 @@ export default function WaitPanel({ room, me, sock }: { room: RoomView; me: stri
     addEventListener('keydown', key);
     return () => removeEventListener('keydown', key);
   }, []);
+  // la cuenta atrás de «todos listos»: el servidor manda lo que falta y aquí se va contando
+  const end = useRef(0);
+  const [, tick] = useState(0);
+  useEffect(() => {
+    end.current = room.startIn ? performance.now() + room.startIn : 0;
+    tick((n) => n + 1);
+    if (!room.startIn) return;
+    const id = setInterval(() => tick((n) => n + 1), 200);
+    return () => clearInterval(id);
+  }, [room.startIn]);
+  const left = end.current ? Math.max(0, Math.ceil((end.current - performance.now()) / 1000)) : 0;
   const rows = [...room.players, ...Array.from({ length: Math.max(0, room.max - room.players.length) }, () => null)];
   return (
     <>
       <p className="br-bank" aria-label="Team bank and round">
         BANK ${room.bank} <span className="br-lobby__dim">· ROUND {room.round}</span>
       </p>
+      {left > 0 && <p className="br-count" role="timer" aria-live="polite">EVERYONE IS READY · STARTING IN <b>{left}</b></p>}
       <ul className="br-roster" aria-label="Players">
         <li className="br-roster__head" aria-hidden="true">
           CREW · {ready}/{room.players.length} READY
