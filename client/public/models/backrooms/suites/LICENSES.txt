@@ -47,3 +47,59 @@ Model License:
 
 If you use this 3D model in your project be sure to copy paste this credit wherever you share it:
 This work is based on "Cleaning Cart" (https://sketchfab.com/3d-models/cleaning-cart-ea42d30fb06443988f443459593cb2af) by sui (https://sketchfab.com/jjosh.wwashington) licensed under CC-BY-4.0 (http://creativecommons.org/licenses/by/4.0/)
+==== camera
+Model Information:
+* title:	Security Camera
+* source:	https://sketchfab.com/3d-models/security-camera-fb6c29058ba246e3b5773cf1d7ef1c16
+* author:	Terizmeh (https://sketchfab.com/Terizmeh)
+
+Model License:
+* license type:	CC-BY-4.0 (http://creativecommons.org/licenses/by/4.0/)
+* requirements:	Author must be credited. Commercial use is allowed.
+
+If you use this 3D model in your project be sure to copy paste this credit wherever you share it:
+This work is based on "Security Camera" (https://sketchfab.com/3d-models/security-camera-fb6c29058ba246e3b5773cf1d7ef1c16) by Terizmeh (https://sketchfab.com/Terizmeh) licensed under CC-BY-4.0 (http://creativecommons.org/licenses/by/4.0/)
+Changes: converted to a single .glb and textures reduced to 256 px (tools/pack_glb.py).
+
+==== control
+Model Information:
+* title:	Old Control Panel
+* source:	https://sketchfab.com/3d-models/old-control-panel-b84686130a2442d985c6f36c23d0836d
+* author:	mikelkel2 (https://sketchfab.com/mikelkel2)
+
+Model License:
+* license type:	CC-BY-4.0 (http://creativecommons.org/licenses/by/4.0/)
+* requirements:	Author must be credited. Commercial use is allowed.
+
+If you use this 3D model in your project be sure to copy paste this credit wherever you share it:
+This work is based on "Old Control Panel" (https://sketchfab.com/3d-models/old-control-panel-b84686130a2442d985c6f36c23d0836d) by mikelkel2 (https://sketchfab.com/mikelkel2) licensed under CC-BY-4.0 (http://creativecommons.org/licenses/by/4.0/)
+Changes: converted to a single .glb and textures reduced to 256 px (tools/pack_glb.py).
+
+==== officechair
+Model Information:
+* title:	Office Chair
+* source:	https://sketchfab.com/3d-models/office-chair-41973aa1808d4a13b84c24497fc77c63
+* author:	j.a.m (https://sketchfab.com/j.a.m)
+
+Model License:
+* license type:	CC-BY-4.0 (http://creativecommons.org/licenses/by/4.0/)
+* requirements:	Author must be credited. Commercial use is allowed.
+
+If you use this 3D model in your project be sure to copy paste this credit wherever you share it:
+This work is based on "Office Chair" (https://sketchfab.com/3d-models/office-chair-41973aa1808d4a13b84c24497fc77c63) by j.a.m (https://sketchfab.com/j.a.m) licensed under CC-BY-4.0 (http://creativecommons.org/licenses/by/4.0/)
+Changes: converted to a single .glb and textures reduced to 256 px (tools/pack_glb.py).
+
+==== cables
+Model Information:
+* title:	Modular cables 1m
+* source:	https://sketchfab.com/3d-models/modular-cables-1m-86fd2a4c57144bf083882564a63870f7
+* author:	Sim387 (https://sketchfab.com/350rdlc.sl)
+
+Model License:
+* license type:	CC-BY-4.0 (http://creativecommons.org/licenses/by/4.0/)
+* requirements:	Author must be credited. Commercial use is allowed.
+
+If you use this 3D model in your project be sure to copy paste this credit wherever you share it:
+This work is based on "Modular cables 1m" (https://sketchfab.com/3d-models/modular-cables-1m-86fd2a4c57144bf083882564a63870f7) by Sim387 (https://sketchfab.com/350rdlc.sl) licensed under CC-BY-4.0 (http://creativecommons.org/licenses/by/4.0/)
+Changes: converted to a single .glb and textures reduced to 256 px (tools/pack_glb.py).
+

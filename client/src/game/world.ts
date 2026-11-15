@@ -8,6 +8,7 @@ import { CELL, SUITE_L, SUITE_UNIT, ZONE, hasPanel, type Cell, type Maze, type P
 import type { Assets } from './game';
 import { bakeLight, lightmapped, LM } from './lightmap';
 import { buildPits, PIT_EDGE } from './pit';
+import { Vents, roomFloorMaterial } from './vents';
 
 /*
  * El laberinto en 3D. Paredes, suelo, techo y fluorescentes van instanciados (cuatro dibujos para
@@ -518,9 +519,12 @@ export class World implements Terrain {
     const walls: THREE.Matrix4[] = [], floors: THREE.Matrix4[] = [], ceils: THREE.Matrix4[] = [], lintels: THREE.Matrix4[] = [];
     const m = new THREE.Matrix4();
     const holes = new Set<number>(), shaft = new Set(maze.props.filter((p) => p.kind === 'stairs').flatMap((p) => [-1, 0, 1].flatMap((dx) => [1, 2, 3, 4, 5, 6].map((r) => r * w + p.cell.x + dx)))); // (la escalera de servicio es un hueco alto: sin techo bajo)
+    const dk = maze.duct, inDuct = (x: number, y: number) => !!dk && x >= dk.x0 && x < dk.x1 && y >= dk.y0 && y < dk.y1; // (los conductos de Las Suites se pintan aparte: vents.ts)
+    const ctl = maze.control, inRoom = (x: number, y: number) => !!ctl && x >= ctl.x && x < ctl.x + ctl.w && y >= ctl.y && y < ctl.y + ctl.h, roomFloors: THREE.Matrix4[] = [];
     for (let y = 0; y < h; y++)
       for (let x = 0; x < w; x++) {
         const c = center({ x, y });
+        if (inDuct(x, y) && open[y * w + x]) continue;
         if (hideCells.has(y * w + x)) {
           // el nicho: suelo y, encima de la boca, un dintel (el techo del nicho)
           floors.push(m.clone().makeTranslation(c.x, 0, c.z));
@@ -530,7 +534,7 @@ export class World implements Terrain {
         if (!open[y * w + x]) {
           // (el hotel: tabiques finos, una losa de 30 cm pegada a cada cara que da a un sitio abierto; el resto del bloque, hueco, que no se ve ni se pisa)
           if (hotel) {
-            for (const [dx, dy] of DIRS) if (passable(x + dx, y + dy)) walls.push(new THREE.Matrix4().compose(new THREE.Vector3(c.x + dx * (CELL / 2 - 0.15), HEIGHT / 2, c.z + dy * (CELL / 2 - 0.15)), new THREE.Quaternion(), new THREE.Vector3(dx ? 0.3 / CELL : 1, 1, dy ? 0.3 / CELL : 1)));
+            for (const [dx, dy] of DIRS) if (passable(x + dx, y + dy) && !inDuct(x + dx, y + dy)) walls.push(new THREE.Matrix4().compose(new THREE.Vector3(c.x + dx * (CELL / 2 - 0.15), HEIGHT / 2, c.z + dy * (CELL / 2 - 0.15)), new THREE.Quaternion(), new THREE.Vector3(dx ? 0.3 / CELL : 1, 1, dy ? 0.3 / CELL : 1)));
           } else if (DIRS.some(([dx, dy]) => passable(x + dx, y + dy))) walls.push(m.clone().makeTranslation(c.x, HEIGHT / 2, c.z));
           continue;
         }
@@ -539,7 +543,7 @@ export class World implements Terrain {
         // las pasarelas de las salas de pozos: el hueco se come PIT_EDGE de cada lado, el suelo se recorta en trocitos de 12,5 cm
         const pv = maze.zone[y * w + x] === ZONE.pits ? DIRS8.filter(([dx, dy]) => voids.has((y + dy) * w + x + dx)) : [];
         if (pv.length) narrow.push({ x, y, c, pv });
-        else floors.push(m.clone().makeTranslation(c.x, 0, c.z));
+        else (inRoom(x, y) ? roomFloors : floors).push(m.clone().makeTranslation(c.x, 0, c.z));
       }
     if (hotel) for (let y = 4; y <= 13; y++) { const e = center({ x: w, y }); walls.push(m.clone().makeTranslation(e.x, HEIGHT / 2, e.z)); } // la pared del fondo del vestíbulo (fuera de la cuadrícula: si no, se ve el cielo)
     const box = new THREE.BoxGeometry(CELL, HEIGHT, CELL);
@@ -561,6 +565,7 @@ export class World implements Terrain {
       const rowOf = (mm: THREE.Matrix4) => Math.floor(new THREE.Vector3().setFromMatrixPosition(mm).z / CELL);
       for (const [rows, mat] of [[[8], hm.runA], [[9], hm.runB]] as const) inst(floorG, mat, floors.filter((f) => rows.includes(rowOf(f) as never) && new THREE.Vector3().setFromMatrixPosition(f).x < cw * CELL)).receiveShadow = true;
       inst(floorG, floorMat, floors.filter((f) => ![8, 9].includes(rowOf(f)) || new THREE.Vector3().setFromMatrixPosition(f).x >= cw * CELL)).receiveShadow = true;
+      if (roomFloors.length) inst(floorG, roomFloorMaterial(), roomFloors).receiveShadow = true;
       // el camino de alfombra (1,8 m, un pelín sobre el cuarzo) y, bajo él, el reflejo suave del pulido: un Reflector como el del agua de las Poolrooms, casi transparente
       const rm = hm.runner as THREE.MeshStandardMaterial;
       rm.map!.repeat.set((cw * CELL) / 1.8, 1);
@@ -1410,51 +1415,11 @@ export class World implements Terrain {
       this.root.add(this.dust);
     }
 
-    // los conductos de ventilación (Las Suites): rejillas en las suites, en las entradas del laberinto y en la sala de control; fugas de gas; el terminal del EEH
-    if (maze.vents?.length) {
-      const tex = (() => {
-        const c = Object.assign(document.createElement('canvas'), { width: 128, height: 96 }), g = c.getContext('2d')!;
-        g.fillStyle = '#7d8280', g.fillRect(0, 0, 128, 96);
-        g.fillStyle = '#0a0b0b';
-        for (let y = 10; y < 90; y += 11) g.fillRect(10, y, 108, 6);
-        g.strokeStyle = '#4d5150', g.lineWidth = 4, g.strokeRect(2, 2, 124, 92);
-        const t = new THREE.CanvasTexture(c);
-        t.colorSpace = THREE.SRGBColorSpace;
-        return t;
-      })();
-      const gm = new THREE.MeshStandardMaterial({ map: tex, metalness: 0.5, roughness: 0.5 });
-      lightmapped(gm);
-      const gg = new THREE.PlaneGeometry(0.8, 0.6);
-      for (const v of maze.vents) {
-        const m = new THREE.Mesh(gg, gm), [nx, nz] = DIRS[v.face] ?? DIRS[0];
-        m.position.set(v.x + nx * 0.02, 0.45, v.z + nz * 0.02);
-        m.rotation.y = Math.atan2(nx, nz);
-        this.root.add(m);
-      }
-    }
-    if (maze.gas?.length) {
-      this.gasMat = new THREE.MeshBasicMaterial({ color: 0x7bd84a, transparent: true, opacity: 0.2, depthWrite: false, side: THREE.DoubleSide });
-      const gb = new THREE.BoxGeometry(CELL * 0.98, 1.7, CELL * 0.98);
-      for (const c of maze.gas) {
-        const m = new THREE.Mesh(gb, this.gasMat), p = center(c);
-        m.position.set(p.x, 0.9, p.z);
-        this.root.add(m);
-      }
-    }
-    if (maze.control) {
-      const k = maze.control.console, cv = Object.assign(document.createElement('canvas'), { width: 256, height: 112 });
-      this.eehTex = new THREE.CanvasTexture(cv);
-      this.eehTex.colorSpace = THREE.SRGBColorSpace;
-      const grp = new THREE.Group(), [nx, nz] = DIRS[k.face] ?? DIRS[0];
-      grp.position.set(k.x, 0, k.z);
-      grp.rotation.y = Math.atan2(nx, nz);
-      const base = new THREE.Mesh(new THREE.BoxGeometry(1.6, 0.9, 0.5), new THREE.MeshStandardMaterial({ color: 0x2b2e2d, metalness: 0.5, roughness: 0.5 }));
-      base.position.set(0, 0.45, -0.28);
-      const scr = new THREE.Mesh(new THREE.PlaneGeometry(1.3, 0.57), new THREE.MeshBasicMaterial({ map: this.eehTex }));
-      scr.position.set(0, 1.2, -0.1);
-      grp.add(base, scr);
-      this.root.add(grp);
-      this.eehScreen(true);
+    // los conductos de ventilación, la sala de videovigilancia y las cámaras de seguridad (Las Suites): vents.ts
+    if (maze.vents?.length || maze.duct) {
+      this.vents = new Vents(maze, assets);
+      this.root.add(this.vents.group);
+      this.blockers.push(...this.vents.blockers);
     }
 
     // el ascensor: su celda (un callejón) es la cabina, de metal; las puertas, en la boca de la celda
@@ -1676,24 +1641,14 @@ export class World implements Terrain {
   private cullable?: THREE.InstancedMesh[];
   private doorGroups: THREE.Object3D[] = [];
   private roomDoor?: Map<number, (typeof this.doors)[number]>;
-  private gasMat?: THREE.MeshBasicMaterial;
-  private eehTex?: THREE.CanvasTexture;
-  private eehShown: boolean | null = null;
+  /** Las Suites: los conductos, la sala de control y las cámaras de seguridad. */
+  vents?: Vents;
   /** El terminal de la sala de control: `down` = el EEH está roto (se puede restaurar). */
   eehScreen(down: boolean) {
-    if (!this.eehTex || down === this.eehShown) return;
-    this.eehShown = down;
-    const c = this.eehTex.image as HTMLCanvasElement, g = c.getContext('2d')!;
-    g.fillStyle = '#050806', g.fillRect(0, 0, 256, 112);
-    g.textAlign = 'center', g.textBaseline = 'middle';
-    g.fillStyle = down ? '#ff4a3a' : '#5dff8a';
-    g.font = 'bold 22px monospace', g.fillText('E.E.H. · EVAPORATOR', 128, 26);
-    g.font = 'bold 30px monospace', g.fillText(down ? 'OFFLINE' : 'ONLINE', 128, 62);
-    g.font = '14px monospace', g.fillText(down ? 'PRESS E TO RESTORE' : 'ALL SYSTEMS NOMINAL', 128, 92);
-    this.eehTex.needsUpdate = true;
+    this.vents?.eehScreen(down);
   }
   update(t: number, dt: number) {
-    if (this.gasMat) this.gasMat.opacity = 0.17 + 0.06 * Math.sin(t * 2.1);
+    this.vents?.update(t, dt);
     const v = this.viewer;
     if (v) {
       this.cullable ??= this.root.children.filter((o) => o.userData.cull) as THREE.InstancedMesh[];

@@ -28,7 +28,13 @@ export interface Maze {
   /** Las Suites: celdas de los conductos con una fuga de gas que hace daño. */
   gas?: Cell[];
   /** Las Suites: la sala de videovigilancia (al final de los conductos): su zona y el terminal donde se restaura el EEH. */
-  control?: { x: number; y: number; w: number; h: number; console: { x: number; z: number; face: number } };
+  control?: { x: number; y: number; w: number; h: number; console: { x: number; z: number; face: number }; station: { x: number; z: number; face: number } };
+  /** Las Suites: la zona de los conductos (celdas, [x0,x1) × [y0,y1)): chapa, techo bajo y se va agachado. */
+  duct?: { x0: number; y0: number; x1: number; y1: number };
+  /** Las Suites: ventiladores al fondo de los callejones de los conductos. */
+  fans?: Cell[];
+  /** Las Suites: las cámaras de seguridad (posición en metros, `yaw` de quien mira hacia donde apuntan); se ven desde el puesto de la sala de control. */
+  cams?: { name: string; x: number; y: number; z: number; yaw: number }[];
   /** Las Suites: los cuadros eléctricos que hay que activar (en la copia del medio) para que el ascensor tenga corriente. */
   gens?: Cell[];
   start: Cell;

@@ -210,7 +210,7 @@ export interface Hud {
   totem: { pick: { id: string; name: string }[] | null; phone?: boolean; run: RunHud | null; notes: string[]; immune: number };
 }
 
-const _aim = new THREE.Vector2(0, 0), _spec = new THREE.Vector3(), _want = new THREE.Vector3(), _none = new THREE.Vector2(), _feet = new THREE.Vector3(), _head = new THREE.Vector3(), _dir = new THREE.Vector3();
+const _aim = new THREE.Vector2(0, 0), _spec = new THREE.Vector3(), _want = new THREE.Vector3(), _none = new THREE.Vector2(), _feet = new THREE.Vector3(), _head = new THREE.Vector3(), _dir = new THREE.Vector3(), _eu = new THREE.Euler();
 
 /*
  * Las backrooms: el juego de juegos/backrooms.exe. Sin React; el caparazón (Backrooms.tsx) lo carga,
@@ -220,7 +220,7 @@ const _aim = new THREE.Vector2(0, 0), _spec = new THREE.Vector3(), _want = new T
 const DIR = '/models/backrooms/';
 /** Segundos de viaje dentro del ascensor (ya con las puertas cerradas) antes de que la grabación se corte a negro. */
 const RIDE = 3.5;
-export const MODELS = ['hazmat', 'bacteria', 'partygoer', 'balloon', 'camcorder', 'vhs', 'gun', 'flashlight', 'water', 'elevator', 'vent', 'socket', 'exit', 'door', 'armchair', 'cabinet', 'shelf', 'chair', 'chair2', 'desk', 'crt', 'lamp', 'duct', 'radar', 'totem', 'hospital/stretcher', 'hospital/stools', 'hospital/curtain', 'hospital/extinguisher', 'hospital/cupboard', 'hospital/clock', 'hospital/exitdoor', 'hospital/locker', 'hospital/drip', 'hospital/wheelchair', 'hospital/shelf', 'suites/door', 'suites/bed', 'suites/sofa', 'suites/secretary', 'suites/faceling', 'suites/chair', 'suites/wardrobe', 'suites/table', 'suites/luggage', 'suites/bin', 'suites/mirror', 'suites/plant', 'suites/panel', 'suites/trolley', 'suites/cart'] as const;
+export const MODELS = ['hazmat', 'bacteria', 'partygoer', 'balloon', 'camcorder', 'vhs', 'gun', 'flashlight', 'water', 'elevator', 'vent', 'socket', 'exit', 'door', 'armchair', 'cabinet', 'shelf', 'chair', 'chair2', 'desk', 'crt', 'lamp', 'duct', 'radar', 'totem', 'hospital/stretcher', 'hospital/stools', 'hospital/curtain', 'hospital/extinguisher', 'hospital/cupboard', 'hospital/clock', 'hospital/exitdoor', 'hospital/locker', 'hospital/drip', 'hospital/wheelchair', 'hospital/shelf', 'suites/door', 'suites/bed', 'suites/sofa', 'suites/secretary', 'suites/faceling', 'suites/chair', 'suites/wardrobe', 'suites/table', 'suites/luggage', 'suites/bin', 'suites/mirror', 'suites/plant', 'suites/panel', 'suites/trolley', 'suites/cart', 'suites/camera', 'suites/control', 'suites/officechair', 'suites/cables'] as const;
 export type ModelName = (typeof MODELS)[number];
 export const TEXTURES = ['wall', 'carpet', 'ceiling'] as const;
 
@@ -481,6 +481,54 @@ export class BackroomsGame {
   /** Las Suites: la planta en la que se está (el ascensor y la escalera solo suben a la siguiente) y el rayo con el que se apunta a los botones. */
   private floorNo = 1;
   private readonly aimRay = new THREE.Raycaster();
+  /** Las Suites: las cámaras de seguridad, vistas desde el puesto de la sala de control (A/D o clic cambian de cámara; E o G salen). -1 = no se usan. */
+  private camUse = -1;
+  private camAx = 0;
+  private camLast = 0;
+  private camHud?: HTMLElement;
+  private camKept: THREE.Object3D[] = [];
+  private camOn() {
+    const n = this.world?.maze.cams?.length ?? 0;
+    if (!n || this.camUse >= 0) return;
+    this.camUse = this.camLast % n;
+    this.camKept = [...this.camera.children]; // (las manos y la linterna quedan fuera de la imagen)
+    this.camKept.forEach((o) => this.camera.remove(o));
+    this.camHud = Object.assign(document.createElement('div'), { className: 'br-camhud' });
+    this.camHud.style.cssText = 'position:fixed;inset:0;z-index:5;pointer-events:none;font:700 clamp(12px,1.6vw,20px) monospace;color:#7dffb0;text-shadow:0 0 6px #000;padding:3vh 3vw;display:flex;flex-direction:column;justify-content:space-between;box-shadow:inset 0 0 0 3px rgba(125,255,176,0.35),inset 0 0 12vw rgba(0,0,0,0.8)';
+    (this.canvas.parentElement ?? document.body).append(this.camHud);
+    this.camLabel();
+    this.audio?.click();
+  }
+  private camOff() {
+    if (this.camUse < 0) return;
+    this.camLast = this.camUse;
+    this.camUse = -1;
+    this.camKept.forEach((o) => this.camera.add(o));
+    this.camKept = [];
+    this.camHud?.remove();
+    this.camHud = undefined;
+  }
+  private camLabel() {
+    const m = this.world?.maze, c = m?.cams?.[this.camUse];
+    if (!this.camHud || !c) return;
+    this.camHud.innerHTML = `<div>● REC &nbsp; CAM ${String(this.camUse + 1).padStart(2, '0')}/${m!.cams!.length} &nbsp; ${c.name}</div><div style="text-align:center;opacity:.85">◄ A &nbsp; D ► · CLICK: NEXT · E / G: LEAVE &nbsp;(YOU ARE STILL EXPOSED)</div>`;
+  }
+  /** Con la vista en una cámara: cambiar de cámara con A/D o el clic, y ponerla donde está (barriendo). */
+  private camFrame(c: Controls) {
+    const n = this.world?.maze.cams?.length ?? 0;
+    if (this.camUse < 0 || !n) return;
+    const ax = c.move.x > 0.5 ? 1 : c.move.x < -0.5 ? -1 : 0, step = ax && ax !== this.camAx ? ax : c.fire ? 1 : 0;
+    this.camAx = ax;
+    if (step) ((this.camUse = (this.camUse + step + n) % n), this.camLabel(), this.audio?.click());
+  }
+  private camPlace() {
+    const v = this.world?.vents;
+    if (this.camUse < 0 || !v) return;
+    const p = v.camPose(this.camUse, this.t);
+    this.camera.position.set(p.x, p.y, p.z);
+    this.camera.quaternion.setFromEuler(_eu.set(p.pitch, p.yaw, 0, 'YXZ'));
+    this.camera.updateMatrixWorld(true);
+  }
   /** Las Suites: las rejillas de ventilación (E ante una te lleva a donde da) y el terminal de la sala de control (restaura el EEH). */
   private ventAct(cc: Controls): Controls {
     const p = this.player, w = this.world;
@@ -497,8 +545,14 @@ export class BackroomsGame {
       }
       return cc;
     }
+    const st = m.control?.station;
+    if (st && Math.hypot(st.x - x, st.z - z) < 2.3) {
+      this.doorAct = 'USE THE SECURITY CAMERAS';
+      if (cc.grab) (this.camOn(), (cc = { ...cc, grab: false }));
+      return cc;
+    }
     const k = m.control?.console;
-    if (k && Math.hypot(k.x - x, k.z - z) < 2) {
+    if (k && Math.hypot(k.x - x, k.z - z) < 2.2) {
       this.doorAct = this.eehSnap ? 'RESTORE THE EEH' : 'EEH ONLINE';
       if (cc.grab && this.eehSnap)
         this.mp?.sock.emit('eehRestore', (ok) => (this.note = { text: ok ? 'EEH RESTORED · THE STAFF CALMS DOWN' : 'COULD NOT RESTORE THE EEH', until: performance.now() + 4000 }));
@@ -1101,6 +1155,11 @@ export class BackroomsGame {
     this.vhs.uniforms.uPool.value = this.film.uniforms.uVhs.value = this.pool instanceof PoolLevel ? 1 : 0; // (el aspecto de cinta de las Poolrooms: sin amarillo, con barrido y croma)
     this.film.uniforms.uWarm.value = this.caps.hotel && !this.run ? 1 : 0; // (Las Suites: el color cálido del hotel)
     if (this.pool) return this.poolFrame(dt, c);
+    if (this.camUse >= 0 && (this.dying >= 0 || this.winning || this.player?.dead || c.bag || c.grab || c.jump || c.pause)) {
+      const quit = c.pause; // (Esc: la pausa de siempre; E, G o salto: solo se sale de la cámara)
+      this.camOff();
+      if (!quit) c.bag = c.grab = c.jump = false;
+    }
     if (this.totemOpen && c.bag) (c.bag = false), this.closeTotem(); // Esc o E cierran el selector del Tótem
     // el inventario: E lo abre y lo cierra (Escape también lo cierra, sin pausar)
     if (this.dying < 0 && !this.winning && c.bag) {
@@ -1115,7 +1174,12 @@ export class BackroomsGame {
     this.t += dt;
     if (this.player) (this.player.speedMul = this.cheats.speed), (this.player.jumpMul = this.cheats.jump);
     if (this.brightLight) this.brightLight.visible = this.cheats.bright;
-    if (!this.spectating || this.player?.dead) this.player?.update(dt, c);
+    if (this.camUse >= 0) this.camFrame(c);
+    // Las Suites: en los conductos se va siempre agachado; mirando las cámaras el cuerpo se queda quieto
+    const pp = this.player, duct = !!pp && !!this.world?.vents?.inDuct(Math.floor(pp.pos.x / CELL), Math.floor(pp.pos.z / CELL));
+    const pc = this.camUse >= 0 ? { ...c, move: _none, look: _none, run: false, jump: false, crouch: true, fire: false, grab: false, flash: false, swap: false, slot: -1, wheel: 0, use: false, aim: false, zoom: 0 } : duct ? { ...c, crouch: true, run: false, jump: false } : c;
+    if (!this.spectating || this.player?.dead) this.player?.update(dt, pc);
+    this.camPlace();
     if (this.caps.hotel && this.player) {
       // Las Suites: el pasillo se cierra sobre sí mismo (shared/src/suites.ts). Quien acaba de entrar del vestíbulo NO salta: la puerta se cierra a su espalda y recorre la última copia
       // (igual que las demás); el salto empieza al pasar a la anterior
@@ -3629,6 +3693,7 @@ server-synced inv ${JSON.stringify(this.mp.inv)}` : ''}`);
     this.renderer.setAnimationLoop(null);
     this.endParking();
     (this.eehVeil?.remove(), (this.eehVeil = undefined), (this.eehRed = false));
+    this.camOff();
     this.endRun();
     this.endPool();
     this.totemOpen = false;
