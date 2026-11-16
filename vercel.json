@@ -1,0 +1,6 @@
+{
+  "installCommand": "npm install",
+  "buildCommand": "npm run build -w client",
+  "outputDirectory": "client/dist",
+  "rewrites": [{ "source": "/((?!assets/|models/).*)", "destination": "/index.html" }]
+}

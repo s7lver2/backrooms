@@ -2,4 +2,4 @@
 import { spawnSync } from 'node:child_process';
 import { existsSync } from 'node:fs';
 
-if (existsSync('.git')) spawnSync('npx', ['--no-install', 'lefthook', 'install'], { stdio: 'inherit', shell: true });
+if (existsSync('.git')) spawnSync('npx', ['--no-install', 'lefthook', 'install'], { stdio: 'ignore', shell: true });
