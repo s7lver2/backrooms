@@ -13,7 +13,7 @@
     "start": "npm run start -w server",
     "typecheck": "npm run typecheck -w client && npm run typecheck -w server",
     "lint": "biome lint .",
-    "prepare": "lefthook install",
+    "prepare": "node tools/prepare.mjs",
     "check:glb": "node tools/check_glb.mjs"
   },
   "devDependencies": {

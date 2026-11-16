@@ -28,7 +28,7 @@ npm run check:glb                # audit every .glb (materials, bones, textures,
 python tools/pack_glb.py --max 512   # compress a model before adding it (credit it in client/public/models/CREDITS.md)
 ```
 
-**Git hooks.** `npm install` runs `lefthook install`: pre-commit runs `tools/check_staged_files.py` (rejects ignored files and plain blobs > 5 MiB), `biome lint --staged` and the typecheck. Never use `--no-verify`; fix what blocks. Do not also set `core.hooksPath` (it would bypass lefthook). Models and textures are Git LFS: `git lfs install && git lfs pull`.
+**Git hooks.** `npm install` runs `tools/prepare.mjs` (lefthook install, skipped when lefthook or .git are absent, e.g. Vercel): pre-commit runs `tools/check_staged_files.py` (rejects ignored files and plain blobs > 5 MiB), `biome lint --staged` and the typecheck. Never use `--no-verify`; fix what blocks. Do not also set `core.hooksPath` (it would bypass lefthook). Models and textures are Git LFS: `git lfs install && git lfs pull`.
 
 **Dev routes (only on `localhost` with the Vite dev server, see `client/src/devGate.ts`; they vanish in production builds).** `window.__game` is the live game in the console.
 
