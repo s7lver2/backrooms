@@ -1,0 +1,7 @@
+[
+  { "id": "level0-inicio", "query": "capture&seed=1&god", "pose": null, "advance": 120, "nota": "Nivel 0 en el punto de inicio: moqueta, paredes, fluorescentes y niebla" },
+  { "id": "level0-semilla7", "query": "capture&seed=7&god", "pose": null, "advance": 120, "nota": "Otro laberinto del nivel 0 (otra semilla) para variar luces y encuadre" },
+  { "id": "poolrooms", "query": "capture&pool&seed=1", "pose": null, "advance": 180, "nota": "Poolrooms: agua, reflejos, GTAO y bloom" },
+  { "id": "suites", "query": "capture&suites&seed=1", "pose": null, "advance": 120, "nota": "Las Suites: interior con focos y sombras" },
+  { "id": "parking", "query": "capture&parking&seed=1&god", "pose": null, "advance": 180, "nota": "Parking: luces, charcos y atmosfera" }
+]
