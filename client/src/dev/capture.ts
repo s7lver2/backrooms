@@ -1,0 +1,124 @@
+// Modo captura (solo desarrollo local): congela semilla y reloj para sacar imágenes y cifras repetibles del juego.
+// Se activa con /?capture&seed=N[&preset=potato|low|medium|high] junto a las banderas de desarrollo de siempre (&pool, &suites, &parking…).
+// Sirve para comparar el renderer actual (three) con Phoenyx: ver E:\phoenix\docs\FIDELIDAD.md.
+import { DEV_LOCAL } from '../devGate';
+import { PRESETS, setSetting, type Settings } from '../settings';
+
+interface CaptureApi {
+  ready: boolean;
+  /** Coloca al jugador (x, y, z de los pies, giro y cabeceo en radianes). */
+  setPose(x: number, y: number, z: number, yaw: number, pitch: number): void;
+  /** Avanza n fotogramas de 1/60 s (el reloj y requestAnimationFrame son virtuales). */
+  advance(frames: number): Promise<void>;
+  /** Cifras del renderer del último fotograma. */
+  info(): { drawCalls: number; triangles: number; geometries: number; textures: number };
+  /** Devuelve el reloj y requestAnimationFrame reales (para medir rendimiento de verdad). */
+  release(): void;
+}
+
+declare global {
+  interface Window {
+    __capture?: CaptureApi;
+    /** Lo pone Backrooms.tsx en modo captura: la partida en curso. */
+    __game?: { player?: { pos: { set(x: number, y: number, z: number): void }; yaw: number; pitch: number }; renderer: { info: { autoReset: boolean; reset(): void; render: { calls: number; triangles: number }; memory: { geometries: number; textures: number } } } };
+  }
+}
+
+const STEP = 1000 / 60;
+
+/** Generador pequeño y repetible (mulberry32). */
+function mulberry32(seed: number) {
+  let a = seed >>> 0;
+  return () => {
+    a = (a + 0x6d2b79f5) >>> 0;
+    let t = Math.imul(a ^ (a >>> 15), 1 | a);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+export function installCapture() {
+  if (!DEV_LOCAL) return;
+  const q = new URLSearchParams(location.search);
+  if (!q.has('capture')) return;
+
+  // Ajustes fijos: ni los guardados del navegador ni la resolución dinámica ni el tope de FPS cambian la imagen.
+  const name = (q.get('preset') ?? 'high').toUpperCase();
+  const preset = PRESETS.find((p) => p[0] === name) ?? PRESETS[3];
+  for (const [k, v] of Object.entries(preset[2])) setSetting(k as keyof Settings, v as never);
+  setSetting('fpsLimit', 3);
+  setSetting('resScale', preset[2].resScale ?? 1);
+
+  const realNow = performance.now.bind(performance);
+  const realDate = Date.now.bind(Date);
+  const realRaf = window.requestAnimationFrame.bind(window);
+  const realCaf = window.cancelAnimationFrame.bind(window);
+  const realRandom = Math.random;
+  const t0Date = realDate();
+  let vt = 1000; // reloj virtual (ms); empieza lejos de 0 por si algún código usa 0 como «sin valor»
+  let nextId = 1;
+  let queue = new Map<number, FrameRequestCallback>();
+  let virtual = true;
+
+  Math.random = mulberry32(Number(q.get('seed')) || 1);
+  performance.now = () => (virtual ? vt : realNow());
+  Date.now = () => (virtual ? t0Date + (vt - 1000) : realDate());
+  window.requestAnimationFrame = (cb) => {
+    if (!virtual) return realRaf(cb);
+    const id = nextId++;
+    queue.set(id, cb);
+    return id;
+  };
+  window.cancelAnimationFrame = (id) => void (queue.delete(id), realCaf(id));
+
+  const tick = () => {
+    vt += STEP;
+    const run = queue;
+    queue = new Map();
+    run.forEach((cb) => cb(vt));
+  };
+
+  window.__capture = {
+    ready: false,
+    setPose(x, y, z, yaw, pitch) {
+      const p = window.__game?.player;
+      if (!p) throw new Error('capture: todavía no hay jugador');
+      p.pos.set(x, y, z);
+      p.yaw = yaw;
+      p.pitch = pitch;
+    },
+    async advance(frames) {
+      // Entre fotogramas se cede el turno al navegador: las cargas (fetch, imágenes, shaders) siguen en tiempo real.
+      for (let i = 0; i < frames; i++) {
+        // El compositor dibuja en varias pasadas: se cuentan todas y se reinicia aquí, antes de cada fotograma.
+        const ri = window.__game?.renderer.info;
+        if (ri) (ri.autoReset = false), ri.reset();
+        tick();
+        if (i % 4 === 3) await new Promise((r) => setTimeout(r, 0));
+      }
+    },
+    info() {
+      const i = window.__game?.renderer.info;
+      return { drawCalls: i?.render.calls ?? 0, triangles: i?.render.triangles ?? 0, geometries: i?.memory.geometries ?? 0, textures: i?.memory.textures ?? 0 };
+    },
+    release() {
+      virtual = false;
+      Math.random = realRandom;
+      queue.forEach((cb) => realRaf(cb));
+      queue.clear();
+    },
+  };
+
+  // «Listo» = hay partida con jugador. Se comprueba con tiempo real y sin consumir fotogramas virtuales.
+  const poll = setInterval(() => {
+    if (window.__game?.player) {
+      window.__capture!.ready = true;
+      clearInterval(poll);
+    }
+  }, 100);
+  // Mientras no hay partida, el reloj virtual avanza solo para que las pantallas de carga progresen.
+  const boot = setInterval(() => {
+    if (window.__capture?.ready || !virtual) return clearInterval(boot);
+    tick();
+  }, 16);
+}

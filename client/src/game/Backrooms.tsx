@@ -399,6 +399,7 @@ export default function Backrooms({ onQuit, onWin }: { onQuit: () => void; onWin
     cv.setAttribute('aria-hidden', 'true');
     gl.current!.prepend(cv);
     const g = (game.current = new BackroomsGame(cv, { low, reduced: reduced.current }));
+    if (DEV_LOCAL && dev?.has('capture')) (window as unknown as { __game?: unknown }).__game = g; // (dev/capture.ts lo lee para colocar al jugador y contar dibujos)
     // el sonido quitado se recuerda (una comodidad de quien juega: si el navegador no deja guardar, no pasa nada)
     try {
       const m = localStorage.getItem('br-muted') === '1';
