@@ -2,7 +2,9 @@
 // Se activa con /?capture&seed=N[&preset=potato|low|medium|high] junto a las banderas de desarrollo de siempre (&pool, &suites, &parking…).
 // Sirve para comparar el renderer actual (three) con Phoenyx: ver E:\phoenix\docs\FIDELIDAD.md.
 import { DEV_LOCAL } from '../devGate';
-import { PRESETS, setSetting, type Settings } from '../settings';
+import { PRESETS, resetSettings, setSetting, type Settings } from '../settings';
+
+const SETTINGS_KEY = 'br-settings';
 
 interface CaptureApi {
   ready: boolean;
@@ -47,9 +49,14 @@ export function installCapture() {
   // Ajustes fijos: ni los guardados del navegador ni la resolución dinámica ni el tope de FPS cambian la imagen.
   const name = (q.get('preset') ?? 'high').toUpperCase();
   const preset = PRESETS.find((p) => p[0] === name) ?? PRESETS[3];
+  // Se parte de los valores de fábrica (no de los guardados del navegador) y no se deja nada escrito en localStorage.
+  const stored = localStorage.getItem(SETTINGS_KEY);
+  resetSettings();
   for (const [k, v] of Object.entries(preset[2])) setSetting(k as keyof Settings, v as never);
   setSetting('fpsLimit', 3);
   setSetting('resScale', preset[2].resScale ?? 1);
+  if (stored === null) localStorage.removeItem(SETTINGS_KEY);
+  else localStorage.setItem(SETTINGS_KEY, stored);
 
   const realNow = performance.now.bind(performance);
   const realDate = Date.now.bind(Date);
@@ -62,6 +69,15 @@ export function installCapture() {
   let queue = new Map<number, FrameRequestCallback>();
   let virtual = true;
 
+  // `new Date()` sin argumentos también usa el reloj virtual (el reloj de pared de waitProps.ts, por ejemplo).
+  const RealDate = Date;
+  class VDate extends RealDate {
+    constructor(...a: unknown[]) {
+      super(...((a.length ? a : [virtual ? t0Date + (vt - 1000) : realDate()]) as [number]));
+    }
+  }
+  window.Date = VDate as unknown as DateConstructor;
+
   Math.random = mulberry32(Number(q.get('seed')) || 1);
   performance.now = () => (virtual ? vt : realNow());
   Date.now = () => (virtual ? t0Date + (vt - 1000) : realDate());
@@ -71,7 +87,7 @@ export function installCapture() {
     queue.set(id, cb);
     return id;
   };
-  window.cancelAnimationFrame = (id) => void (queue.delete(id), realCaf(id));
+  window.cancelAnimationFrame = (id) => void (queue.delete(id) || realCaf(id));
 
   const tick = () => {
     vt += STEP;
@@ -114,16 +130,15 @@ export function installCapture() {
     },
   };
 
-  // «Listo» = hay partida con jugador (o nivel de Poolrooms, que lleva su propia cámara). Se comprueba con tiempo real y sin consumir fotogramas virtuales.
-  const poll = setInterval(() => {
+  // Mientras no hay partida, el reloj virtual avanza solo para que las pantallas de carga progresen.
+  // «Listo» = hay partida con jugador (o nivel de Poolrooms, que lleva su propia cámara). Se mira antes de cada fotograma de arranque:
+  // así no corre ninguno con la partida ya creada y el estado al capturar no depende de la velocidad de carga.
+  const boot = setInterval(() => {
     if (window.__game?.player || window.__game?.pool) {
       window.__capture!.ready = true;
-      clearInterval(poll);
+      return clearInterval(boot);
     }
-  }, 100);
-  // Mientras no hay partida, el reloj virtual avanza solo para que las pantallas de carga progresen.
-  const boot = setInterval(() => {
-    if (window.__capture?.ready || !virtual) return clearInterval(boot);
+    if (!virtual) return clearInterval(boot);
     tick();
   }, 16);
 }

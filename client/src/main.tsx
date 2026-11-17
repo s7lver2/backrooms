@@ -1,27 +1,16 @@
-import { DEV_LOCAL } from './devGate';
-
-import { createRoot } from 'react-dom/client';
-
-import './game/backrooms.css';
-
-import App from './App';
-
-import { installErrLog } from './errlog';
-
-import Terms from './Terms';
-
-import { initTelemetry } from './telemetry';
-import { installCapture } from './dev/capture';
-
-
-
-installCapture(); // (solo desarrollo local con /?capture: reloj y semilla congelados, dev/capture.ts)
-initTelemetry(); // (solo con DSN y con el permiso de las condiciones: telemetry.ts)
-
-installErrLog(); // lo primero: los shaders que no compilan y los fallos de carga que vengan después se guardan para la consola de admin (errlog.ts)
-
-
-
+import { DEV_LOCAL } from './devGate';
+import { createRoot } from 'react-dom/client';
+import './game/backrooms.css';
+import App from './App';
+import { installErrLog } from './errlog';
+import Terms from './Terms';
+import { initTelemetry } from './telemetry';
+import { installCapture } from './dev/capture';
+
+installCapture(); // (solo desarrollo local con /?capture: reloj y semilla congelados, dev/capture.ts)
+initTelemetry(); // (solo con DSN y con el permiso de las condiciones: telemetry.ts)
+installErrLog(); // los shaders que no compilan y los fallos de carga que vengan después se guardan para la consola de admin (errlog.ts)
+
 const root = createRoot(document.getElementById('root')!);
 
 // HMR: al recargar este módulo se desmonta el árbol de React; la limpieza de Backrooms.tsx (BackroomsGame.dispose: rAF, listeners, sala,

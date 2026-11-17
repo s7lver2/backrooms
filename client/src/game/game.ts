@@ -775,7 +775,7 @@ export class BackroomsGame {
   private relayout?: () => void;
   private adapt(dt: number) {
     const a = this.drsAcc, cap = FPS_CAPS[settings.fpsLimit] ?? 0, now = performance.now();
-    if (dt > 0.25 || document.hidden || (cap && cap < 60)) return void (a.n = a.ms = 0);
+    if (window.__capture || dt > 0.25 || document.hidden || (cap && cap < 60)) return void (a.n = a.ms = 0);
     (a.n++, (a.ms += dt * 1000));
     if (now - a.t < 4000 || a.n < 60) return;
     const avg = a.ms / a.n;
