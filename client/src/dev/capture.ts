@@ -8,6 +8,8 @@ interface CaptureApi {
   ready: boolean;
   /** Coloca al jugador (x, y, z de los pies, giro y cabeceo en radianes). */
   setPose(x: number, y: number, z: number, yaw: number, pitch: number): void;
+  /** Reinicia la semilla aleatoria: el orden de las cargas asíncronas ya no influye en los fotogramas que vienen. */
+  reseed(seed: number): void;
   /** Avanza n fotogramas de 1/60 s (el reloj y requestAnimationFrame son virtuales). */
   advance(frames: number): Promise<void>;
   /** Cifras del renderer del último fotograma. */
@@ -20,7 +22,7 @@ declare global {
   interface Window {
     __capture?: CaptureApi;
     /** Lo pone Backrooms.tsx en modo captura: la partida en curso. */
-    __game?: { player?: { pos: { set(x: number, y: number, z: number): void }; yaw: number; pitch: number }; renderer: { info: { autoReset: boolean; reset(): void; render: { calls: number; triangles: number }; memory: { geometries: number; textures: number } } } };
+    __game?: { pool?: unknown; player?: { pos: { set(x: number, y: number, z: number): void }; yaw: number; pitch: number }; renderer: { info: { autoReset: boolean; reset(): void; render: { calls: number; triangles: number }; memory: { geometries: number; textures: number } } } };
   }
 }
 
@@ -82,10 +84,13 @@ export function installCapture() {
     ready: false,
     setPose(x, y, z, yaw, pitch) {
       const p = window.__game?.player;
-      if (!p) throw new Error('capture: todavía no hay jugador');
+      if (!p) throw new Error('capture: sin jugador (en las Poolrooms la pose no se puede fijar todavía)');
       p.pos.set(x, y, z);
       p.yaw = yaw;
       p.pitch = pitch;
+    },
+    reseed(seed) {
+      Math.random = mulberry32(seed);
     },
     async advance(frames) {
       // Entre fotogramas se cede el turno al navegador: las cargas (fetch, imágenes, shaders) siguen en tiempo real.
@@ -109,9 +114,9 @@ export function installCapture() {
     },
   };
 
-  // «Listo» = hay partida con jugador. Se comprueba con tiempo real y sin consumir fotogramas virtuales.
+  // «Listo» = hay partida con jugador (o nivel de Poolrooms, que lleva su propia cámara). Se comprueba con tiempo real y sin consumir fotogramas virtuales.
   const poll = setInterval(() => {
-    if (window.__game?.player) {
+    if (window.__game?.player || window.__game?.pool) {
       window.__capture!.ready = true;
       clearInterval(poll);
     }
