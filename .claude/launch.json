@@ -21,6 +21,36 @@
         "set SERVER_PORT=5199&& npx vite client --port 5191 --strictPort"
       ],
       "port": 5191
+    },
+    {
+      "name": "phoenix-5200",
+      "runtimeExecutable": "python",
+      "runtimeArgs": [
+        "-m",
+        "http.server",
+        "5200",
+        "--directory",
+        "E:/phoenix/web"
+      ],
+      "port": 5200
+    },
+    {
+      "name": "client-phoenyx-5192",
+      "runtimeExecutable": "cmd",
+      "runtimeArgs": [
+        "/c",
+        "set RENDERER=phoenyx&& set SERVER_PORT=5199&& npx vite client --port 5192 --strictPort"
+      ],
+      "port": 5192
+    },
+    {
+      "name": "client-three-5193",
+      "runtimeExecutable": "cmd",
+      "runtimeArgs": [
+        "/c",
+        "set SERVER_PORT=5199&& npx vite client --port 5193 --strictPort"
+      ],
+      "port": 5193
     }
   ]
 }
