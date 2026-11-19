@@ -1,6 +1,8 @@
 import * as THREE from 'three';
 import { glow, lootModel, pulse } from './rarityFx';
 import { LEVELS, boostOf, itemSpots, spotRarity, type Drop, type ItemId } from '@backrooms/shared';
+/** `?collide=old`: el movimiento de antes (para comparar). */
+const OLD_COLLIDE = /[?&]collide=old/.test(location.search);
 import { perks } from './perks';
 import { ElevatorCab } from './elevator';
 import { Reflector } from 'three/examples/jsm/objects/Reflector.js';
@@ -1440,8 +1442,31 @@ export class PoolLevel implements Terrain {
     }
     if (dw) (this.px = Math.max(dw.x0 + 0.35, Math.min(dw.x1 - 0.35, this.px + mx))), (this.pz = Math.max(dw.z0 + 0.35, Math.min(dw.z1 - 0.35, this.pz + mz))); // dentro del pozo, sus cuatro paredes
     else {
-      if (stuck || this.canMove(this.px + mx, this.pz, this.py, this.swim, from)) this.px += mx;
-      if (stuck || this.canMove(this.px, this.pz + mz, this.py, this.swim, from)) this.pz += mz;
+      if (stuck) (this.px += mx), (this.pz += mz);
+      else if (OLD_COLLIDE) {
+        if (this.canMove(this.px + mx, this.pz, this.py, this.swim, from)) this.px += mx;
+        if (this.canMove(this.px, this.pz + mz, this.py, this.swim, from)) this.pz += mz;
+      } else {
+        // en pasos de 12 cm como mucho, y a la altura que tendrían los pies en cada uno: antes se probaba el paso entero con los pies a la altura
+        // del principio del fotograma, y a velocidad (o con un tirón) el peldaño siguiente quedaba más alto que lo que se sube de un paso y bloqueaba
+        // (las escaleras «se atascaban»); el cuerpo (`this.py`) sigue subiendo con suavidad aparte
+        const n = Math.max(1, Math.ceil(Math.hypot(mx, mz) / 0.12)), sx = mx / n, sz = mz / n;
+        let py = this.py;
+        for (let k = 0; k < n; k++) {
+          if (!this.swim && !this.air) {
+            const g = this.flc(this.px, this.pz, py);
+            if (g && g.layer === this.lay && g.y > py && g.y - py <= POOL_STEP) py = g.y;
+          }
+          // alternando el eje que se prueba primero: en una esquina no gana siempre el mismo y no se queda pegado
+          if (k & 1) {
+            if (this.canMove(this.px, this.pz + sz, py, this.swim, from)) this.pz += sz;
+            if (this.canMove(this.px + sx, this.pz, py, this.swim, from)) this.px += sx;
+          } else {
+            if (this.canMove(this.px + sx, this.pz, py, this.swim, from)) this.px += sx;
+            if (this.canMove(this.px, this.pz + sz, py, this.swim, from)) this.pz += sz;
+          }
+        }
+      }
     }
     const i1 = this.idx(this.px, this.pz);
     if (i1 >= 0) {
