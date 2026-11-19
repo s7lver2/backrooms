@@ -1,5 +1,6 @@
 import { fuse, fuseAll } from './fuse';
 import { settings } from '../settings';
+import { lodsFor } from './lods';
 import * as THREE from 'three';
 import { ElevatorCab } from './elevator';
 import type { Terrain } from './terrain';
@@ -47,7 +48,9 @@ export const center = (c: Cell, y = 0) => new THREE.Vector3(c.x * CELL + CELL / 
 function instanced(src: THREE.Object3D, mats: THREE.Matrix4[], fix?: (m: THREE.Material) => void, rooms = false) {
   const byMat = new Map<THREE.Material, THREE.BufferGeometry[]>();
   src.updateMatrixWorld(true);
+  let model: string | undefined; // (el nombre del modelo, para sus LOD horneados; lo pone game.ts y sobrevive a clone())
   src.traverse((o) => {
+    model ??= o.userData.model;
     const mesh = o as THREE.Mesh;
     if (!mesh.isMesh) return;
     const mat = mesh.material as THREE.Material, g = mesh.geometry.clone();
@@ -73,11 +76,13 @@ function instanced(src: THREE.Object3D, mats: THREE.Matrix4[], fix?: (m: THREE.M
   return [...byMat].flatMap(([mat, gs]) => {
     fix?.(mat);
     const geo = mergeGeometries(gs) ?? gs[0];
+    const lods = lodsFor(model, (mat as THREE.Material).name, geo);
     return [...chunks].map(([ck, cm]) => {
       const im = new THREE.InstancedMesh(geo, mat, cm.length);
       cm.forEach((m, i) => im.setMatrixAt(i, m));
       im.computeBoundingSphere();
       if (ck[0] === 'r') im.userData.room = ck.slice(1).split(',').map(Number); // [hueco, 1 si es del lado norte]
+      if (lods) im.userData.gpuLods = lods; // (el motor Phoenyx elige el LOD en la GPU; three no lo mira)
       im.userData.cull = true; // (World.update los oculta por distancia: los modelos pesan decenas de miles de triángulos)
       return im;
     });

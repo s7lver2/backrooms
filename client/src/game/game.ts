@@ -6,6 +6,7 @@ import * as THREE from 'three';
 import { glow, lootModel, pulse } from './rarityFx';
 import { itemModel, loadItemModels } from './itemModels';
 import { perks } from './perks';
+import { loadLods } from './lods';
 import { GLTFLoader, type GLTF } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { MeshoptDecoder } from 'three/examples/jsm/libs/meshopt_decoder.module.js';
 import { compileGently } from './compile';
@@ -273,7 +274,8 @@ export async function loadAssets(progress: (f: number) => void): Promise<Assets>
   const tl = new THREE.TextureLoader();
   await Promise.all([
     loadItemModels(),
-    ...MODELS.map((m) => loader.loadAsync(DIR + m + '.glb', on(DIR + m + '.glb')).then((g) => void (gltf[m] = g))),
+    loadLods(MODELS),
+    ...MODELS.map((m) => loader.loadAsync(DIR + m + '.glb', on(DIR + m + '.glb')).then((g) => void ((g.scene.userData.model = m), (gltf[m] = g)))),
     ...TEXTURES.map((t) =>
       tl.loadAsync(DIR + 'tex/' + t + '.webp').then((x) => {
         x.wrapS = x.wrapT = THREE.RepeatWrapping;
@@ -880,6 +882,7 @@ export class BackroomsGame {
   constructor(readonly canvas: HTMLCanvasElement, readonly opts: { low: boolean; reduced: boolean }) {
     this.renderer = new THREE.WebGLRenderer({ canvas, antialias: false, powerPreference: 'high-performance' });
     watchCanvas(canvas);
+    if (/[?&]nogpulod/.test(location.search)) (this.renderer as unknown as { gpuDriven: boolean }).gpuDriven = false; // (depuración: sin LOD en GPU, para comparar capturas)
     this.renderer.localClippingEnabled = true; // (el agua dentro del depósito de la pistola de agua, poolmap.ts tankFx)
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;

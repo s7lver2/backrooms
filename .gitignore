@@ -26,3 +26,6 @@ assets-src/
 # animaciones FBX originales de Mixamo: el juego usa el paquete (tools/anim_pack.mjs → client/public/animations/player.pack.*)
 client/public/animations/player/*.fbx
 assets-src/
+
+# LOD de los modelos: los genera tools/bake_lods.mjs al compilar y al arrancar el servidor
+client/public/models/lods/

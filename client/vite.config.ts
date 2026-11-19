@@ -78,6 +78,28 @@ const animPack = (): Plugin => {
   };
 };
 
+// los LOD de los modelos (tools/bake_lods.mjs, incremental) se hornean al compilar y al arrancar el servidor de desarrollo; si falla al compilar, falla la compilación
+const bakeLods = (): Plugin => {
+  const script = fileURLToPath(new URL('../tools/bake_lods.mjs', import.meta.url));
+  let build = false;
+  const run = () =>
+    new Promise<void>((done, fail) =>
+      spawn(process.execPath, [script], { stdio: 'inherit' }).on('close', (code) => (code === 0 || !build ? done() : fail(new Error('bake_lods ha fallado')))),
+    );
+  return {
+    name: 'bake-lods',
+    configResolved(c) {
+      build = c.command === 'build';
+    },
+    async buildStart() {
+      if (build) await run();
+    },
+    configureServer() {
+      void run(); // (al arrancar: lo que falte, en segundo plano)
+    },
+  };
+};
+
 // RENDERER=phoenyx: `three` se sustituye por Phoenyx (E:/phoenix, motor Rust + WebGPU con la misma API); sin la variable, three de siempre
 const PHOENYX = process.env.RENDERER === 'phoenyx';
 const PHOENYX_DIR = (process.env.PHOENYX_DIR ?? 'E:/phoenix').replaceAll('\\', '/');
@@ -98,7 +120,7 @@ const proxy = {
 
 // el juego pregunta por process.env.NODE_ENV (avisos y atajos de desarrollo): se define a mano
 export default defineConfig(({ mode }) => ({
-  plugins: [react(), gripsSaver(), animPack()],
+  plugins: [react(), gripsSaver(), animPack(), bakeLods()],
   cacheDir: PHOENYX ? 'node_modules/.vite-phoenyx' : undefined, // (cada variante con su cache: si no, dos servidores a la vez se pisan las dependencias optimizadas)
   resolve: { alias: [{ find: /^three-real$/, replacement: REAL_THREE }, ...phoenyxAlias] },
   define: { __PHOENYX__: JSON.stringify(PHOENYX), 'process.env.NODE_ENV': JSON.stringify(mode === 'production' ? 'production' : 'development') },
