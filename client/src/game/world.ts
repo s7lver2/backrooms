@@ -1,6 +1,7 @@
 import { fuse, fuseAll } from './fuse';
 import { settings } from '../settings';
 import { lodsFor } from './lods';
+import { CollisionWorld } from '@phoenyx/collide';
 import * as THREE from 'three';
 import { ElevatorCab } from './elevator';
 import type { Terrain } from './terrain';
@@ -471,6 +472,49 @@ export class World implements Terrain {
   readonly cab: ElevatorCab;
   /** Con las puertas cerradas, la cabina es pared. */
   elevatorOpen = false;
+  /** Las colisiones (motor Phoenyx): paredes por celdas, mobiliario como cilindros. Solo con Phoenyx; se crea al primer uso. */
+  private cwOwn?: CollisionWorld;
+  private cwBlock = -1;
+  private cwCells = new Map<number, boolean>();
+  get cw(): CollisionWorld | undefined {
+    if (!__PHOENYX__) return undefined;
+    if (!this.cwOwn) this.buildCollide();
+    return this.cwOwn;
+  }
+  private buildCollide() {
+    const cw = (this.cwOwn = new CollisionWorld(6)), { w, h, open } = this.maze;
+    const bits = new Uint8Array(Math.ceil((w * h) / 8));
+    for (let i = 0; i < w * h; i++) if (!open[i]) bits[i >> 3] |= 1 << (i & 7);
+    // las alturas son enormes: las paredes bloquean a cualquier planta, como el solid() de siempre
+    this.cwBlock = cw.addCells(0, 0, 0, CELL, w, h, bits, -1000, 1000);
+    const W = w * CELL, H = h * CELL, T = 3; // fuera del mapa es pared: cuatro tiras de 3 m alrededor
+    cw.addBox(0, [-T, -1000, -T], [0, 1000, H + T]);
+    cw.addBox(0, [W, -1000, -T], [W + T, 1000, H + T]);
+    cw.addBox(0, [0, -1000, -T], [W, 1000, 0]);
+    cw.addBox(0, [0, -1000, H], [W, 1000, H + T]);
+    // el mobiliario fijo (los que pasean por el pasillo se mueven: los comprueba `walkerBlocked`)
+    const moving = new Set(this.walkers.flatMap((q) => q.blk));
+    for (const b of this.blockers) if (!moving.has(b)) cw.addCylinder(0, b.x, -1000, b.z, b.r, 2000);
+    this.cwCells.clear();
+    this.syncCollide();
+  }
+  /** Las celdas que cambian (puertas, decorados, ascensor) al estado de `solid()`. */
+  private syncCollide() {
+    const cw = this.cwOwn;
+    if (!cw) return;
+    const { w, open } = this.maze;
+    const upd = (i: number) => {
+      const s = !open[i] || this.solid(((i % w) + 0.5) * CELL, (Math.floor(i / w) + 0.5) * CELL);
+      if (this.cwCells.get(i) !== s) (this.cwCells.set(i, s), cw.setCell(this.cwBlock, i % w, Math.floor(i / w), s));
+    };
+    for (const d of this.doors) if (d.cell >= 0) upd(d.cell);
+    for (const i of this.decoys) upd(i);
+    upd(this.maze.elevator.y * w + this.maze.elevator.x);
+  }
+  /** Un cuerpo de radio `r` toca a alguien de los que pasean (se mueven: no van en la rejilla). */
+  walkerBlocked(x: number, z: number, r: number) {
+    return this.walkers.some((q) => q.blk.some((b) => (b.x - x) ** 2 + (b.z - z) ** 2 < (b.r + r) ** 2));
+  }
   private lampPos: THREE.Vector3[];
   private lamps: THREE.InstancedMesh;
   private flicker: { i: number; phase: number; lamp: number; g: number }[] = [];
@@ -1741,6 +1785,7 @@ export class World implements Terrain {
   }
   update(t: number, dt: number) {
     this.vents?.update(t, dt);
+    this.syncCollide();
     const v = this.viewer;
     if (v) {
       this.cullable ??= this.root.children.filter((o) => o.userData.cull) as THREE.InstancedMesh[];
@@ -1835,6 +1880,7 @@ export class World implements Terrain {
     for (const g of this.pitGeos) g.dispose();
     this.rf?.dispose();
     this.cab.dispose();
+    this.cwOwn?.dispose();
     this.root.removeFromParent();
   }
 }

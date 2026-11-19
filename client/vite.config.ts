@@ -122,11 +122,11 @@ const proxy = {
 export default defineConfig(({ mode }) => ({
   plugins: [react(), gripsSaver(), animPack(), bakeLods()],
   cacheDir: PHOENYX ? 'node_modules/.vite-phoenyx' : undefined, // (cada variante con su cache: si no, dos servidores a la vez se pisan las dependencias optimizadas)
-  resolve: { alias: [{ find: /^three-real$/, replacement: REAL_THREE }, ...phoenyxAlias] },
+  resolve: { alias: [{ find: /^three-real$/, replacement: REAL_THREE }, { find: /^@phoenyx\/collide$/, replacement: `${PHOENYX_DIR}/packages/phoenyx/src/collide.ts` }, ...phoenyxAlias] },
   define: { __PHOENYX__: JSON.stringify(PHOENYX), 'process.env.NODE_ENV': JSON.stringify(mode === 'production' ? 'production' : 'development') },
   // the game server goes through the same port as the page (one forwarded port or tunnel is enough, no mixed content over https)
   // fs.strict: el servidor de desarrollo (y /@fs) solo sirve archivos del proyecto; no lo desactives mientras haya un túnel abierto
-  server: { port: CLIENT_PORT, strictPort: true, host: true, allowedHosts: true, proxy, fs: { strict: true, allow: PHOENYX ? ['..', PHOENYX_DIR] : undefined } },
+  server: { port: CLIENT_PORT, strictPort: true, host: true, allowedHosts: true, proxy, fs: { strict: true, allow: ['..', PHOENYX_DIR] } },
   preview: { port: CLIENT_PORT, strictPort: true, host: true, allowedHosts: true, proxy },
   build: { target: 'es2020', sourcemap: false, minify: 'esbuild', chunkSizeWarningLimit: 1500 },
 }));

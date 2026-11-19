@@ -1,3 +1,4 @@
+import { Body as CollideBody } from '@phoenyx/collide';
 import { EYE, WALK, RUN, JUMP, G } from './locomotion';
 import { WaterJet, type JetProbe } from './waterjet';
 import * as THREE from 'three';
@@ -48,6 +49,8 @@ const DRINK_T = 1.5; // lo que se mantiene la lata para beberla (s)
 export const CAM_AIM_SLOW = 0.92;
 const UNO_T = 1.2; // s manteniendo la carta
 const R = 0.3;
+/** `?collide=old`: la lógica de colisiones de antes (para comparar). */
+const OLD_COLLIDE = /[?&]collide=old/.test(location.search);
 
 /** Un modelo escalado para que su lado mayor mida `size`, centrado en el origen y girado `ry`. */
 export function fit(o: THREE.Object3D, size: number, ry = 0) {
@@ -334,7 +337,7 @@ export class Player {
   private flashD = 12;
 
   constructor(
-    private world: Pick<Terrain, 'root' | 'solid' | 'voidAt'> & Partial<Pick<Terrain, 'floorAt' | 'groundPace' | 'flashDistance'>> & Pick<World, 'furniture'> & Partial<Pick<World, 'pitAt'>>,
+    private world: Pick<Terrain, 'root' | 'solid' | 'voidAt'> & Partial<Pick<Terrain, 'floorAt' | 'groundPace' | 'flashDistance'>> & Pick<World, 'furniture'> & Partial<Pick<World, 'pitAt' | 'cw' | 'walkerBlocked'>>,
     assets: Assets,
     private camera: THREE.PerspectiveCamera,
     private flash: THREE.SpotLight,
@@ -426,6 +429,7 @@ export class Player {
     this.fallT = 0;
   }
 
+  private cbody = new CollideBody(0, 0, 0, R, 1.8, 0);
   private blocked(x: number, z: number) {
     const w = this.world;
     return w.solid(x - R, z - R) || w.solid(x + R, z - R) || w.solid(x - R, z + R) || w.solid(x + R, z + R) || w.furniture(x, z, R);
@@ -566,14 +570,31 @@ export class Player {
       const yz = this.world.floorAt?.(this.pos.x, z, this.pos.y - this.airY);
       if (yz != null) this.pos.set(this.pos.x, yz + this.airY, z);
     } else {
-      if (this.noclip || !(this.blocked(this.pos.x + v.x, this.pos.z) || edge(this.pos.x + v.x, this.pos.z))) this.pos.x += v.x;
-      if (this.noclip || !(this.blocked(this.pos.x, this.pos.z + v.z) || edge(this.pos.x, this.pos.z + v.z))) this.pos.z += v.z;
-      if (this.knockT > 0) {
-        // empujón: se reparte en 0,35 s, parando en las paredes (sobre un hueco, se cae)
-        const k = Math.min(dt, this.knockT) / 0.35, kx = this.knock.x * k, kz = this.knock.y * k;
-        this.knockT -= dt;
-        if (!this.blocked(this.pos.x + kx, this.pos.z)) this.pos.x += kx;
-        if (!this.blocked(this.pos.x, this.pos.z + kz)) this.pos.z += kz;
+      const cw = this.noclip || OLD_COLLIDE ? undefined : this.world.cw;
+      if (cw) {
+        // colisiones del motor (Phoenyx): barrido por pasos cortos y salida por la normal, sin rechazar ejes: las esquinas no enganchan
+        const b = this.cbody, x0 = this.pos.x, z0 = this.pos.z;
+        b.x = x0, b.y = this.pos.y, b.z = z0;
+        cw.moveXZ(b, v.x, v.z);
+        if (this.knockT > 0) {
+          // empujón: se reparte en 0,35 s, parando en las paredes (sobre un hueco, se cae)
+          const k = Math.min(dt, this.knockT) / 0.35;
+          this.knockT -= dt;
+          cw.moveXZ(b, this.knock.x * k, this.knock.y * k);
+        }
+        // lo que no está en la rejilla: los bordes de los pozos y los que pasean por el pasillo (si tocan, no se mueve)
+        if (edge(b.x, b.z) || this.world.walkerBlocked?.(b.x, b.z, R)) (b.x = x0), (b.z = z0);
+        this.pos.x = b.x, this.pos.z = b.z;
+      } else {
+        if (this.noclip || !(this.blocked(this.pos.x + v.x, this.pos.z) || edge(this.pos.x + v.x, this.pos.z))) this.pos.x += v.x;
+        if (this.noclip || !(this.blocked(this.pos.x, this.pos.z + v.z) || edge(this.pos.x, this.pos.z + v.z))) this.pos.z += v.z;
+        if (this.knockT > 0) {
+          // empujón: se reparte en 0,35 s, parando en las paredes (sobre un hueco, se cae)
+          const k = Math.min(dt, this.knockT) / 0.35, kx = this.knock.x * k, kz = this.knock.y * k;
+          this.knockT -= dt;
+          if (!this.blocked(this.pos.x + kx, this.pos.z)) this.pos.x += kx;
+          if (!this.blocked(this.pos.x, this.pos.z + kz)) this.pos.z += kz;
+        }
       }
     }
     this.speed = speed;
