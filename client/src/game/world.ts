@@ -1209,8 +1209,9 @@ export class World implements Terrain {
         gx.fillRect(0, 0, 64, 128);
         gx.fillStyle = 'rgba(255,255,255,0.22)';
         for (const [o, wd] of [[10, 8], [34, 3]]) (gx.beginPath(), gx.moveTo(o, 0), gx.lineTo(o + wd, 0), gx.lineTo(o + wd - 40, 128), gx.lineTo(o - 40, 128), gx.fill());
-        const glass = new THREE.MeshBasicMaterial({ map: new THREE.CanvasTexture(gc) }), gold = new THREE.MeshStandardMaterial({ color: 0xc9a24a, metalness: 0.65, roughness: 0.35 });
+        const glass = new THREE.MeshStandardMaterial({ map: new THREE.CanvasTexture(gc), roughness: 0.3, metalness: 0 }), gold = new THREE.MeshStandardMaterial({ color: 0xc9a24a, metalness: 0.65, roughness: 0.35 });
         lightmapped(gold);
+        lightmapped(glass); // (el cristal, con la luz del sitio: si se apagan los tubos, el espejo se apaga también)
         inner.traverse((o) => ((o as THREE.Mesh).isMesh && ((o as THREE.Mesh).material = glass)));
         const frame = inner.clone(true);
         frame.scale.setScalar(k * 1.1);

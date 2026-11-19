@@ -491,6 +491,7 @@ export class Vents {
         if (!g) continue;
         const own = mat.clone();
         own.side = THREE.DoubleSide;
+        (own.transparent = false), (own.depthWrite = true), (own.alphaTest = 0.5); // (el modelo viene en mezcla de alfa y sin orden se veían a través: recorte)
         lightmapped(own);
         const me = new THREE.Mesh(g, own);
         me.castShadow = me.receiveShadow = true;

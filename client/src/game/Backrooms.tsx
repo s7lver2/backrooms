@@ -1217,7 +1217,7 @@ export default function Backrooms({ onQuit, onWin }: { onQuit: () => void; onWin
         </div>
       )}
       {pauseSettings && (screen === 'pause' || screen === 'waitpause') && (
-        <div style={{ position: 'fixed', inset: 0, zIndex: 60, background: '#0b0b0a' }}>
+        <div style={{ position: 'fixed', inset: 0, zIndex: 60, background: 'rgba(11, 11, 10, 0.78)' }}>
           <SettingsPane muted={muted} toggleSound={toggleSound} onBack={() => setPauseSettings(false)} />
         </div>
       )}
