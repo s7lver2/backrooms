@@ -10,6 +10,7 @@ Run with no arguments for the interactive menu, or pass flags to skip the questi
   --renderer three|phoenyx                       graphics engine (default: three)
   --phoenyx-dir PATH                             Phoenyx repo (default: E:/phoenix)
   --tunnel cloudflared|ngrok|localtunnel         expose the client publicly
+  --plain                                        stream raw logs instead of the control panel
   --yes                                          never ask, use defaults for anything not given
 """
 import argparse
@@ -201,6 +202,7 @@ def parse() -> argparse.Namespace:
     p.add_argument("--phoenyx-dir")
     p.add_argument("--tunnel", choices=list(TUNNELS))
     p.add_argument("--yes", action="store_true")
+    p.add_argument("--plain", action="store_true")
     return p.parse_args()
 
 
@@ -284,13 +286,17 @@ def main() -> int:
     release = task == "release"
     if release and step("build client", "npm run build -w client", env):  # release: client build + server on `start`
         return 1
-    procs = [
-        subprocess.Popen(f"npm run {'start' if release else 'dev'} -w server", shell=True, cwd=ROOT, env=env),
-        subprocess.Popen(f"npm run {'preview' if release else 'dev'} -w client", shell=True, cwd=ROOT, env=env),
-    ]
+    specs = [("server", f"npm run {'start' if release else 'dev'} -w server"), ("client", f"npm run {'preview' if release else 'dev'} -w client")]
     if tunnel:
-        procs.append(subprocess.Popen(TUNNELS[tunnel][1], shell=True, cwd=ROOT, env=env))
-    return serve(procs, task, env.get("RENDERER", "three"), tunnel)
+        specs.append(("tunnel", TUNNELS[tunnel][1]))
+    if TTY and sys.stdin.isatty() and not a.plain:  # the control panel (logs, tabs, restart); --plain streams the raw output instead
+        from dash import Dashboard, Proc, TAGCOL
+        procs = [Proc(t, c, env, ROOT, TAGCOL[i % len(TAGCOL)]) for i, (t, c) in enumerate(specs)]
+        urls = [("client", f"http://localhost:{CLIENT_PORT}"), ("server", f"http://localhost:{SERVER_PORT}")]
+        branch = subprocess.run("git rev-parse --abbrev-ref HEAD", shell=True, cwd=ROOT, capture_output=True, text=True).stdout.strip()
+        return Dashboard("backrooms", f"{task} · {env.get('RENDERER', 'three')}", procs, urls, branch).run()
+    popens = [subprocess.Popen(c, shell=True, cwd=ROOT, env=env) for _, c in specs]
+    return serve(popens, task, env.get("RENDERER", "three"), tunnel)
 
 
 if __name__ == "__main__":
