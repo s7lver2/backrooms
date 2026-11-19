@@ -18,6 +18,7 @@ interface Entry {
   obj?: THREE.Object3D;
   own: THREE.Material[];
   phase: number;
+  on: boolean; // su cajita está a la vista dentro del panel
 }
 
 /** El muñeco simple de un color: torso, cabeza y una visera, para que se note que gira. */
@@ -46,6 +47,8 @@ export class Thumbs {
   private raf = 0;
   private visible = true;
   private io?: IntersectionObserver;
+  private cio?: IntersectionObserver; // por cajita: solo se pintan las que se ven
+  private byCv = new Map<Element, Entry>();
   private last = 0;
   private dead = false;
 
@@ -60,13 +63,17 @@ export class Thumbs {
       this.io = new IntersectionObserver((e) => void (this.visible = e.some((x) => x.isIntersecting)));
       this.io.observe(watch);
     }
+    if ('IntersectionObserver' in window)
+      this.cio = new IntersectionObserver((es) => es.forEach((x) => { const e = this.byCv.get(x.target); if (e) e.on = x.isIntersecting; }), { root: watch ?? null });
     if (!reduced) this.raf = requestAnimationFrame(this.loop);
   }
 
   /** Una cajita: se pinta con su especificación. Devuelve la función que la quita. `dark`: bloqueada, solo silueta. */
   add(cv: HTMLCanvasElement, spec: ThumbSpec, dark: boolean) {
-    const e: Entry = { cv, own: [], phase: this.entries.size * 0.9 };
+    const e: Entry = { cv, own: [], phase: this.entries.size * 0.9, on: !this.cio };
     this.entries.set(cv, e);
+    this.byCv.set(cv, e);
+    this.cio?.observe(cv);
     if (spec.kind === 'color') e.obj = dummy(dark ? null : spec.hex, e.own);
     else if (spec.kind === 'model') {
       void model(spec.id).then((src) => {
@@ -84,6 +91,8 @@ export class Thumbs {
     if (this.reduced && e.obj) this.draw(e, 0.6);
     return () => {
       this.entries.delete(cv);
+      this.byCv.delete(cv);
+      this.cio?.unobserve(cv);
       e.own.forEach((m) => m.dispose());
       (e.obj?.userData.dispose as (() => void) | undefined)?.();
     };
@@ -111,15 +120,16 @@ export class Thumbs {
 
   private loop = (now: number) => {
     this.raf = requestAnimationFrame(this.loop);
-    if (!this.visible || document.hidden || now - this.last < 42) return; // ~24 fps
+    if (!this.visible || document.hidden || now - this.last < 66) return; // ~15 fps
     this.last = now;
-    for (const e of this.entries.values()) this.draw(e, now / 1800 + e.phase);
+    for (const e of this.entries.values()) if (e.on && e.obj) this.draw(e, now / 1800 + e.phase);
   };
 
   dispose() {
     this.dead = true;
     cancelAnimationFrame(this.raf);
     this.io?.disconnect();
+    this.cio?.disconnect();
     this.entries.forEach((e) => e.own.forEach((m) => m.dispose()));
     this.entries.clear();
     this.r?.dispose();
