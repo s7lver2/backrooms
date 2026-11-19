@@ -1,7 +1,7 @@
 'use client';
 import { setCrashContext } from '../telemetry';
 import { DEV_LOCAL } from '../devGate';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import gsap from 'gsap';
 import { holdStill } from './still';
 import { BackroomsGame, LOAD_PHASES, type Hud, type Inv, type LoadProgress } from './game';
@@ -19,7 +19,7 @@ import { avatarUrl, useAccount } from '../account';
 import { FriendsScreen } from './Friends';
 import { Avatar, AuthScreen, DiscordButton, AccountBox, AccountMenu, AchievementsScreen, Toasts, type AuthMode } from './Account';
 import Frame from './Frame';
-import SettingsPane from './Settings';
+const SettingsPane = lazy(() => import('./Settings')); // (los ajustes y la consola de admin se bajan al abrirlos)
 import { Crosshair } from './Crosshair';
 import { onSetting, settings, useSettings } from '../settings';
 import Lobby, { ServerNotice } from './Lobby';
@@ -31,7 +31,7 @@ import { DIFF } from './RoomSettings';
 import End from './End';
 import Loading from './Loading';
 import BootLoading from './BootLoading';
-import AdminConsole from './Admin';
+const AdminConsole = lazy(() => import('./Admin'));
 import LogPopup from './LogPopup';
 import WaitPanel from './WaitPanel';
 import { ChatInput, ChatLog, useChat } from './Chat';
@@ -926,7 +926,11 @@ export default function Backrooms({ onQuit, onWin }: { onQuit: () => void; onWin
       )}
       {screen === 'achv' && <AchievementsScreen acct={acct} onSignIn={() => openAuth('signin')} onBack={() => setScreen('menu')} />}
       {screen === 'friends' && <FriendsScreen acct={acct} assets={game.current?.assets} onSignIn={() => openAuth('signin')} onBack={() => setScreen('menu')} />}
-      {screen === 'settings' && <SettingsPane muted={muted} toggleSound={toggleSound} onBack={() => setScreen('menu')} />}
+      {screen === 'settings' && (
+        <Suspense fallback={null}>
+          <SettingsPane muted={muted} toggleSound={toggleSound} onBack={() => setScreen('menu')} />
+        </Suspense>
+      )}
       {wheel && <EmoteWheel have={haveAch} onPick={pickEmote} />}
       {screen === 'play' && !!hud?.talk && <Dialogue n={hud.talk} onPick={(i) => game.current?.pickMission(i)} onClose={() => game.current?.closeTalk()} />}
       {locker && (
@@ -1088,7 +1092,9 @@ export default function Backrooms({ onQuit, onWin }: { onQuit: () => void; onWin
         </div>
       )}
       {(screen === 'play' || screen === 'wait') && <LogPopup game={game} />}
-      {acct.me?.admin && (screen === 'play' || screen === 'wait') && !(hud?.parking && hud.inv.escaped) && <AdminConsole game={game} sock={net.sock} room={net.room} me={net.me} onVictory={() => endRef.current({ won: true, completed: true, mission: null, reward: 0, penalty: 0, bank: 0, fates: {}, victory: Object.fromEntries((net.room?.players ?? []).map((p) => [p.id, emoteGate.victory || 1])) })} />}
+      {acct.me?.admin && (screen === 'play' || screen === 'wait') && !(hud?.parking && hud.inv.escaped) && <Suspense fallback={null}>
+          <AdminConsole game={game} sock={net.sock} room={net.room} me={net.me} onVictory={() => endRef.current({ won: true, completed: true, mission: null, reward: 0, penalty: 0, bank: 0, fates: {}, victory: Object.fromEntries((net.room?.players ?? []).map((p) => [p.id, emoteGate.victory || 1])) })} />
+        </Suspense>}
       {(screen === 'play' || screen === 'wait') && mp && net.sock && (
         <div className="br-chatbox">
           <ChatLog msgs={msgs} fade={!chat} max={6} />
@@ -1232,7 +1238,9 @@ export default function Backrooms({ onQuit, onWin }: { onQuit: () => void; onWin
       )}
       {pauseSettings && (screen === 'pause' || screen === 'waitpause') && (
         <div style={{ position: 'fixed', inset: 0, zIndex: 60, background: 'rgba(11, 11, 10, 0.78)' }}>
-          <SettingsPane muted={muted} toggleSound={toggleSound} onBack={() => setPauseSettings(false)} />
+          <Suspense fallback={null}>
+            <SettingsPane muted={muted} toggleSound={toggleSound} onBack={() => setPauseSettings(false)} />
+          </Suspense>
         </div>
       )}
       {screen === 'crash' && (

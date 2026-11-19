@@ -36,11 +36,11 @@ import { voice } from '../voice';
 import { Minimap } from './minimap';
 import { Gadgets, ROLL } from './gadgets';
 import { loadAnimations } from './anim/animator';
-import { RunLevel, type RunHud } from './runlevel';
+import type { RunLevel, RunHud } from './runlevel'; // (el nivel rojo y la sala de espera se bajan al usarlos: cada uno es un trozo aparte)
 import { PoolTest } from './pool';
 import { PoolLevel, loadPoolKit, type PoolKit } from './poolmap';
 import type { ParkingRound } from './parking-round';
-import { WaitingRoom } from './waiting';
+import type { WaitingRoom } from './waiting';
 import { Tvs } from './mission';
 import { holdStill } from './still';
 import { netStats, type Sock } from '../net';
@@ -2094,7 +2094,7 @@ export class BackroomsGame {
     const tok = ++this.waitTok;
     const free = holdStill(); // en Firefox compilar congela la página: con la pantalla quieta
     try {
-      const wr = await WaitingRoom.load(this.assets!, this.opts.reduced);
+      const wr = await (await import('./waiting')).WaitingRoom.load(this.assets!, this.opts.reduced);
       if (tok !== this.waitTok) return wr.dispose(), false;
       wr.resize(this.camera.aspect);
       // el clon de un jugador, dentro mientras se compila: su material estrenaría programa con el primero que llegue
@@ -2910,12 +2910,14 @@ export class BackroomsGame {
   }
 
   /** Empieza «Run for your life» (runlevel.ts): su escena y su cámara sustituyen a las del juego en el compositor hasta que se acaba. */
+  private runMod?: typeof import('./runlevel');
   private beginRun() {
     if (this.run || !this.assets) return;
+    if (!this.runMod) return void import('./runlevel').then((m) => ((this.runMod = m), this.beginRun()));
     this.totemOpen = this.bagOpen = false;
     this.input.suspend = false;
     this.audio ??= new GameAudio(undefined, this.muted, this.volume);
-    const r = (this.run = new RunLevel(this.assets, this.audio, this.opts.reduced, this.camera.aspect));
+    const r = (this.run = new this.runMod.RunLevel(this.assets, this.audio, this.opts.reduced, this.camera.aspect));
     r.onDone = () => this.mp?.sock.emit('runDone'); // el servidor lo comprueba y manda `revived`; hasta entonces, la imagen se queda en negro
     r.onFail = () => (this.mp ? this.mp.sock.emit('runFail') : this.endRun()); // una sola oportunidad: el servidor lo da por muerto (`runFailed`)
     // el controlador de siempre (cuerpo, manos con IK, linterna, barra rápida, inventario, latas, Monster...): el nivel solo le mueve el cuerpo

@@ -1,4 +1,6 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useState, type ReactNode } from 'react';
+import { Database, HardDrive, Image as ImageIcon, SlidersHorizontal } from 'lucide-react';
+import './Storage.css';
 
 /*
  * STORAGE (ajustes): lo que el juego guarda en este navegador (la caché de descargas y los paquetes opcionales) y cuánto ocupa,
@@ -11,6 +13,10 @@ interface Pack {
   name: string;
   desc: string;
   files: string[];
+  /** Portada (URL de una imagen); sin ella, un icono. */
+  cover?: string;
+  /** Peso aproximado que se enseña antes de instalar. */
+  size?: string;
 }
 interface Entry {
   name: string;
@@ -33,6 +39,23 @@ async function sizes(): Promise<Entry[]> {
     out.push({ name, bytes, files: reqs.length });
   }
   return out;
+}
+
+/** Una fila de la lista: portada (imagen o icono), nombre, qué es y qué ocupa, y su botón. */
+function Card({ cover, icon, name, desc, meta, children, dim }: { cover?: string; icon: ReactNode; name: string; desc: string; meta?: string; children?: ReactNode; dim?: boolean }) {
+  return (
+    <li className="br-pack" data-dim={dim || undefined}>
+      <span className="br-pack__cover" aria-hidden="true">
+        {cover ? <img src={cover} alt="" loading="lazy" /> : icon}
+      </span>
+      <span className="br-pack__txt">
+        <span className="br-row__t">{name}</span>
+        <span className="br-row__d">{desc}</span>
+        {meta && <span className="br-pack__meta">{meta}</span>}
+      </span>
+      {children}
+    </li>
+  );
 }
 
 export default function StoragePane() {
@@ -83,68 +106,53 @@ export default function StoragePane() {
     await caches.delete(name);
     void refresh();
   };
+  const local = (() => {
+    try {
+      return Object.keys(localStorage).reduce((a, k) => a + k.length + (localStorage.getItem(k)?.length ?? 0), 0) * 2;
+    } catch {
+      return 0;
+    }
+  })();
   const others = entries.filter((e) => !e.name.startsWith(PREFIX));
   const frac = use && use.quota ? Math.min(1, use.usage / use.quota) : 0;
   const BLOCKS = 24, on = Math.max(use?.usage ? 1 : 0, Math.round(frac * BLOCKS));
 
   return (
     <div className="br-set2" role="tabpanel" aria-label="STORAGE">
-      <ul className="br-set2__list">
-        <li className="br-row">
-          <span className="br-row__l">
+      <ul className="br-set2__list br-packs">
+        <li className="br-pack br-pack--sum">
+          <span className="br-pack__txt">
             <span className="br-row__t">USED BY THE GAME</span>
             <span className="br-row__d">{use ? `${fmt(use.usage)} OF ${fmt(use.quota)} AVAILABLE` : 'THIS BROWSER DOES NOT SAY'}</span>
-          </span>
-          <span className="br-row__c">
-            <p className="br-meter" aria-hidden="true">
+            <span className="br-meter" aria-hidden="true">
               {'▮'.repeat(on)}
               <span className="br-lobby__dim">{'▮'.repeat(BLOCKS - on)}</span>
-            </p>
+            </span>
           </span>
         </li>
         {packs.map((p) => {
           const e = bytesOf(PREFIX + p.id), have = !!e && e.files >= p.files.length, work = busy[p.id];
           return (
-            <li key={p.id} className="br-row">
-              <span className="br-row__l">
-                <span className="br-row__t">{p.name}</span>
-                <span className="br-row__d">{work !== undefined ? `DOWNLOADING ${Math.round(work * 100)}%` : have ? `INSTALLED · ${fmt(e!.bytes)}` : p.desc}</span>
-              </span>
+            <Card key={p.id} cover={p.cover} icon={<ImageIcon />} name={p.name} desc={work !== undefined ? `DOWNLOADING ${Math.round(work * 100)}%` : p.desc} meta={have ? `INSTALLED · ${fmt(e!.bytes)}` : p.size}>
               <button type="button" className="br-opt br-row__sw" disabled={work !== undefined} onClick={() => (have ? void drop(PREFIX + p.id) : void install(p))}>
                 {have ? 'REMOVE' : 'INSTALL'}
               </button>
-            </li>
+            </Card>
           );
         })}
-        {!packs.length && (
-          <li className="br-row">
-            <span className="br-row__l">
-              <span className="br-row__t">OPTIONAL PACKS</span>
-              <span className="br-row__d">NONE YET: HIGH-RES TEXTURES WILL APPEAR HERE</span>
-            </span>
-          </li>
-        )}
-        {others.map((e) => (
-          <li key={e.name} className="br-row">
-            <span className="br-row__l">
-              <span className="br-row__t">CACHE · {e.name}</span>
-              <span className="br-row__d">{`${e.files} FILES · ${fmt(e.bytes)}`}</span>
-            </span>
-            <button type="button" className="br-opt br-row__sw" onClick={() => void drop(e.name)}>
-              CLEAR
-            </button>
-          </li>
-        ))}
+        {!packs.length && <Card dim icon={<ImageIcon />} name="HIGH-RES TEXTURES" desc="SHARPER WALLS, FLOORS AND PROPS" meta="COMING SOON" />}
+        <Card icon={<Database />} name="DOWNLOAD CACHE" desc="FILES KEPT SO THEY ARE NOT DOWNLOADED AGAIN" meta={`${others.reduce((a, e) => a + e.files, 0)} FILES · ${fmt(others.reduce((a, e) => a + e.bytes, 0))}`}>
+          <button type="button" className="br-opt br-row__sw" disabled={!others.length} onClick={() => void Promise.all(others.map((e) => caches.delete(e.name))).then(refresh)}>
+            CLEAR
+          </button>
+        </Card>
+        <Card icon={<SlidersHorizontal />} name="SETTINGS AND SAVES" desc="YOUR OPTIONS IN THIS BROWSER" meta={fmt(local)} />
         {use && (
-          <li className="br-row">
-            <span className="br-row__l">
-              <span className="br-row__t">KEEP MY DATA</span>
-              <span className="br-row__d">{use.persisted ? 'THE BROWSER WILL NOT CLEAR IT ON ITS OWN' : 'THE BROWSER MAY CLEAR IT WHEN SPACE RUNS LOW'}</span>
-            </span>
+          <Card icon={<HardDrive />} name="KEEP MY DATA" desc={use.persisted ? 'THE BROWSER WILL NOT CLEAR IT ON ITS OWN' : 'THE BROWSER MAY CLEAR IT WHEN SPACE RUNS LOW'}>
             <button type="button" className="br-opt br-row__sw" disabled={use.persisted} onClick={() => void navigator.storage.persist().then(refresh)}>
               {use.persisted ? 'ON' : 'ASK'}
             </button>
-          </li>
+          </Card>
         )}
       </ul>
       <aside className="br-set2__side" aria-live="polite">
