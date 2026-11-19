@@ -26,11 +26,13 @@ interface Row {
 }
 
 // los ajustes de varios pasos: nombre y qué hace cada uno (el número guardado es la posición); el juego lee el número
-const CHOICES: Record<'quality' | 'shadows' | 'texFilter' | 'fpsLimit' | 'warmup', readonly (readonly [string, string])[]> = {
+const CHOICES: Record<'quality' | 'shadows' | 'texFilter' | 'fpsLimit' | 'warmup' | 'drawDist' | 'lights', readonly (readonly [string, string])[]> = {
   quality: [['AUTO', 'LOW ON PHONES AND TABLETS'], ['LOW', 'NO SHADOWS, NO GLOW, 60% RESOLUTION'], ['HIGH', 'EVERYTHING ON']],
   shadows: [['OFF', 'NO SHADOWS AT ALL'], ['LOW', 'SMALL, SOFTER SHADOW MAPS'], ['HIGH', 'FULL LOOK']],
   texFilter: [['OFF', 'FASTEST, BLURRIER AT A SLANT'], ['2X', ''], ['4X', ''], ['8X', 'SHARPEST AT A SLANT']],
   fpsLimit: [['30', 'HALF THE WORK, COOLER LAPTOP'], ['45', ''], ['60', ''], ['OFF', 'AS FAST AS THE SCREEN ALLOWS']],
+  drawDist: [['SHORT', 'FOG CLOSES IN, FASTEST'], ['NORMAL', 'NOTHING BEHIND THE FOG'], ['FAR', 'DRAWS EVERYTHING']],
+  lights: [['NONE', 'FLATTEST, FASTEST'], ['2', 'TWO LIGHTS AROUND YOU'], ['4', 'FOUR LIGHTS, FULL GLOW']],
   warmup: [['LAZY', 'NOTHING UP FRONT'], ['QUICK', 'ONLY WHAT YOU SEE'], ['FULL', 'EVERYTHING BEFORE YOU PLAY']],
 };
 const lab = (k: keyof typeof CHOICES) => CHOICES[k].map((c) => c[0]);
@@ -64,6 +66,10 @@ const SECTIONS = {
     { id: 'shadows', label: 'SHADOWS', desc: 'Flashlight and sun shadows', long: 'OFF is the biggest saving on a slow graphics card.', num: { k: 'shadows', min: 0, max: 2, step: 1, unit: '', scale: 1, labels: lab('shadows') } },
     { id: 'bloom', label: 'LIGHT GLOW', desc: 'Halo around bright lights', long: 'The soft halo around the fluorescent panels.', flag: 'bloom' },
     { id: 'texFilter', label: 'TEXTURE FILTERING', desc: 'Sharpness at a slant', long: 'Keeps floors and walls sharp far away. Costs little.', num: { k: 'texFilter', min: 0, max: 3, step: 1, unit: '', scale: 1, labels: lab('texFilter') } },
+    { id: 'autoRes', label: 'AUTO RESOLUTION', desc: 'Drops pixels when it lags', long: 'Watches the frame rate and lowers the picture resolution by itself, down to 35%, when the computer cannot keep up. If it still crawls it also turns off glow, dust, shadows and extra lights. Turn it off to keep a fixed RESOLUTION SCALE.', flag: 'autoRes' },
+    { id: 'drawDist', label: 'DRAW DISTANCE', desc: 'How far the world is drawn', long: 'SHORT closes the fog in and skips everything far away: a big gain on weak machines. NORMAL skips only what the fog already hides.', num: { k: 'drawDist', min: 0, max: 2, step: 1, unit: '', scale: 1, labels: lab('drawDist') } },
+    { id: 'lights', label: 'EXTRA LIGHTS', desc: 'Lights that glow on the surfaces', long: 'Real lights that follow you and shine on the quartz and the walls. Every one costs on every surface: NONE is a big saving on a slow graphics card.', num: { k: 'lights', min: 0, max: 2, step: 1, unit: '', scale: 1, labels: lab('lights') } },
+    { id: 'dust', label: 'DUST', desc: 'Motes floating in the air', long: 'The specks that catch the light. Pure atmosphere: off on a weak computer.', flag: 'dust' },
     { id: 'poolAO', label: 'AMBIENT OCCLUSION', desc: 'Poolrooms corner shading', long: 'Soft shading in the corners of the Poolrooms. The heaviest effect: turn it off first.', flag: 'poolAO' },
     { id: 'poolAA', label: 'SMOOTH EDGES', desc: 'Poolrooms anti-aliasing', long: 'Smooths jagged edges in the Poolrooms.', flag: 'poolAA' },
     { id: 'warmup', label: 'SHADER WARM-UP', desc: 'Loading time vs. stutter', long: 'FULL loads longest and never stutters. LAZY loads fastest and hitches the first time each thing appears.', num: { k: 'warmup', min: 0, max: 2, step: 1, unit: '', scale: 1, labels: lab('warmup') } },
@@ -181,7 +187,9 @@ function Caption({ row, s, muted }: { row: Row; s: Settings; muted: boolean }): 
     case 'shadows':
     case 'texFilter':
     case 'fpsLimit':
-    case 'warmup': {
+    case 'warmup':
+    case 'drawDist':
+    case 'lights': {
       const c = CHOICES[row.id][Math.round(s[row.id])] ?? CHOICES[row.id][0];
       return (
         <p className="br-big">
@@ -200,6 +208,8 @@ function Caption({ row, s, muted }: { row: Row; s: Settings; muted: boolean }): 
       );
     }
     case 'bloom':
+    case 'autoRes':
+    case 'dust':
     case 'poolAO':
     case 'poolAA':
       return <p className="br-big">{s[row.id] ? 'ON' : 'OFF'}</p>;

@@ -45,7 +45,7 @@ import { Tvs } from './mission';
 import { holdStill } from './still';
 import { netStats, type Sock } from '../net';
 import { worldTl } from './interp';
-import { ANISO, FPS_CAPS, settings } from '../settings';
+import { ANISO, FPS_CAPS, setSetting, settings } from '../settings';
 import { watchCanvas } from '../errlog';
 import { gearIcons } from './invIcons';
 import { prepAvatar } from './InvAvatar';
@@ -772,20 +772,42 @@ export class BackroomsGame {
 
   /** Resolución dinámica: si el equipo no llega a ~50 fps baja la resolución de dibujo de 0,1 en 0,1 (hasta 0,6) y la sube si le sobra de largo (>90 fps). Un paso cada 4 s, con la media de ese rato. */
   private drs = 1;
+  private rescued = false;
+  private fogBase = 40;
+  /** Las sombras de la linterna, en vivo (el interruptor cambia el shader: una recompilación). */
+  setShadows(on: boolean) {
+    this.renderer.shadowMap.enabled = on;
+    this.flash.castShadow = on;
+  }
+  /** Luces puntuales (EXTRA LIGHTS) y polvo (DUST): cuántas luces se mandan al shader cambia el programa, así que solo al cambiar el ajuste. */
+  applyLooks() {
+    const n = [0, 2, 4][settings.lights] ?? 4;
+    this.points.forEach((l, i) => (l.visible = i < n));
+    this.dust.visible = settings.dust;
+  }
   private renderMs = 0;
   private drsAcc = { n: 0, ms: 0, t: 0 };
   private relayout?: () => void;
   private adapt(dt: number) {
     const a = this.drsAcc, cap = FPS_CAPS[settings.fpsLimit] ?? 0, now = performance.now();
-    if (window.__capture || dt > 0.25 || document.hidden || (cap && cap < 60)) return void (a.n = a.ms = 0);
+    if (!settings.autoRes) return void (this.drs !== 1 && ((this.drs = 1), this.relayout?.()));
+    // (dt > 2 s: cambio de pestaña o una carga, no es rendimiento; antes, con dt > 0,25 s —menos de 4 fps— jamás se actuaba, justo cuando más hacía falta)
+    if (window.__capture || dt > 2 || document.hidden || (cap && cap < 60)) return void (a.n = a.ms = 0);
     (a.n++, (a.ms += dt * 1000));
-    if (now - a.t < 4000 || a.n < 60) return;
+    if (a.ms < 2500 || a.n < 4 || now - a.t < 1500) return; // (una ventana de 2,5 s de juego, sean los fotogramas que sean)
     const avg = a.ms / a.n;
     (a.n = a.ms = 0), (a.t = now);
     // si el fotograma lo come la CPU (mandar los dibujos), bajar píxeles no ayuda: se deja la resolución entera
     const cpuBound = this.renderMs > avg * 0.6;
-    const next = cpuBound ? Math.min(1, this.drs + 0.1) : avg > 20 ? Math.max(0.6, this.drs - 0.1) : avg < 11 ? Math.min(1, this.drs + 0.1) : this.drs;
+    const down = avg > 200 ? 0.3 : avg > 100 ? 0.2 : 0.1;
+    const next = cpuBound ? Math.min(1, this.drs + 0.1) : avg > 20 ? Math.max(0.35, this.drs - down) : avg < 11 ? Math.min(1, this.drs + 0.1) : this.drs;
     if (Math.abs(next - this.drs) > 1e-3) ((this.drs = next), this.relayout?.());
+    // si aun así va por debajo de ~10 fps (a la resolución mínima, o porque manda la CPU): lo opcional se apaga y queda guardado
+    if (avg > 100 && (this.drs <= 0.4 || cpuBound) && !this.rescued) {
+      this.rescued = true;
+      (setSetting('bloom', false), setSetting('dust', false), setSetting('lights', 0), setSetting('drawDist', 0), setSetting('poolAO', false), setSetting('shadows', 0));
+      this.setShadows(false);
+    }
   }
 
   /** El tope de fotogramas (ajuste FPS LIMIT): true si a este fotograma le toca saltarse el dibujo. */
@@ -931,6 +953,7 @@ export class BackroomsGame {
     this.scene.background = new THREE.Color(0x17130a);
     this.scene.fog = new THREE.Fog(0x17130a, 2.5, 40);
     this.scene.add(this.hemi, this.camera, this.dust, ...this.points);
+    this.applyLooks();
     this.dust.frustumCulled = false;
     this.camera.add(this.flash, this.flash.target);
     // sale de la lente de la linterna (en la mano izquierda), hacia el centro de la vista
@@ -1159,7 +1182,7 @@ export class BackroomsGame {
     if (mp && this.caps.pool) return void this.startPool(seed, mp);
     // Las Suites: más luz de ambiente y la niebla más lejos (hotel cálido, no sótano); el resto de niveles, lo de siempre
     this.hemi.intensity = this.caps.hotel ? 0.45 : 0.16;
-    (this.scene.fog as THREE.Fog).far = this.caps.hotel ? 44 : 40;
+    (this.scene.fog as THREE.Fog).far = this.fogBase = this.caps.hotel ? 44 : 40;
     (this.scene.fog as THREE.Fog).color.set(this.caps.hotel ? 0x1d0c0a : 0x17130a);
     this.points.forEach((l) => l.color.set(this.caps.hotel ? 0xffd2a0 : 0xffefc6)); // las luces puntuales que dan el brillo al cuarzo: cálidas en el hotel
     if (this.bloom) (this.bloom.strength = this.caps.hotel ? 0.62 : 0.55), (this.bloom.threshold = this.caps.hotel ? 0.9 : 0.92), (this.bloom.radius = this.caps.hotel ? 0.9 : 0.6);
@@ -1319,7 +1342,12 @@ export class BackroomsGame {
     if (pp) (pp.duckMin = duct ? 0.9 : 0), (pp.maxEye = Infinity), (pp.camFwd = duct ? 0.22 : 0);
     const nr = duct ? 0.025 : 0.05; // (pegado a la pared del conducto, la cámara quedaba a 2 cm del muro: se veía a su través)
     // (la niebla lo borra todo pasados 19 m: en el pasillo del hotel no se dibuja lo de más allá de 32; en el vestíbulo, con la cúpula, ni en las cámaras, todo)
-    const far = this.caps.hotel && pp && this.camUse < 0 && pp.pos.x < 3 * SUITE_L * CELL - 3 ? 56 : 70;
+    let far = this.caps.hotel && pp && this.camUse < 0 && pp.pos.x < 3 * SUITE_L * CELL - 3 ? 56 : 70;
+    const fg = this.scene.fog;
+    if (fg instanceof THREE.Fog) {
+      fg.far = this.fogBase * (settings.drawDist === 0 ? 0.55 : 1); // (DRAW DISTANCE: la niebla cierra y no se dibuja lo que tapa)
+      if (settings.drawDist < 2) far = Math.min(far, fg.far + 4);
+    }
     if (this.camera.near !== nr || this.camera.far !== far) (this.camera.near = nr), (this.camera.far = far), this.camera.updateProjectionMatrix(); // (en el conducto, agachado casi al paso de andar y con la vista adelantada: el pecho no se mete en la cámara)
     if (!this.spectating || this.player?.dead) this.player?.update(dt, pc);
     this.camPlace(dt);

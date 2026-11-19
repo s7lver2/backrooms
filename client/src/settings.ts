@@ -30,10 +30,14 @@ export interface Settings {
   texFilter: number; // índice en ANISO: filtrado anisótropo de las texturas del mundo; se aplica al recargar
   voiceMode: number; // chat de voz: 0 apagado, 1 pulsar para hablar (V), 2 micrófono abierto
   voiceVol: number; // 0–3: el volumen de las voces de los compañeros
+  autoRes: boolean; // resolución dinámica: baja sola los píxeles si el equipo no llega (y, si va muy mal, apaga brillo, polvo y luces); en vivo
+  drawDist: number; // 0 corta (la niebla a la mitad), 1 normal (no dibuja lo que la niebla ya tapa), 2 lejana (como antes)
+  lights: number; // luces puntuales dinámicas que dan brillo al cuarzo: 0 ninguna, 1 dos, 2 cuatro
+  dust: boolean; // las motas de polvo en el aire (en vivo)
   warmup: number; // 0 perezoso, 1 rápido, 2 completo: cuánto se precompila al cargar (ver game/compile.ts; se aplica al recargar)
 }
 
-export const DEFAULTS: Settings = { volume: 1, sfx: 0.55, ambient: 1, sens: 1, invertY: false, vhs: 1, fov: 70, fps: false, crosshair: true, reduceMotion: false, toggleBreath: false, emoteCam: false, resScale: 1, brightness: 1, ui: 1, quality: 0, shadows: 2, bloom: true, fpsLimit: 3, poolAO: true, poolAA: true, texFilter: 2, voiceMode: 1, voiceVol: 1, warmup: 2 };
+export const DEFAULTS: Settings = { volume: 1, sfx: 0.55, ambient: 1, sens: 1, invertY: false, vhs: 1, fov: 70, fps: false, crosshair: true, reduceMotion: false, toggleBreath: false, emoteCam: false, resScale: 1, brightness: 1, ui: 1, quality: 0, shadows: 2, bloom: true, fpsLimit: 3, poolAO: true, poolAA: true, texFilter: 2, voiceMode: 1, voiceVol: 1, autoRes: true, drawDist: 1, lights: 2, dust: true, warmup: 2 };
 
 /** Los topes de fotogramas por segundo de FPS LIMIT (0 = sin tope) y los niveles de TEXTURE FILTERING. */
 export const FPS_CAPS = [30, 45, 60, 0] as const;
@@ -44,12 +48,23 @@ export const ANISO = [1, 2, 4, 8] as const;
  * es el que coincide con los valores de ahora (ninguno = CUSTOM). HIGH es lo de fábrica.
  */
 export const PRESETS: readonly (readonly [string, string, Partial<Settings>])[] = [
-  ['POTATO', 'ANYTHING TO MAKE IT RUN', { quality: 1, resScale: 0.6, fpsLimit: 0, shadows: 0, bloom: false, texFilter: 0, poolAO: false, poolAA: false, warmup: 0 }],
-  ['LOW', 'OLD LAPTOPS AND PHONES', { quality: 1, resScale: 1, fpsLimit: 2, shadows: 0, bloom: false, texFilter: 1, poolAO: false, poolAA: false, warmup: 1 }],
-  ['MEDIUM', 'INTEGRATED GRAPHICS', { quality: 0, resScale: 0.8, fpsLimit: 3, shadows: 1, bloom: true, texFilter: 2, poolAO: false, poolAA: true, warmup: 1 }],
-  ['HIGH', 'THE FULL LOOK', { quality: 0, resScale: 1, fpsLimit: 3, shadows: 2, bloom: true, texFilter: 2, poolAO: true, poolAA: true, warmup: 2 }],
+  ['POTATO', 'ANYTHING TO MAKE IT RUN', { quality: 1, resScale: 0.6, fpsLimit: 0, shadows: 0, bloom: false, texFilter: 0, poolAO: false, poolAA: false, autoRes: true, drawDist: 0, lights: 0, dust: false, warmup: 0 }],
+  ['LOW', 'OLD LAPTOPS AND PHONES', { quality: 1, resScale: 1, fpsLimit: 2, shadows: 0, bloom: false, texFilter: 1, poolAO: false, poolAA: false, autoRes: true, drawDist: 0, lights: 1, dust: false, warmup: 1 }],
+  ['MEDIUM', 'INTEGRATED GRAPHICS', { quality: 0, resScale: 0.8, fpsLimit: 3, shadows: 1, bloom: true, texFilter: 2, poolAO: false, poolAA: true, autoRes: true, drawDist: 1, lights: 1, dust: true, warmup: 1 }],
+  ['HIGH', 'THE FULL LOOK', { quality: 0, resScale: 1, fpsLimit: 3, shadows: 2, bloom: true, texFilter: 2, poolAO: true, poolAA: true, autoRes: true, drawDist: 1, lights: 2, dust: true, warmup: 2 }],
 ];
 export const presetOf = (s: Settings) => PRESETS.findIndex(([, , v]) => Object.entries(v).every(([k, x]) => s[k as keyof Settings] === x));
+/** La primera vez (sin ajustes guardados) elige un perfil según la tarjeta gráfica: sin tarjeta de verdad (software) POTATO; Intel antiguo, LOW; Intel actual, MEDIUM. */
+export function presetForGpu(gpu: { vendor?: string; architecture?: string } | undefined, fallback?: boolean) {
+  try {
+    if (localStorage.getItem(KEY)) return;
+  } catch {}
+  if (fallback) return applyPreset(0);
+  if (gpu?.vendor === 'intel') {
+    const gen = /gen-?([0-9]+)/.exec(gpu.architecture ?? '');
+    applyPreset(gen && Number(gen[1]) <= 11 ? 1 : 2);
+  }
+}
 export const applyPreset = (i: number) => Object.entries(PRESETS[i]?.[2] ?? {}).forEach(([k, v]) => setSetting(k as keyof Settings, v as never));
 
 const KEY = 'br-settings';

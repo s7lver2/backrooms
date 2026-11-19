@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { DEV_LOCAL } from './devGate';
 import { initTelemetry, report } from './telemetry';
+import { presetForGpu } from './settings';
 import './game/backrooms.css';
 import './GpuNotice.css';
 
@@ -83,6 +84,7 @@ export default function GpuNotice({ children }: { children: ReactNode }) {
         if (a) {
           info.current = { ...a.info, features: a.features ? [...a.features] : [] };
           const i = a.info ?? {};
+          presetForGpu({ vendor: i.vendor as string | undefined, architecture: i.architecture as string | undefined }, !!((a as { isFallbackAdapter?: boolean }).isFallbackAdapter || i.isFallbackAdapter));
           setGpu(String(i.description || i.vendor || i.architecture || 'GPU OK'));
         }
         setState(a ? 'ask' : 'none');

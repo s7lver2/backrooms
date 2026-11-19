@@ -416,6 +416,8 @@ export default function Backrooms({ onQuit, onWin }: { onQuit: () => void; onWin
     // gráficos: la escala de resolución rehace el tamaño del lienzo y el brillo es un filtro de la página
     onSetting('resScale', () => dispatchEvent(new Event('resize')));
     onSetting('bloom', (v) => g.setBloom(v));
+    onSetting('lights', () => g.applyLooks());
+    onSetting('dust', () => g.applyLooks());
     const bright = () => void (g.canvas.style.filter = settings.brightness === 1 ? '' : `brightness(${settings.brightness})`);
     bright();
     onSetting('brightness', bright);
