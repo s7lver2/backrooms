@@ -28,12 +28,6 @@ function* walk(p) {
   }
 }
 
-const mul = (a, b) => {
-  const r = new Array(16).fill(0);
-  for (let i = 0; i < 4; i++) for (let j = 0; j < 4; j++) for (let k = 0; k < 4; k++) r[j * 4 + i] += a[k * 4 + i] * b[j * 4 + k];
-  return r;
-};
-
 await Promise.all([MeshoptDecoder.ready, MeshoptSimplifier.ready]);
 const io = new NodeIO().registerExtensions(ALL_EXTENSIONS).registerDependencies({ 'meshopt.decoder': MeshoptDecoder });
 let baked = 0, skipped = 0;

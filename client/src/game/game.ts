@@ -882,7 +882,7 @@ export class BackroomsGame {
   constructor(readonly canvas: HTMLCanvasElement, readonly opts: { low: boolean; reduced: boolean }) {
     this.renderer = new THREE.WebGLRenderer({ canvas, antialias: false, powerPreference: 'high-performance' });
     watchCanvas(canvas);
-    if (/[?&]nogpulod/.test(location.search)) (this.renderer as unknown as { gpuDriven: boolean }).gpuDriven = false; // (depuración: sin LOD en GPU, para comparar capturas)
+    if (/[?&]nogpulod/.test(location.search)) (this.renderer as unknown as { gpuDriven: boolean }).gpuDriven = false; // (depuración: sin LOD en GPU, para comparar capturas)
     this.renderer.localClippingEnabled = true; // (el agua dentro del depósito de la pistola de agua, poolmap.ts tankFx)
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
