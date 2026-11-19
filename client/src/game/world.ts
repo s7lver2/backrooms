@@ -22,7 +22,7 @@ import { Vents, roomFloorMaterial } from './vents';
 export const HEIGHT = 2.7;
 /** Lo que gira la hoja de una puerta abierta de las Suites (rad). */
 const SWING = 1.75;
-const PROP_FAR = 36;
+const PROP_FAR = 50;
 /** El mobiliario de las suites: qué modelo, a qué medida (el lado `axis` mide `size` m), a qué altura cuelga (`mount`: el centro; si no, al suelo) y lo que no se atraviesa (círculos `r` en [lateral, hacia donde mira]). */
 const SUITE_PROPS: Partial<Record<PropKind, { key: 'suites/bed' | 'suites/sofa' | 'suites/luggage' | 'suites/bin' | 'suites/mirror' | 'suites/plant' | 'suites/chair' | 'suites/wardrobe' | 'suites/table' | 'suites/secretary' | 'suites/panel' | 'suites/trolley'; turn?: number; tint?: number; axis: 'x' | 'y' | 'z'; size: number; mount?: number; r?: number; at?: [number, number][] }>> = {
   bed: { key: 'suites/bed', axis: 'z', size: 2.25, r: 0.62, at: [[0, -0.8], [0, 0], [0, 0.8]] },
@@ -1755,13 +1755,13 @@ export class World implements Terrain {
         }
         im.visible = show;
       }
-      for (const g of this.doorGroups) g.visible = Math.hypot(g.position.x - v.x, g.position.z - v.z) < 20;
+      for (const g of this.doorGroups) g.visible = Math.hypot(g.position.x - v.x, g.position.z - v.z) < 32;
       for (const q of this.roomObjs) {
         const d = Math.hypot(q.x - v.x, q.z - v.z), inside = v.x > q.r[0] * 6 + 1.3 && v.x < q.r[0] * 6 + 6.2 && (q.r[1] ? v.z < 12.2 : v.z > 14.8);
         q.o.visible = d < PROP_FAR && (inside || ((this.roomDoor?.get((q.r[1] ? 7 : 10) * this.maze.w + q.r[0] * 4 + 2)?.cur ?? 0) > 0.02 && d < 14));
       }
-      for (const q of this.farObjs) q.o.visible = Math.hypot(q.x - v.x, q.z - v.z) < 36;
-      for (const q of this.levelObjs) q.o.visible = Math.abs(v.y - q.y) < 4.6 && Math.hypot(q.x - v.x, q.z - v.z) < 30;
+      for (const q of this.farObjs) q.o.visible = Math.hypot(q.x - v.x, q.z - v.z) < 50;
+      for (const q of this.levelObjs) q.o.visible = Math.abs(v.y - q.y) < 4.6 && Math.hypot(q.x - v.x, q.z - v.z) < 44;
     }
     this.cab.update(dt);
     if (this.hotel && !this.walkers.length && !this.walkersOff && this.assets.gltf['suites/faceling']) this.addWalkers();
@@ -1780,7 +1780,7 @@ export class World implements Terrain {
       if (stop !== w.still) (w.still = stop), w.rigs.forEach((rg) => (rg.action(stop ? 'walk' : 'idle')?.stop(), rg.action(stop ? 'idle' : 'walk')?.reset().play())); // (parado hablando contigo: de pie, no andando en el sitio)
       this.walkOff.set(w, (this.walkOff.get(w) ?? 0) + (stop ? dt : 0));
       const x = (((w.phase * span + w.dir * w.v * (t - (this.walkOff.get(w) ?? 0))) % span) + span) % span;
-      w.groups.forEach((g, k) => (g.scale.setScalar(this.viewer ? Math.min(1, Math.max(0, (30 - Math.hypot(x + k * span - this.viewer.x, w.z - this.viewer.z)) / 8)) : 1), (g.visible = g.scale.x > 0.02), g.position.set(x + k * span, 0, w.z), // (en los extremos del pasillo, lejos, se encogen en vez de saltar)
+      w.groups.forEach((g, k) => (g.scale.setScalar(this.viewer ? Math.min(1, Math.max(0, (48 - Math.hypot(x + k * span - this.viewer.x, w.z - this.viewer.z)) / 8)) : 1), (g.visible = g.scale.x > 0.02), g.position.set(x + k * span, 0, w.z), // (en los extremos del pasillo, lejos, se encogen en vez de saltar)
  stop && g === nearest ? turn(g, true) : (g.rotation.y = w.dir > 0 ? Math.PI / 2 : -Math.PI / 2), (w.blk[k].x = x + k * span)));
       w.rigs.forEach((r) => r.update(dt));
     }

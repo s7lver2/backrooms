@@ -929,7 +929,7 @@ export class BackroomsGame {
     u.tPrev.value = new THREE.DataTexture(new Uint8Array([0, 0, 0, 255]), 1, 1);
     u.tPrev.value.needsUpdate = true;
     this.scene.background = new THREE.Color(0x17130a);
-    this.scene.fog = new THREE.Fog(0x17130a, 2.5, 28);
+    this.scene.fog = new THREE.Fog(0x17130a, 2.5, 40);
     this.scene.add(this.hemi, this.camera, this.dust, ...this.points);
     this.dust.frustumCulled = false;
     this.camera.add(this.flash, this.flash.target);
@@ -1159,7 +1159,7 @@ export class BackroomsGame {
     if (mp && this.caps.pool) return void this.startPool(seed, mp);
     // Las Suites: más luz de ambiente y la niebla más lejos (hotel cálido, no sótano); el resto de niveles, lo de siempre
     this.hemi.intensity = this.caps.hotel ? 0.45 : 0.16;
-    (this.scene.fog as THREE.Fog).far = this.caps.hotel ? 30 : 28;
+    (this.scene.fog as THREE.Fog).far = this.caps.hotel ? 44 : 40;
     (this.scene.fog as THREE.Fog).color.set(this.caps.hotel ? 0x1d0c0a : 0x17130a);
     this.points.forEach((l) => l.color.set(this.caps.hotel ? 0xffd2a0 : 0xffefc6)); // las luces puntuales que dan el brillo al cuarzo: cálidas en el hotel
     if (this.bloom) (this.bloom.strength = this.caps.hotel ? 0.62 : 0.55), (this.bloom.threshold = this.caps.hotel ? 0.9 : 0.92), (this.bloom.radius = this.caps.hotel ? 0.9 : 0.6);
@@ -1319,7 +1319,7 @@ export class BackroomsGame {
     if (pp) (pp.duckMin = duct ? 0.9 : 0), (pp.maxEye = Infinity), (pp.camFwd = duct ? 0.22 : 0);
     const nr = duct ? 0.025 : 0.05; // (pegado a la pared del conducto, la cámara quedaba a 2 cm del muro: se veía a su través)
     // (la niebla lo borra todo pasados 19 m: en el pasillo del hotel no se dibuja lo de más allá de 32; en el vestíbulo, con la cúpula, ni en las cámaras, todo)
-    const far = this.caps.hotel && pp && this.camUse < 0 && pp.pos.x < 3 * SUITE_L * CELL - 3 ? 32 : 60;
+    const far = this.caps.hotel && pp && this.camUse < 0 && pp.pos.x < 3 * SUITE_L * CELL - 3 ? 56 : 70;
     if (this.camera.near !== nr || this.camera.far !== far) (this.camera.near = nr), (this.camera.far = far), this.camera.updateProjectionMatrix(); // (en el conducto, agachado casi al paso de andar y con la vista adelantada: el pecho no se mete en la cámara)
     if (!this.spectating || this.player?.dead) this.player?.update(dt, pc);
     this.camPlace(dt);
