@@ -1129,7 +1129,6 @@ export default function Backrooms({ onQuit, onWin }: { onQuit: () => void; onWin
           [{touch ? 'BAG' : 'E'}] {hud.hide === 'hide' ? 'HIDE IN THE WARDROBE' : 'LEAVE'}{hud.hide === 'leave' && !touch ? ' · HOLD [SPACE] TO HOLD YOUR BREATH' : ''}
         </p>
       )}
-      {(screen === 'play' || screen === 'pause') && hud?.hide === 'leave' && <div className="br-peek" aria-hidden="true" />}
       {screen === 'play' && hud && (hud.parking?.repair != null || hud.drink > 0) && !hud.bag && hud.spectating == null && (
         <div className="br-drink" role="progressbar" aria-label={hud.parking?.repair != null ? 'Activating generator' : hud.drinkName} aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round((hud.parking?.repair ?? hud.drink) * 100)}>
           <p>{hud.parking?.repair != null ? 'ACTIVATING GENERATOR' : hud.drinkName}</p>

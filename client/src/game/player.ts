@@ -432,6 +432,7 @@ export class Player {
   }
 
   update(dt: number, c: Controls) {
+    if (this.left === 'flashlight' && this.spares < 1) this.left = 'none'; // (sin linterna en el inventario, la mano no la lleva: tras morir quedaba una fantasma que al moverla desaparecía)
     if (this.dead) {
       // lo que la mano iba a coger (y el servidor ya dio) se entrega igualmente: si no, se pierde del inventario
       if (this.reachCb) (this.reachCb(), (this.reachCb = undefined));
