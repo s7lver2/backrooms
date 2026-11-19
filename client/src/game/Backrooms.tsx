@@ -869,6 +869,18 @@ export default function Backrooms({ onQuit, onWin }: { onQuit: () => void; onWin
       {screen === 'menu' && (
         <nav className="br-menu" aria-label="Backrooms">
           <p className="br-menu__ch">CH 03</p>
+          {__PHOENYX__ && (
+            <a className="br-built" href="https://github.com/s7lver2/phoenyx" target="_blank" rel="noreferrer" aria-label="Built with Phoenyx">
+              <img
+                src="/brand/phoenyx-64.png"
+                srcSet="/brand/phoenyx-32.png 1x, /brand/phoenyx-64.png 2x, /brand/phoenyx-96.png 3x, /brand/phoenyx-128.png 4x"
+                width="32"
+                height="32"
+                alt=""
+              />
+              <span>BUILT WITH PHOENYX</span>
+            </a>
+          )}
           <h1 className="br-menu__title">BACKROOMS</h1>
           <p className="br-menu__sub">LEVEL 0 &nbsp; SP &nbsp; 1994</p>
           <ServerNotice server={server} />

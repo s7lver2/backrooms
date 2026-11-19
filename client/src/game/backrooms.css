@@ -52,6 +52,10 @@
 /* el menú: la pantalla de un vídeo sintonizado en el canal 3, con la nieve detrás: el canal arriba a
    la derecha, el título grande y las tres opciones debajo, a la izquierda */
 .br-menu { position: absolute; inset: 0; z-index: 1; display: flex; flex-direction: column; justify-content: center; padding: 0 var(--br-gut); background: repeating-linear-gradient(to bottom, transparent 0 2px, rgba(0, 0, 0, 0.35) 2px 3px); }
+.br-built { position: absolute; left: var(--br-gut); bottom: clamp(16px, 4vh, 36px); display: flex; align-items: center; gap: 0.7em; color: var(--br-dim); text-decoration: none; font-size: clamp(12px, 1.2vw, 15px); letter-spacing: 0.22em; opacity: 0.9; }
+.br-built img { width: 3em; height: 3em; display: block; }
+.br-built:hover, .br-built:focus-visible { opacity: 1; color: var(--br-ink); }
+@media (max-width: 560px) { .br-built span { display: none; } }
 .br-menu__ch { position: absolute; top: clamp(16px, 5vh, 44px); right: var(--br-gut); font-size: clamp(18px, 2.2vw, 28px); }
 .br-menu__title { margin: 0; font-size: clamp(48px, 10vw, 136px); font-weight: 800; line-height: 1; letter-spacing: 0.08em; text-shadow: 4px 4px 0 #000; }
 .br-menu__sub { margin: 0.8em 0 clamp(28px, 6vh, 56px) !important; font-size: clamp(14px, 1.4vw, 18px); color: var(--br-dim); }

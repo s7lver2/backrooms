@@ -31,3 +31,6 @@ assets-src/
 client/public/models/lods/
 .phoenyx
 __pycache__/
+
+.vercel
+tools/snap.html

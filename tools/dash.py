@@ -129,16 +129,31 @@ class Proc:
             self.p.terminate()
 
 
+
+
+GLYPHS = {  # the same 3-row half-block letters as build.py's splash
+    "B": ("█▀▄", "█▀▄", "▀▀ "), "A": ("█▀█", "█▀█", "▀ ▀"), "C": ("█▀▀", "█  ", "▀▀▀"),
+    "K": ("█ █", "█▀▄", "▀ ▀"), "R": ("█▀█", "█▀▄", "▀ ▀"), "O": ("█▀█", "█ █", "▀▀▀"),
+    "M": ("█▄█▄█", "█ ▀ █", "▀   ▀"), "S": ("█▀▀", "▀▀█", "▀▀▀"),
+}
+LOGO = ["  ".join(GLYPHS[c][r] for c in "BACKROOMS") for r in range(3)]
+AGE = re.compile(r"^\d+[smhdw]$")
+
+
 class Dashboard:
     def __init__(self, title: str, subtitle: str, procs: list[Proc], urls: list[tuple[str, str]], branch: str = "", tunnels: list[tuple[str, str]] | None = None):
         self.tunnels = tunnels or []  # (name, command) of the installed tunnel tools; key t starts/stops the `tunnel` process
         self.title, self.subtitle, self.procs, self.urls, self.branch = title, subtitle, procs, urls, branch
-        self.logs: collections.deque = collections.deque(maxlen=6000)  # (proc, text, level)
+        self.logs: collections.deque = collections.deque(maxlen=6000)  # (proc, text, level, time)
         self.lock = threading.Lock()
         self.tab = 0  # 0 = all, 1.. = a process
         self.scroll = 0  # lines above the bottom; 0 = following
         self.wrap = False
-        self.tunnel_url, self.vercel_url = "", ""
+        self.frozen: list | None = None  # a snapshot of the logs while the view is frozen
+        self.filter, self.typing, self.errors_only = "", False, False
+        self.tunnel_url = ""
+        self.vrows: list[tuple[str, str, str]] = []  # deployments parsed from `vercel ls`: (age, url, state)
+        self.vsel = 0
         self.flash, self.flash_at = "", 0.0
         self.pending: tuple[str, float] | None = None  # a destructive vercel action waiting for its second key press
         self.t0 = time.time()
@@ -152,36 +167,45 @@ class Dashboard:
     def sink(self, p: Proc, text: str, system: bool = False) -> None:
         level = "sys" if system else "err" if ERR.search(text) else "warn" if WARN.search(text) else ""
         with self.lock:
-            self.logs.append((p, text, level))
+            self.logs.append((p, text, level, time.time()))
         if p.tag == "tunnel" and (m := URL.search(text)):
             self.tunnel_url = m.group(0)
             self.say(f"tunnel ready · {self.tunnel_url}")
-        if p.tag == "vercel" and (m := VURL.search(text)) and not self.vercel_url:
-            self.vercel_url = m.group(0)
+        if p.tag == "vercel" and (m := VURL.search(text)):
+            parts = text.split()
+            age = parts[0] if parts and AGE.match(parts[0]) else ""
+            state = next((x for x in ("Ready", "Error", "Building", "Queued", "Canceled") if x in text), "")
+            if age and all(r[1] != m.group(0) for r in self.vrows):
+                self.vrows.append((age, m.group(0), state))
 
     def say(self, msg: str) -> None:
         self.flash, self.flash_at = msg, time.time()
 
-    def visible(self, w: int, tagw: int) -> list[tuple]:
+    def errors(self, p: Proc | None) -> int:
+        return sum(1 for x in self.logs if (p is None or x[0] is p) and x[2] == "err")
+
+    def visible(self, w: int, tagw: int, stamp: bool) -> list[tuple]:
         sel = self.procs[self.tab - 1] if self.tab else None
         with self.lock:
-            rows = [x for x in self.logs if sel is None or x[0] is sel]
+            rows = list(self.frozen if self.frozen is not None else self.logs)
+        rows = [x for x in rows if (sel is None or x[0] is sel) and (not self.errors_only or x[2] == "err") and (not self.filter or self.filter.lower() in x[1].lower())]
         out = []
-        for p, text, level in rows:
-            width = max(w - tagw - 3, 10)
+        width = max(w - tagw - 5 - (9 if stamp else 0), 10)
+        for p, text, level, ts in rows:
             chunks = [text[i: i + width] for i in range(0, max(len(text), 1), width)] if self.wrap else [fit(text, width)]
             for i, c in enumerate(chunks):
-                out.append((p, c, level, i == 0))
+                out.append((p, c, level, ts if i == 0 else None))
         return out
 
     # ---------------------------------------------------------------- render ----
     def nav(self) -> list[tuple[str, str, int]]:
         items = [("1", "all", 0)]
         for i, p in enumerate(self.procs, 1):
-            items.append((p.tag[0] if p.tag == "vercel" else str(i + 1), p.tag, i))
+            items.append(("v" if p.tag == "vercel" else str(i + 1), p.tag, i))
         return items
 
-    def sea(self, cv: Cv, y0: int, rows: int, t: float) -> None:
+    def hero(self, cv: Cv, y0: int, rows: int, t: float) -> None:
+        """The sea of phycode.site (waves, snow) with the wordmark floating over it and the glow passing through."""
         w = cv.w
         top, deep = (4, 7, 10), (7, 19, 24)
         for r in range(rows):
@@ -193,116 +217,206 @@ class Dashboard:
             for c in range(w):
                 v = math.sin(c * 0.21 + t * 0.9) + math.sin(c * 0.13 - t * 0.6 + r * 1.7) + math.sin((c + r * 3) * 0.07 + t * 0.4)
                 if v >= 1.8:
-                    cv.put(c, y0 + r, "~", mix(cv.c[y0 + r][c][2], FG["wake"], 0.12 + 0.2 * fade * (v - 1.5)))
+                    cv.put(c, y0 + r + rows - 3, "~", mix(cv.c[y0 + r + rows - 3][c][2], FG["wake"], 0.12 + 0.2 * fade * (v - 1.5)))
         layers = [(".", 0.35, 0.10, 0.20), (".", 0.8, 0.22, 0.36), ("•", 1.6, 0.45, 0.55)]
-        for i in range(w * rows // 26):
+        for i in range(w * rows // 22):
             g, drift, sink, ink = layers[i % 3]
             x = (hash01(i, 1, 41) * w - t * drift) % w
             y = (hash01(i, 2, 43) * rows + t * sink + 0.4 * math.sin(t * 0.7 + i)) % rows
             cv.put(int(x), y0 + int(y), g, mix(cv.c[y0 + int(y)][int(x)][2], FG["wake"], ink))
+        lw = len(LOGO[0])
+        if w >= lw + 6 and rows >= 5:
+            x0, sweep = (w - lw) // 2, (t * 14) % (lw + 30) - 6
+            for r, row in enumerate(LOGO):
+                for i, ch in enumerate(row):
+                    if ch == " ":
+                        continue
+                    d = abs(i - sweep)
+                    col = mix(FG["ink"], FG["accent"], 1 - d / 5) if d < 5 else mix(FG["ink"], FG["dim"], 0.35 + 0.1 * r)
+                    cv.put(x0 + i, y0 + 1 + r, ch, col, None, True)
+
+    def chip(self, cv: Cv, x: int, y: int, text: str, fg: str, bg: tuple) -> int:
+        return cv.text(x, y, f" {text} ", FG[fg], bg, True)
 
     def frame(self, w: int, h: int, f: int) -> str:
         cv = Cv(w, h)
-        t = f * 0.1
+        t = f / 15
         up = int(time.time() - self.t0)
-        # header: the name with a glow sweeping over it, the nav on the right
+        # header: name with the glow, subtitle, nav with error badges
         x = 2
         sweep = (t * 9) % (len(self.title) + 40) - 3
         for i, ch in enumerate(self.title):
             d = abs(i - sweep)
-            col = mix(FG["ink"], FG["accent"], 1 - d / 1.5) if d < 1.5 else FG["ink"]
-            cv.put(x, 0, ch, col, None, True)
+            cv.put(x, 0, ch, mix(FG["ink"], FG["accent"], 1 - d / 1.5) if d < 1.5 else FG["ink"], None, True)
             x += 1
         cv.text(x + 1, 0, self.subtitle, FG["mute"])
-        items = self.nav()
-        tab_of = {"vercel": len(self.procs)}
-        nx = w - 2
-        spans = []
-        for key, name, idx in reversed(items):
-            label = f"{key} {name}"
+        nx, spans = w - 2, []
+        for key, name, idx in reversed(self.nav()):
+            e = self.errors(self.procs[idx - 1] if idx else None)
+            label = f"{key} {name}" + (f" {e}" if e else "")
             nx -= len(label)
-            spans.append((nx, key, name, idx))
-            nx -= 2
-        for sx, key, name, idx in spans:
+            spans.append((nx, key, name, idx, e))
+            nx -= 3
+        for sx, key, name, idx, e in spans:
             active = idx == self.tab
             cv.put(sx, 0, key, FG["accent"] if active else FG["dim"])
-            cv.text(sx + 2, 0, name, FG["ink"] if active else FG["mute"], None, active)
+            ex = cv.text(sx + 2, 0, name, FG["ink"] if active else FG["mute"], None, active)
+            if e:
+                cv.text(ex + 1, 0, str(e), FG["err"], None, True)
         cv.hline(1)
-        # sea (only when the terminal is tall enough)
         y = 2
-        dock_h = len(self.procs)
-        sea_h = 4 if h >= 26 else 0
-        if sea_h:
-            self.sea(cv, y, sea_h, t)
-            y += sea_h
+        hero_h = 6 if h >= 30 and w >= 50 else 0
+        if hero_h:
+            self.hero(cv, y, hero_h, t)
+            y += hero_h
             cv.hline(y)
             y += 1
-        # log pane
+        vtab = bool(self.tab and self.procs[self.tab - 1].tag == "vercel")
+        # bottom blocks first so the pane knows its room: 2 service rows + rule + status
+        pane_end = h - 5
+        if vtab:
+            y = self.draw_vercel(cv, y, pane_end, w)
+        else:
+            self.draw_logs(cv, y, pane_end, w)
+        cv.hline(pane_end)
+        self.draw_services(cv, pane_end + 1, w, f)
+        self.draw_status(cv, h - 1, w, up)
+        return cv.render()
+
+    def draw_logs(self, cv: Cv, y: int, end: int, w: int) -> None:
         tagw = max(len(p.tag) for p in self.procs)
-        room = max(h - y - dock_h - 2, 1)
-        rows = self.visible(w, tagw)
+        stamp = w >= 80
+        room = max(end - y, 1)
+        rows = self.visible(w, tagw, stamp)
         self.scroll = max(0, min(self.scroll, max(len(rows) - room, 0)))
-        end = len(rows) - self.scroll
-        for i, (p, text, level, first) in enumerate(rows[max(end - room, 0): end]):
-            if first:
-                cv.text(1, y + i, p.tag.ljust(tagw), FG[p.color], None, True)
-            cv.text(tagw + 2, y + i, text, FG[{"err": "err", "warn": "warn", "sys": "mute"}.get(level, "dim")])
-        y += room
-        # dock: one row per process behind a coloured rail
+        stop = len(rows) - self.scroll
+        shown = rows[max(stop - room, 0): stop]
+        if not shown:
+            msg = "no lines match the filter" if (self.filter or self.errors_only) else "waiting for output…"
+            cv.text((w - len(msg)) // 2, y + room // 2, msg, FG["mute"])
+        for i, (p, text, level, ts) in enumerate(shown):
+            cx = 1
+            if stamp and ts:
+                cx = cv.text(cx, y + i, time.strftime("%H:%M:%S", time.localtime(ts)), (84, 84, 92)) + 1
+            elif stamp:
+                cx += 9
+            if ts is not None:
+                cx = self.chip(cv, cx - 1, y + i, p.tag.ljust(tagw), "ink", mix(BG, FG[p.color], 0.22)) + 1
+                cv.put(cx - 1, y + i, " ")
+            else:
+                cx += tagw + 2
+            glyph = {"err": ("✗", "err"), "warn": ("!", "warn")}.get(level)
+            if glyph and ts is not None:
+                cv.put(cx, y + i, glyph[0], FG[glyph[1]], None, True)
+            cx += 2
+            col = FG[{"err": "err", "warn": "warn", "sys": "mute"}.get(level, "dim")]
+            for m in re.finditer(r"https?://\S+|[^\s]+|\s+", text):  # URLs stand out
+                seg = m.group(0)
+                cv.text(cx, y + i, seg, FG["accent"] if seg.startswith("http") else col)
+                cx += len(seg)
+        # scrollbar: a faint track on the right edge with a thumb
+        if len(rows) > room:
+            th = max(1, room * room // len(rows))
+            top = (room - th) * (len(rows) - self.scroll - room) // max(len(rows) - room, 1)
+            for i in range(room):
+                cv.put(w - 1, y + i, "┃" if top <= i < top + th else "│", FG["accent"] if top <= i < top + th else FG["faint"])
+
+    def draw_vercel(self, cv: Cv, y: int, end: int, w: int) -> int:
+        """Deployments as a selectable table on top, the output of the last vercel command below."""
+        room = end - y
+        table = min(max(len(self.vrows), 1) + 1, max(room // 2, 3))
+        cv.text(2, y, "deployments", FG["ink"], None, True)
+        cv.text(15, y, f"{len(self.vrows)} · j k select · enter inspect · o open", FG["mute"])
+        self.vsel = max(0, min(self.vsel, max(len(self.vrows) - 1, 0)))
+        for i, (age, url, state) in enumerate(self.vrows[: table - 1]):
+            on = i == self.vsel
+            bgr = FAINT if on else BG
+            for c in range(w):
+                cv.put(c, y + 1 + i, " ", None, bgr)
+            cv.text(1, y + 1 + i, "▸" if on else " ", FG["accent"], bgr, True)
+            cv.text(3, y + 1 + i, age.ljust(5), FG["mute"], bgr)
+            col = {"Ready": "ok", "Error": "err", "Canceled": "mute"}.get(state, "run")
+            cv.text(9, y + 1 + i, ("● " + state).ljust(11) if state else "  ", FG[col], bgr)
+            cv.text(22, y + 1 + i, url, FG["ink"] if on else FG["dim"], bgr, on)
+        if not self.vrows:
+            cv.text(2, y + 1, "press l to list the deployments", FG["mute"])
+        y += table
         cv.hline(y)
         y += 1
+        with self.lock:
+            lines = [x for x in self.logs if x[0].tag == "vercel"][-(end - y):]
+        for i, (_, text, level, _ts) in enumerate(lines):
+            cv.text(2, y + i, fit(text, w - 4), FG[{"err": "err", "warn": "warn", "sys": "mute"}.get(level, "dim")])
+        return end
+
+    def draw_services(self, cv: Cv, y: int, w: int, f: int) -> None:
+        x = 1
         for p in self.procs:
             if p.p is None:
                 dot, dc, state = "○", "mute", "off"
+            elif p.alive and p.oneshot:
+                dot, dc, state = SPINNER[f % len(SPINNER)], "run", "working"
             elif p.alive:
-                dot, dc, state = "●", "ok", f"running {int(time.time() - p.started)}s" if not p.oneshot else "working"
+                dot, dc = "●", "ok"
+                s = int(time.time() - p.started)
+                state = f"{s}s" if s < 60 else f"{s // 60}m{s % 60:02d}s"
             elif p.code is None:
                 dot, dc, state = SPINNER[f % len(SPINNER)], "run", "starting"
             elif p.oneshot:
                 dot, dc, state = ("✓", "ok", "done") if p.code == 0 else ("✗", "err", f"failed {p.code}")
             else:
                 dot, dc, state = "✗", "err", f"exited {p.code}"
-            if p.alive and p.oneshot:
-                dot = SPINNER[f % len(SPINNER)]
-            url = dict(self.urls).get(p.tag, "") or (self.tunnel_url if p.tag == "tunnel" else self.vercel_url if p.tag == "vercel" else "")
-            cv.put(1, y, "▌", FG[p.color])
-            cv.put(3, y, dot, FG[dc])
-            cv.text(5, y, p.tag, FG["ink"])
-            cv.text(5 + tagw + 2, y, state, FG["mute"])
-            cv.text(5 + tagw + 20, y, url, FG["accent"])
-            y += 1
-        # status bar: section chip, key hints, notice on the right
+            cv.put(x, y, "▌", FG[p.color])
+            cv.put(x + 2, y, dot, FG[dc], None, True)
+            nx = cv.text(x + 4, y, p.tag, FG["ink"] if p.p is not None else FG["mute"], None, True)
+            x = cv.text(nx + 1, y, state, FG["mute"]) + 3
+        links = [(k, v) for k, v in self.urls if self.find(k) and self.find(k).alive]  # type: ignore[union-attr]
+        if self.tunnel_url:
+            links.append(("tunnel", self.tunnel_url))
+        x = 1
+        for k, v in links:
+            x = cv.text(x, y + 1, f"↗ {k} ", FG["mute"])
+            x = cv.text(x, y + 1, v, FG["accent"]) + 3
+        if not links:
+            cv.text(1, y + 1, "no services running", FG["faint"])
+
+    def draw_status(self, cv: Cv, y: int, w: int, up: int) -> None:
         name = "logs" if self.tab == 0 else self.procs[self.tab - 1].tag
-        sy = h - 1
         for c in range(w):
-            cv.put(c, sy, " ", None, FAINT if c < len(name) + 2 else BG)
-        cv.text(0, sy, f" {name} ", FG["ink"], FAINT)
+            cv.put(c, y, " ", None, BG)
+        if self.typing:
+            cv.text(0, y, " / ", FG["ink"], mix(BG, FG["accent"], 0.4), True)
+            x = cv.text(4, y, self.filter, FG["ink"])
+            cv.put(x, y, "▏", FG["accent"])
+            cv.right(w - 1, y, "enter keep · esc clear", FG["mute"])
+            return
+        cx = cv.text(0, y, f" {name} ", FG["ink"], FAINT, True)
         right = f"{self.branch}  up {up // 60}m{up % 60:02d}s".strip()
+        rc = "mute"
         if self.flash and time.time() - self.flash_at < 5:
             right = self.flash
         dead = [p for p in self.procs if p.p is not None and p.code not in (None, 0) and not p.alive and not p.oneshot]
         if dead:
-            right = f"{dead[0].tag} exited ({dead[0].code})"
-        rc = "err" if dead else "mute"
-        hints = self.hints()
-        lim = w - len(right) - 4
-        hx = len(name) + 4
-        for k, label in hints:
+            right, rc = f"{dead[0].tag} exited ({dead[0].code})", "err"
+        marks = [m for m, on in (("frozen", self.frozen is not None), ("errors", self.errors_only), (f"/{self.filter}", bool(self.filter))) if on]
+        if self.scroll:
+            marks.append(f"↑{self.scroll}")
+        mx = cx + 1
+        for m in marks:
+            mx = cv.text(mx, y, f" {m} ", FG["warn"], mix(BG, FG["warn"], 0.2)) + 1
+        hx, lim = mx + 1, w - len(right) - 4
+        for k, label in self.hints():
             n = len(k) + 1 + len(label)
             if hx + n > lim:
                 break
-            hx = cv.text(hx, sy, k, FG["dim"])
-            hx = cv.text(hx + 1, sy, label, FG["mute"]) + 2
-        cv.right(w - 1, sy, right, FG[rc])
-        scr = f"↑ {self.scroll}" if self.scroll else ""
-        if scr:
-            cv.right(w - 3 - len(right), sy, scr, FG["warn"])
-        return cv.render()
+            hx = cv.text(hx, y, k, FG["ink"], None, True)
+            hx = cv.text(hx + 1, y, label, FG["mute"]) + 2
+        cv.right(w - 1, y, right, FG[rc])
 
     def hints(self) -> list[tuple[str, str]]:
         if self.tab and self.procs[self.tab - 1].tag == "vercel":
-            return [("l", "list"), ("d", "deploy"), ("P", "prod"), ("i", "inspect"), ("b", "rollback"), ("tab", "next"), ("q", "quit")]
-        return [("↑↓", "scroll"), ("f", "follow"), ("t", "tunnel"), ("v", "vercel"), ("r", "restart"), ("o", "open"), ("c", "clear"), ("q", "quit")]
+            return [("jk", "select"), ("enter", "inspect"), ("l", "list"), ("d", "deploy"), ("P", "prod"), ("b", "rollback"), ("o", "open"), ("tab", "next"), ("q", "quit")]
+        return [("/", "filter"), ("e", "errors"), ("space", "freeze"), ("t", "tunnel"), ("v", "vercel"), ("r", "restart"), ("o", "open"), ("c", "clear"), ("q", "quit")]
 
     # ----------------------------------------------------------------- input ----
     def key_thread(self) -> None:
@@ -313,16 +427,26 @@ class Dashboard:
                 if ch in ("\x00", "\xe0"):
                     ch = {"H": "up", "P": "down", "I": "pgup", "Q": "pgdn", "G": "home", "O": "end"}.get(msvcrt.getwch(), "")
                 elif ch == "\x03":
-                    ch = "q"
+                    ch = "q" if not self.typing else "esc"
+                elif ch == "\r":
+                    ch = "enter"
+                elif ch == "\x1b":
+                    ch = "esc"
+                elif ch == "\x08":
+                    ch = "backspace"
                 self.keys.put(ch)
         else:
             while not self.quit:
                 ch = sys.stdin.read(1)
                 if ch == "\x1b":
                     seq = sys.stdin.read(2)
-                    ch = {"[A": "up", "[B": "down", "[5": "pgup", "[6": "pgdn"}.get(seq, "")
+                    ch = {"[A": "up", "[B": "down", "[5": "pgup", "[6": "pgdn"}.get(seq, "esc" if not seq.startswith("[") else "")
                     if seq in ("[5", "[6"):
                         sys.stdin.read(1)
+                elif ch in ("\n", "\r"):
+                    ch = "enter"
+                elif ch in ("\x7f", "\x08"):
+                    ch = "backspace"
                 self.keys.put(ch)
 
     def vercel(self, args: str, label: str, confirm: str | None = None) -> None:
@@ -345,25 +469,55 @@ class Dashboard:
         vp.start(self.sink)
         self.say(f"vercel {label}…")
 
+    def selected_url(self) -> str:
+        return self.vrows[self.vsel][1] if self.vrows else ""
+
     def handle(self, k: str, h: int) -> None:
-        page = max(h - 8, 3)
-        n = len(self.procs)
-        vtab = self.tab and self.procs[self.tab - 1].tag == "vercel"
-        if vtab and k in ("l", "d", "P", "i", "b"):
-            if k == "l":
-                self.vercel_url = ""
-                self.vercel("ls", "list")
-            elif k == "d":
-                self.vercel("deploy --yes", "deploy a preview")
-            elif k == "P":
-                self.vercel("deploy --prod --yes", "deploy to PRODUCTION", "P")
-            elif k == "i":
-                self.vercel(f"inspect {self.vercel_url}" if self.vercel_url else "ls", "inspect")
-            else:
-                self.vercel("rollback", "roll production back", "b")
+        if self.typing:
+            if k == "enter":
+                self.typing = False
+            elif k == "esc":
+                self.typing, self.filter = False, ""
+            elif k == "backspace":
+                self.filter = self.filter[:-1]
+            elif len(k) == 1 and k.isprintable():
+                self.filter += k
+            self.scroll = 0
             return
+        page = max(h - 12, 3)
+        n = len(self.procs)
+        vtab = bool(self.tab and self.procs[self.tab - 1].tag == "vercel")
+        if vtab:
+            if k in ("j", "down"):
+                self.vsel += 1
+                return
+            if k in ("k", "up"):
+                self.vsel = max(self.vsel - 1, 0)
+                return
+            if k == "l":
+                self.vrows, self.vsel = [], 0
+                self.vercel("ls", "list")
+                return
+            if k == "d":
+                return self.vercel("deploy --yes", "deploy a preview")
+            if k == "P":
+                return self.vercel("deploy --prod --yes", "deploy to PRODUCTION", "P")
+            if k == "b":
+                return self.vercel("rollback", "roll production back", "b")
+            if k in ("enter", "i"):
+                return self.vercel(f"inspect {self.selected_url()}" if self.vrows else "ls", "inspect")
+            if k in ("o", "O") and self.vrows:
+                webbrowser.open(self.selected_url())
+                return self.say("opened " + self.selected_url())
         if k in ("q", "Q"):
             self.quit = True
+        elif k == "/":
+            self.typing = True
+        elif k in ("e", "E"):
+            self.errors_only, self.scroll = not self.errors_only, 0
+        elif k == " ":
+            with self.lock:
+                self.frozen = None if self.frozen is not None else list(self.logs)
         elif k == "up":
             self.scroll += 1
         elif k == "down":
@@ -381,6 +535,7 @@ class Dashboard:
         elif k in ("c", "C"):
             with self.lock:
                 self.logs.clear()
+                self.frozen = None if self.frozen is None else []
             self.scroll = 0
         elif k in ("v", "V"):
             self.tab, self.scroll = n, 0  # the vercel tab is always the last process

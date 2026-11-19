@@ -7,12 +7,10 @@ import './GpuNotice.css';
 /** Dirección de la versión clásica (la que usa three.js): se define en client/.env.local con VITE_LEGACY_URL. */
 const LEGACY = import.meta.env.VITE_LEGACY_URL as string | undefined;
 
-/** El logotipo de Phoenyx (de momento, una interrogación en el mismo cuadro que el avatar de invitado del menú). */
+/** El logotipo de Phoenyx. */
 const Brand = () => (
   <div className="gn__brand">
-    <span className="br-avatar" aria-hidden="true">
-      ?
-    </span>
+    <img className="gn__logo" src="/brand/phoenyx-128.png" srcSet="/brand/phoenyx-64.png 1x, /brand/phoenyx-128.png 2x, /brand/phoenyx-256.png 4x" width="64" height="64" alt="" aria-hidden="true" />
     <span className="gn__word">PHOENYX</span>
   </div>
 );
