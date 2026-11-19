@@ -29,8 +29,14 @@ for tag, text in sample:
     d.sink(next(p for p in ps if p.tag == tag), text)
 d.tab = TAB
 if TAB == 4:
-    for a,u,st in [("19m","https://backrooms-boq2vfp1t.vercel.app","Ready"),("36m","https://backrooms-l2s963ae7.vercel.app","Ready"),("40m","https://backrooms-23osz6gs7.vercel.app","Error")]: d.vrows.append((a,u,st))
-    d.vsel=1
+    now = time.time()
+    d.vgit, d.vdomain = "master @ c3b9940 · 3 uncommitted · 1 unpushed", "backrooms.s7lver.xyz"
+    def r(dom, tgt, ref, sha, msg, ago, st="Ready", pin=False):
+        return {"id": "x", "url": "https://backrooms-" + sha + ".vercel.app", "domain": dom, "state": st, "target": tgt, "ref": ref, "sha": sha, "msg": msg, "created": now - ago, "pinned": pin}
+    d.vrows = [r("backrooms.s7lver.xyz", "production", "master", "17a8953", "Vercel: build con Phoenyx (clona el motor y construye)", 1140, pin=True),
+               r("legacybackrooms.s7lver.xyz", "preview", "backrooms-legacy", "64e1f85", "Poolrooms: el movimiento avanza en pasos", 86400 * 2, pin=True),
+               r("", "preview", "master", "4be3df1", "Armario: las miniaturas usan el WebGL real", 2200), r("", "preview", "master", "f1c020a", "Build clasico sin Phoenyx", 3000, "Error")]
+    d.vsel = 2
 out = d.frame(W, H, 12)
 rows = out.split("\r\n")
 rows[0] = rows[0].replace("\x1b[H", "")

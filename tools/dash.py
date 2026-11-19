@@ -4,7 +4,9 @@ a dock with the process states and a status bar with key hints. Includes a Verce
 Stdlib only. Used by build.py when stdout is a terminal.
 """
 import collections
+import json
 import math
+import pathlib
 import os
 import queue
 import re
@@ -152,8 +154,11 @@ class Dashboard:
         self.frozen: list | None = None  # a snapshot of the logs while the view is frozen
         self.filter, self.typing, self.errors_only = "", False, False
         self.tunnel_url = ""
-        self.vrows: list[tuple[str, str, str]] = []  # deployments parsed from `vercel ls`: (age, url, state)
+        self.vrows: list[dict] = []  # pinned custom-domain deployments first, then the recent ones
         self.vsel = 0
+        self.vgit = ""  # what `vercel deploy` would upload: "master @ c3b9940 · 3 uncommitted"
+        self.vdomain = ""  # the production custom domain, for the confirmation texts
+        self.vloading = False
         self.flash, self.flash_at = "", 0.0
         self.pending: tuple[str, float] | None = None  # a destructive vercel action waiting for its second key press
         self.t0 = time.time()
@@ -171,12 +176,65 @@ class Dashboard:
         if p.tag == "tunnel" and (m := URL.search(text)):
             self.tunnel_url = m.group(0)
             self.say(f"tunnel ready · {self.tunnel_url}")
-        if p.tag == "vercel" and (m := VURL.search(text)):
-            parts = text.split()
-            age = parts[0] if parts and AGE.match(parts[0]) else ""
-            state = next((x for x in ("Ready", "Error", "Building", "Queued", "Canceled") if x in text), "")
-            if age and all(r[1] != m.group(0) for r in self.vrows):
-                self.vrows.append((age, m.group(0), state))
+
+    def cwd(self):
+        return self.procs[0].cwd
+
+    def api(self, endpoint: str) -> dict:
+        r = subprocess.run(f"vercel api {endpoint}", shell=True, cwd=self.cwd(), capture_output=True, text=True, encoding="utf-8", errors="replace")
+        out = r.stdout
+        if "{" not in out:
+            raise RuntimeError((r.stderr or out).strip().splitlines()[-1] if (r.stderr or out).strip() else "no answer from vercel")
+        return json.loads(out[out.index("{"):])
+
+    def git(self, args: str) -> str:
+        return subprocess.run(f"git {args}", shell=True, cwd=self.cwd(), capture_output=True, text=True, encoding="utf-8", errors="replace").stdout.strip()
+
+    def refresh_vercel(self) -> None:
+        """Loads the project's deployments in the background: custom domains pinned on top, then the recent deployments."""
+        if self.vloading:
+            return
+        if not shutil.which("vercel"):
+            return self.say("vercel CLI not found (npm i -g vercel, then vercel login)")
+        self.vloading = True
+        threading.Thread(target=self._refresh_vercel, daemon=True).start()
+
+    def _refresh_vercel(self) -> None:
+        try:
+            meta = json.loads((pathlib.Path(self.cwd()) / ".vercel" / "project.json").read_text(encoding="utf-8"))
+            pid = meta["projectId"]
+            doms = [d for d in self.api(f"/v9/projects/{pid}/domains")["domains"] if not d["name"].endswith(".vercel.app")]
+            prod = ((self.api(f"/v9/projects/{pid}").get("targets") or {}).get("production") or {}).get("id", "")
+            deps = self.api(f"/v6/deployments?projectId={pid}&limit=25")["deployments"]
+            branch, sha = self.git("rev-parse --abbrev-ref HEAD"), self.git("rev-parse --short HEAD")
+            dirty = len([x for x in self.git("status --porcelain").splitlines() if x.strip()])
+            ahead = self.git("rev-list --count @{u}..HEAD")
+            self.vgit = f"{branch} @ {sha}" + (f" · {dirty} uncommitted" if dirty else " · clean") + (f" · {ahead} unpushed" if ahead not in ("", "0") else "")
+
+            def row(d: dict, domain: str = "") -> dict:
+                m = d.get("meta") or {}
+                return {"id": d["uid"], "url": "https://" + re.sub(r"[^\w.-]", "", d["url"]), "domain": domain, "state": (d.get("readyState") or d.get("state") or "").title(),
+                        "target": d.get("target") or "preview", "ref": m.get("githubCommitRef", ""), "sha": (m.get("githubCommitSha") or "")[:7],
+                        "msg": (m.get("githubCommitMessage") or d.get("name") or "").splitlines()[0] if (m.get("githubCommitMessage") or "") else "",
+                        "created": d.get("created", 0) / 1000, "pinned": bool(domain)}
+
+            pinned, used = [], set()
+            for dm in sorted(doms, key=lambda x: x.get("gitBranch") is not None):  # the production domain first, then branch domains
+                br = dm.get("gitBranch")
+                src = next((d for d in deps if (d["uid"] == prod if br is None else (d.get("meta") or {}).get("githubCommitRef") == br)
+                            and (d.get("readyState") or d.get("state")) == "READY"), None)
+                if src:
+                    pinned.append(row(src, dm["name"]))
+                    used.add(src["uid"])
+                if br is None:
+                    self.vdomain = dm["name"]
+            rest = [row(d) for d in deps if d["uid"] not in used]
+            self.vrows = pinned + rest
+            self.vsel = min(self.vsel, max(len(self.vrows) - 1, 0))
+        except Exception as e:  # noqa: BLE001
+            self.say(f"vercel: {e}")
+        finally:
+            self.vloading = False
 
     def say(self, msg: str) -> None:
         self.flash, self.flash_at = msg, time.time()
@@ -322,24 +380,51 @@ class Dashboard:
                 cv.put(w - 1, y + i, "┃" if top <= i < top + th else "│", FG["accent"] if top <= i < top + th else FG["faint"])
 
     def draw_vercel(self, cv: Cv, y: int, end: int, w: int) -> int:
-        """Deployments as a selectable table on top, the output of the last vercel command below."""
-        room = end - y
-        table = min(max(len(self.vrows), 1) + 1, max(room // 2, 3))
+        """What a deploy does (source, targets) and the deployments as a table: custom domains pinned on top."""
         cv.text(2, y, "deployments", FG["ink"], None, True)
-        cv.text(15, y, f"{len(self.vrows)} · j k select · enter inspect · o open", FG["mute"])
+        cv.text(15, y, "loading…" if self.vloading else f"{len(self.vrows)} · j k select · enter inspect · l refresh", FG["mute"])
+        src = self.vgit or "…"
+        cv.text(2, y + 1, "deploy source", FG["mute"])
+        cv.text(16, y + 1, "this local folder", FG["ink"], None, True)
+        cv.text(34, y + 1, f"({src})", FG["accent"])
+        cv.text(2, y + 2, "not a commit: it uploads the files on disk, uncommitted changes included", FG["faint"] if False else FG["mute"])
+        cv.text(2, y + 3, "d", FG["ink"], None, True)
+        cv.text(4, y + 3, "preview = new URL, no domain touched   ", FG["mute"])
+        cv.text(43, y + 3, "P", FG["ink"], None, True)
+        cv.text(45, y + 3, f"production = goes live on {self.vdomain or 'your domain'}", FG["mute"])
+        cv.text(2, y + 4, "R", FG["ink"], None, True)
+        cv.text(4, y + 4, "redeploy selected = rebuild that exact commit   ", FG["mute"])
+        cv.text(52, y + 4, "p", FG["ink"], None, True)
+        cv.text(54, y + 4, "promote selected to production", FG["mute"])
+        y += 5
+        cv.hline(y)
+        y += 1
+        room = end - y
+        table = min(max(len(self.vrows), 1), max(room // 2, 3))
         self.vsel = max(0, min(self.vsel, max(len(self.vrows) - 1, 0)))
-        for i, (age, url, state) in enumerate(self.vrows[: table - 1]):
-            on = i == self.vsel
+        first = max(0, min(self.vsel - table + 1, len(self.vrows) - table)) if len(self.vrows) > table else 0
+        msg_x = 62
+        for i, r in enumerate(self.vrows[first: first + table]):
+            on = first + i == self.vsel
             bgr = FAINT if on else BG
+            ry = y + i
             for c in range(w):
-                cv.put(c, y + 1 + i, " ", None, bgr)
-            cv.text(1, y + 1 + i, "▸" if on else " ", FG["accent"], bgr, True)
-            cv.text(3, y + 1 + i, age.ljust(5), FG["mute"], bgr)
-            col = {"Ready": "ok", "Error": "err", "Canceled": "mute"}.get(state, "run")
-            cv.text(9, y + 1 + i, ("● " + state).ljust(11) if state else "  ", FG[col], bgr)
-            cv.text(22, y + 1 + i, url, FG["ink"] if on else FG["dim"], bgr, on)
+                cv.put(c, ry, " ", None, bgr)
+            cv.text(1, ry, "▸" if on else " ", FG["accent"], bgr, True)
+            cv.text(3, ry, "★" if r["pinned"] else " ", FG["accent"], bgr, True)
+            name = r["domain"] or r["url"].replace("https://", "")
+            cv.text(5, ry, fit(name, 36).ljust(36), FG["accent"] if r["pinned"] else (FG["ink"] if on else FG["dim"]), bgr, r["pinned"] or on)
+            cv.text(42, ry, ("prod" if r["target"] == "production" else "prev").ljust(5), FG["ok"] if r["target"] == "production" else FG["mute"], bgr)
+            cv.text(48, ry, fit(r["ref"], 10).ljust(11), FG["dim"], bgr)
+            cv.text(59, ry, r["sha"].ljust(7), FG["warn"], bgr)
+            ago = int(time.time() - r["created"])
+            age = f"{ago // 86400}d" if ago >= 86400 else f"{ago // 3600}h" if ago >= 3600 else f"{ago // 60}m"
+            col = {"Ready": "ok", "Error": "err", "Canceled": "mute"}.get(r["state"], "run")
+            if w > msg_x + 24:
+                cv.text(msg_x + 5, ry, fit(r["msg"], w - msg_x - 22), FG["ink"] if on else FG["mute"], bgr)
+            cv.right(w - 2, ry, f"{age}  ● {r['state']}", FG[col])
         if not self.vrows:
-            cv.text(2, y + 1, "press l to list the deployments", FG["mute"])
+            cv.text(2, y, "loading deployments…" if self.vloading else "press l to load the deployments", FG["mute"])
         y += table
         cv.hline(y)
         y += 1
@@ -415,7 +500,7 @@ class Dashboard:
 
     def hints(self) -> list[tuple[str, str]]:
         if self.tab and self.procs[self.tab - 1].tag == "vercel":
-            return [("jk", "select"), ("enter", "inspect"), ("l", "list"), ("d", "deploy"), ("P", "prod"), ("b", "rollback"), ("o", "open"), ("tab", "next"), ("q", "quit")]
+            return [("jk", "select"), ("enter", "inspect"), ("d", "preview"), ("P", "prod"), ("R", "redeploy"), ("p", "promote"), ("b", "rollback"), ("l", "refresh"), ("o", "open"), ("q", "quit")]
         return [("/", "filter"), ("e", "errors"), ("space", "freeze"), ("t", "tunnel"), ("v", "vercel"), ("r", "restart"), ("o", "open"), ("c", "clear"), ("q", "quit")]
 
     # ----------------------------------------------------------------- input ----
@@ -462,15 +547,15 @@ class Dashboard:
         if confirm:
             if not self.pending or self.pending[0] != confirm or time.time() - self.pending[1] > 5:
                 self.pending = (confirm, time.time())
-                self.say(f"press {confirm} again to {label}")
+                self.say(f"press {confirm} again: {label}")
                 return
             self.pending = None
         vp.cmd = f"vercel {args}"
         vp.start(self.sink)
         self.say(f"vercel {label}…")
 
-    def selected_url(self) -> str:
-        return self.vrows[self.vsel][1] if self.vrows else ""
+    def selected(self) -> dict | None:
+        return self.vrows[self.vsel] if self.vrows else None
 
     def handle(self, k: str, h: int) -> None:
         if self.typing:
@@ -494,21 +579,24 @@ class Dashboard:
             if k in ("k", "up"):
                 self.vsel = max(self.vsel - 1, 0)
                 return
+            sel = self.selected()
             if k == "l":
-                self.vrows, self.vsel = [], 0
-                self.vercel("ls", "list")
-                return
+                return self.refresh_vercel()
             if k == "d":
-                return self.vercel("deploy --yes", "deploy a preview")
+                return self.vercel("deploy --yes", f"deploy a PREVIEW of this local folder ({self.vgit})")
             if k == "P":
-                return self.vercel("deploy --prod --yes", "deploy to PRODUCTION", "P")
+                return self.vercel("deploy --prod --yes", f"deploy this local folder ({self.vgit}) to PRODUCTION · {self.vdomain}", "P")
             if k == "b":
-                return self.vercel("rollback", "roll production back", "b")
-            if k in ("enter", "i"):
-                return self.vercel(f"inspect {self.selected_url()}" if self.vrows else "ls", "inspect")
-            if k in ("o", "O") and self.vrows:
-                webbrowser.open(self.selected_url())
-                return self.say("opened " + self.selected_url())
+                return self.vercel("rollback", f"roll {self.vdomain or 'production'} back to the previous deployment", "b")
+            if sel and k == "R":
+                return self.vercel(f"redeploy {sel['url']}", f"rebuild commit {sel['sha']} ({sel['target']})")
+            if sel and k == "p":
+                return self.vercel(f"promote {sel['url']} --yes", f"promote {sel['sha']} to PRODUCTION · {self.vdomain}", "p")
+            if sel and k in ("enter", "i"):
+                return self.vercel(f"inspect {sel['url']}", "inspect")
+            if sel and k in ("o", "O"):
+                webbrowser.open(sel["domain"] and "https://" + sel["domain"] or sel["url"])
+                return self.say("opened " + (sel["domain"] or sel["url"]))
         if k in ("q", "Q"):
             self.quit = True
         elif k == "/":
@@ -540,8 +628,8 @@ class Dashboard:
         elif k in ("v", "V"):
             self.tab, self.scroll = n, 0  # the vercel tab is always the last process
             vp = self.find("vercel")
-            if vp and vp.p is None:
-                self.vercel("ls", "list")
+            if not self.vrows:
+                self.refresh_vercel()
         elif k in ("t", "T"):
             tp = self.find("tunnel")
             if tp is None:
