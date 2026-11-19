@@ -54,11 +54,14 @@ for (const file of walk(src)) {
         if (p.getMode() !== 4) continue;
         const pos = p.getAttribute('POSITION'), ind = p.getIndices();
         const n = ind ? ind.getCount() : pos.getCount();
-        const g = byMat.get(p.getMaterial()) ?? { name: p.getMaterial()?.getName() ?? '', v: [] };
+        const g = byMat.get(p.getMaterial()) ?? { name: p.getMaterial()?.getName() ?? '', v: [], a: [] };
         byMat.set(p.getMaterial(), g);
-        const e = [0, 0, 0];
+        const e = [0, 0, 0], nr = p.getAttribute('NORMAL'), tc = p.getAttribute('TEXCOORD_0'), q = [0, 0, 0];
         for (let i = 0; i < n; i++) {
-          pos.getElement(ind ? ind.getScalar(i) : i, e);
+          const vi = ind ? ind.getScalar(i) : i;
+          pos.getElement(vi, e);
+          // uv y normal de cada vertice: la soldadura los respeta, o las costuras de textura se deformarian en el LOD
+          g.a.push(...(tc ? tc.getElement(vi, q).slice(0, 2) : [0, 0]), ...(nr ? nr.getElement(vi, q) : [0, 0, 0]));
           g.v.push(m[0] * e[0] + m[4] * e[1] + m[8] * e[2] + m[12], m[1] * e[0] + m[5] * e[1] + m[9] * e[2] + m[13], m[2] * e[0] + m[6] * e[1] + m[10] * e[2] + m[14]);
         }
       }
@@ -75,7 +78,7 @@ for (const file of walk(src)) {
     // soldadura por posicion: los vertices sin indexar pasan a un indice compartido, que es lo que simplifica
     const weld = new Map(), rep = [], idx = new Uint32Array(verts), pos = [];
     for (let i = 0; i < verts; i++) {
-      const k = `${g.v[i * 3]},${g.v[i * 3 + 1]},${g.v[i * 3 + 2]}`;
+      const k = `${g.v[i * 3]},${g.v[i * 3 + 1]},${g.v[i * 3 + 2]}|${g.a.slice(i * 5, i * 5 + 5).map((x) => x.toFixed(4))}`;
       let w = weld.get(k);
       if (w === undefined) (w = rep.length), weld.set(k, w), rep.push(i), pos.push(g.v[i * 3], g.v[i * 3 + 1], g.v[i * 3 + 2]);
       idx[i] = w;
