@@ -65,7 +65,7 @@ export class Thumbs {
     }
     if ('IntersectionObserver' in window)
       this.cio = new IntersectionObserver((es) => es.forEach((x) => { const e = this.byCv.get(x.target); if (e) e.on = x.isIntersecting; }), { root: watch ?? null });
-    if (!reduced) this.raf = requestAnimationFrame(this.loop);
+    // estáticas: pintar todas cada frame con el renderer de Phoenyx era el lag del armario
   }
 
   /** Una cajita: se pinta con su especificación. Devuelve la función que la quita. `dark`: bloqueada, solo silueta. */
@@ -85,10 +85,10 @@ export class Thumbs {
           o.traverse((x) => void ((x as THREE.Mesh).isMesh && ((x as THREE.Mesh).material = m)));
         }
         e.obj = o;
-        if (this.reduced) this.draw(e, 0.6);
+        this.draw(e, 0.6);
       });
     }
-    if (this.reduced && e.obj) this.draw(e, 0.6);
+    if (e.obj) this.draw(e, 0.6);
     return () => {
       this.entries.delete(cv);
       this.byCv.delete(cv);
