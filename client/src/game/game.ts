@@ -2242,7 +2242,7 @@ export class BackroomsGame {
     if (!me || !this.lobbyP) return;
     const items = Object.values(me.items);
     const emo = wr.emoteClip; // (con un emote, el cuerpo entero a la vista de la cámara que lo mira; sentado en el suelo ya no se esconde todo)
-    if ((!wr.driving && !emo) || this.paused) {
+    if (!wr.driving && !emo) {
       if (!this.lobbyHid) (this.lobbyVis = items.map((i) => i.visible)), items.forEach((i) => (i.visible = false)), (me.rig.root.visible = false), (this.lobbyHid = true);
       this.flash.intensity = 0;
       return;
@@ -2269,7 +2269,7 @@ export class BackroomsGame {
     if (c.drop) this.dropSelected();
     wr.lit = me.lightOn;
     wr.held = me.hand === 'camera' || me.hand === 'gun' ? me.hand : 'none';
-    this.flash.intensity = me.lightOn ? FLASH * 0.6 : 0;
+    this.flash.intensity = me.lightOn ? FLASH * 0.15 : 0; // (la sala es pequeña: a 0,3 de la pantalla o la mesa la linterna quemaba la imagen)
     this.lobbyPick(c, wr);
     // lo soltado levita y gira, con el brillo de su rareza
     // lo soltado cae con físicas (gravedad, rebotes, rozamiento) y se queda quieto en el suelo; el brillo de su rareza sigue latiendo
