@@ -99,6 +99,7 @@ const proxy = {
 // el juego pregunta por process.env.NODE_ENV (avisos y atajos de desarrollo): se define a mano
 export default defineConfig(({ mode }) => ({
   plugins: [react(), gripsSaver(), animPack()],
+  cacheDir: PHOENYX ? 'node_modules/.vite-phoenyx' : undefined, // (cada variante con su cache: si no, dos servidores a la vez se pisan las dependencias optimizadas)
   resolve: { alias: [{ find: /^three-real$/, replacement: REAL_THREE }, ...phoenyxAlias] },
   define: { __PHOENYX__: JSON.stringify(PHOENYX), 'process.env.NODE_ENV': JSON.stringify(mode === 'production' ? 'production' : 'development') },
   // the game server goes through the same port as the page (one forwarded port or tunnel is enough, no mixed content over https)
