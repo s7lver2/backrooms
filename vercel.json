@@ -1,6 +1,6 @@
 {
   "installCommand": "npm install",
-  "buildCommand": "npm run build -w client",
+  "buildCommand": "sh tools/vercel-build.sh",
   "outputDirectory": "client/dist",
   "rewrites": [{ "source": "/((?!assets/|models/).*)", "destination": "/index.html" }]
 }
