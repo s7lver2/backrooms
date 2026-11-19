@@ -16,6 +16,17 @@ const ICON = {
 };
 
 /** Marco de visor de camcorder: esquinas, REC y un dato a la derecha; Phoenyx solo como pie ("built with"). */
+/** El título, letra a letra (cada una entra con su retraso). */
+const Word = ({ text }: { text: string }) => (
+  <span className="gn__word" aria-label={text}>
+    {[...text].map((c, k) => (
+      <span key={k} aria-hidden="true" style={{ '--k': k } as React.CSSProperties}>
+        {c}
+      </span>
+    ))}
+  </span>
+)
+
 const Viewfinder = ({ right, children, leave }: { right: string; children: ReactNode; leave?: boolean }) => (
   <div className="br" data-screen="off">
     <div className={`gn${leave ? ' gn--leave' : ''}`}>
@@ -36,8 +47,8 @@ const Viewfinder = ({ right, children, leave }: { right: string; children: React
   </div>
 );
 
-const Row = ({ icon, tag, cls, children }: { icon: string; tag: string; cls: string; children: ReactNode }) => (
-  <li>
+const Row = ({ icon, tag, cls, i, children }: { icon: string; tag: string; cls: string; i: number; children: ReactNode }) => (
+  <li style={{ '--i': i } as React.CSSProperties}>
     <span className={`gn__box ${cls}`}>
       <svg className="gn__ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="square" aria-hidden="true">
         <path d={icon} />
@@ -91,13 +102,11 @@ export default function GpuNotice({ children }: { children: ReactNode }) {
     return (
       <Viewfinder right="NO SIGNAL">
         <h1 className="gn__title">
-          BACKROOMS
-          <small>
-            NEEDS <b>WEBGPU</b>
-          </small>
+          <Word text="BACKROOMS" />
+          <small>NEEDS WEBGPU</small>
         </h1>
         <ul className="gn__list" role="alert">
-          <Row icon={ICON.off} tag={why === 'api' ? 'BROWSER' : 'GRAPHICS CARD'} cls="gn__tag--warn">
+          <Row icon={ICON.off} i={0} tag={why === 'api' ? 'BROWSER' : 'GRAPHICS CARD'} cls="gn__tag--warn">
             {why === 'api' ? 'This browser has no WebGPU. Use a recent Chrome, Edge or Firefox, and open the page over https.' : 'WebGPU is there but no graphics card answered. Turn on hardware acceleration and update your graphics driver.'}
           </Row>
         </ul>
@@ -121,17 +130,17 @@ export default function GpuNotice({ children }: { children: ReactNode }) {
   return (
     <Viewfinder right={gpu || 'WEBGPU'} leave={state === 'leave'}>
       <h1 className="gn__title">
-        BACKROOMS<small>WEBGPU EDITION</small>
+        <Word text="BACKROOMS" />
       </h1>
       <ul className="gn__list">
-        <Row icon={ICON.engine} tag="NEW ENGINE" cls="gn__tag--new">
+        <Row icon={ICON.engine} i={0} tag="NEW ENGINE" cls="gn__tag--new">
           Runs on Phoenyx, our own graphics engine.
         </Row>
-        <Row icon={ICON.warn} tag="UNSTABLE" cls="gn__tag--warn">
+        <Row icon={ICON.warn} i={1} tag="UNSTABLE" cls="gn__tag--warn">
           You may see glitches, freezes or crashes.
         </Row>
-        <Row icon={ICON.data} tag="DIAGNOSTICS" cls="gn__tag--data">
-          Continuing sends diagnostic data to improve the engine. No account, chat or voice.
+        <Row icon={ICON.data} i={2} tag="DIAGNOSTICS" cls="gn__tag--data">
+          Continuing sends diagnostic data to improve the engine.
         </Row>
       </ul>
       <div className="gn__btns">
