@@ -81,6 +81,8 @@ const animPack = (): Plugin => {
 // RENDERER=phoenyx: `three` se sustituye por Phoenyx (E:/phoenix, motor Rust + WebGPU con la misma API); sin la variable, three de siempre
 const PHOENYX = process.env.RENDERER === 'phoenyx';
 const PHOENYX_DIR = (process.env.PHOENYX_DIR ?? 'E:/phoenix').replaceAll('\\', '/');
+// `three-real`: el three de verdad, siempre (los iconos del inventario se pintan de forma sincrona con un WebGLRenderer pequeño; el renderer de Phoenyx arranca la GPU de forma asincrona)
+const REAL_THREE = fileURLToPath(new URL('../node_modules/three/build/three.module.js', import.meta.url)).replaceAll('\\', '/');
 const phoenyxAlias = PHOENYX
   ? [
       { find: /^three\/examples\/jsm\/(.*)$/, replacement: `${PHOENYX_DIR}/packages/phoenyx/src/jsm/$1` },
@@ -97,7 +99,7 @@ const proxy = {
 // el juego pregunta por process.env.NODE_ENV (avisos y atajos de desarrollo): se define a mano
 export default defineConfig(({ mode }) => ({
   plugins: [react(), gripsSaver(), animPack()],
-  resolve: { alias: phoenyxAlias },
+  resolve: { alias: [{ find: /^three-real$/, replacement: REAL_THREE }, ...phoenyxAlias] },
   define: { 'process.env.NODE_ENV': JSON.stringify(mode === 'production' ? 'production' : 'development') },
   // the game server goes through the same port as the page (one forwarded port or tunnel is enough, no mixed content over https)
   // fs.strict: el servidor de desarrollo (y /@fs) solo sirve archivos del proyecto; no lo desactives mientras haya un túnel abierto

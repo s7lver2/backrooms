@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import * as REAL from 'three-real'; // (el three de verdad: con Phoenyx el renderer de iconos sigue siendo WebGL y sincrono)
 import type { Assets } from './game';
 import { clone as skClone } from 'three/examples/jsm/utils/SkeletonUtils.js';
 import { model } from './cosmetics';
@@ -13,21 +14,21 @@ import { inventoryModels, itemModel } from './itemModels';
 const SIZE = 160;
 const cache = new Map<string, string>();
 
-let rig: { r: THREE.WebGLRenderer; scene: THREE.Scene; cam: THREE.OrthographicCamera } | undefined;
+let rig: { r: REAL.WebGLRenderer; scene: REAL.Scene; cam: REAL.OrthographicCamera } | undefined;
 function setup() {
   if (rig) return rig;
-  const r = new THREE.WebGLRenderer({ antialias: true, alpha: true, preserveDrawingBuffer: true });
-  r.outputColorSpace = THREE.SRGBColorSpace;
-  r.toneMapping = THREE.ACESFilmicToneMapping;
+  const r = new REAL.WebGLRenderer({ antialias: true, alpha: true, preserveDrawingBuffer: true });
+  r.outputColorSpace = REAL.SRGBColorSpace;
+  r.toneMapping = REAL.ACESFilmicToneMapping;
   r.setPixelRatio(1);
   r.setSize(SIZE, SIZE, false);
   r.setClearColor(0x000000, 0);
-  const scene = new THREE.Scene();
-  scene.add(new THREE.HemisphereLight(0xfff1c4, 0x3a2c0c, 1.6));
-  const key = new THREE.DirectionalLight(0xfff0d0, 2.6);
+  const scene = new REAL.Scene();
+  scene.add(new REAL.HemisphereLight(0xfff1c4, 0x3a2c0c, 1.6));
+  const key = new REAL.DirectionalLight(0xfff0d0, 2.6);
   key.position.set(2, 3, 3);
   scene.add(key);
-  return (rig = { r, scene, cam: new THREE.OrthographicCamera(-1, 1, 1, -1, 0.1, 50) });
+  return (rig = { r, scene, cam: new REAL.OrthographicCamera(-1, 1, 1, -1, 0.1, 50) });
 }
 
 /** Una captura de este objeto (una copia suya), de tres cuartos y encuadrada con un margen. */
