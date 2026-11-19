@@ -12,6 +12,8 @@ export interface Pack {
   bytes: number;
   /** Se instala solo, en segundo plano, mientras no se haya quitado a mano. */
   auto?: boolean;
+  /** Imprescindible: no se puede quitar. */
+  required?: boolean;
   /** Aún no existe (sin archivos). */
   soon?: boolean;
   /** Portada (URL de una imagen); sin ella, un icono. */
@@ -72,6 +74,7 @@ export async function install(p: Pack, onProgress?: (f: number) => void): Promis
 }
 
 export async function remove(p: Pack): Promise<void> {
+  if (p.required) return;
   await caches.delete(PREFIX + p.id);
   try {
     localStorage.setItem(OFF + p.id, '1');
@@ -83,7 +86,7 @@ export async function autoInstall(): Promise<void> {
   if (!('caches' in window) || !('serviceWorker' in navigator) || (navigator as { connection?: { saveData?: boolean } }).connection?.saveData) return;
   for (const p of await loadManifest()) {
     try {
-      if (!p.auto || p.soon || localStorage.getItem(OFF + p.id)) continue;
+      if (!p.auto || p.soon || (!p.required && localStorage.getItem(OFF + p.id))) continue;
       if ((await status(p)).have < p.files.length) await install(p);
     } catch {}
   }

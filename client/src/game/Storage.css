@@ -1,6 +1,13 @@
 /* STORAGE (Storage.tsx): las filas de los demás ajustes, con portada a la izquierda, y el detalle con portada grande y datos */
-.br-grp { margin: 14px 0 6px; padding-bottom: 4px; border-bottom: 1px solid #3a3a3a; letter-spacing: 0.2em; font-size: 0.85em; list-style: none; }
-.br-grp:first-child { margin-top: 0; }
+/* dos bloques bien distintos: PACKS (contenido del juego, con portada en marco) y BROWSER DATA (cosas del navegador, en gris y sin marco) */
+.br-grp { list-style: none; display: flex; flex-direction: column; gap: 2px; margin: 18px 0 8px; padding: 8px 12px; letter-spacing: 0.14em; font-size: 0.85em; }
+.br-grp b { letter-spacing: 0.3em; font-size: 1.1em; }
+.br-grp span { color: var(--br-dim); }
+.br-grp--packs { margin-top: 0; background: var(--br-ink); color: #000; text-shadow: none; }
+.br-grp--packs span { color: #3a3a3a; }
+.br-grp--data { border: 1px dashed #555; }
+.br-row--pack[data-kind="data"] { opacity: 0.85; }
+.br-row--pack[data-kind="data"] .br-row__cv { border-style: dashed; background: transparent; width: 36px; height: 36px; }
 .br-row--pack { align-items: center; gap: 14px; }
 .br-row--pack[data-dim] { opacity: 0.5; }
 .br-row__cv { flex: none; width: 44px; height: 44px; display: grid; place-items: center; border: 1px solid #3a3a3a; background: #0b0b0b; overflow: hidden; }

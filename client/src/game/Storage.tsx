@@ -86,13 +86,13 @@ export default function StoragePane() {
     return {
       id: p.id,
       name: p.name,
-      desc: p.soon ? 'COMING SOON' : work !== undefined ? `DOWNLOADING ${Math.round(work * 100)}%` : done ? `INSTALLED · ${fmt(h.bytes)}` : `NOT INSTALLED · ${fmt(p.bytes)}`,
+      desc: p.soon ? 'COMING SOON' : work !== undefined ? `DOWNLOADING ${Math.round(work * 100)}%` : p.required ? `REQUIRED · ${done ? fmt(h.bytes) : 'DOWNLOADING SOON'}` : done ? `INSTALLED · ${fmt(h.bytes)}` : `NOT INSTALLED · ${fmt(p.bytes)}`,
       long: LONG[p.id] ?? `${p.desc}. Its models and textures, kept on disk so entering the level does not wait for the download.`,
       icon: ICON[p.id] ?? <Package />,
       cover: p.cover,
-      stats: [['SIZE', p.soon ? '-' : fmt(p.bytes)], ['FILES', String(p.files.length)], ['STATE', p.soon ? 'SOON' : done ? 'INSTALLED' : 'NOT INSTALLED'], ...(p.auto ? ([['INSTALL', 'AUTOMATIC']] as [string, string][]) : [])],
+      stats: [['SIZE', p.soon ? '-' : fmt(p.bytes)], ['FILES', String(p.files.length)], ['STATE', p.soon ? 'SOON' : done ? 'INSTALLED' : 'NOT INSTALLED'], ...(p.required ? ([['REMOVABLE', 'NO · REQUIRED']] as [string, string][]) : p.auto ? ([['INSTALL', 'AUTOMATIC']] as [string, string][]) : [])],
       dim: p.soon,
-      act: p.soon ? undefined : { label: done ? 'REMOVE' : 'INSTALL', run: () => void (done ? remove(p).then(refresh) : doInstall(p)), off: work !== undefined },
+      act: p.soon || p.required ? undefined : { label: done ? 'REMOVE' : 'INSTALL', run: () => void (done ? remove(p).then(refresh) : doInstall(p)), off: work !== undefined },
     };
   });
   const dataRows: Row[] = [
@@ -131,8 +131,8 @@ export default function StoragePane() {
   const installed = packs.reduce((a, p) => a + (have[p.id]?.bytes ?? 0), 0);
   const BLOCKS = 24, frac = use?.quota ? Math.min(1, use.usage / use.quota) : 0, on = Math.max(use?.usage ? 1 : 0, Math.round(frac * BLOCKS));
 
-  const line = (r: Row) => (
-    <li key={r.id} className="br-row br-row--pack" data-sel={r.id === row?.id || undefined} data-dim={r.dim || undefined} onMouseEnter={() => setPick(r.id)} onFocus={() => setPick(r.id)}>
+  const line = (r: Row, data?: boolean) => (
+    <li key={r.id} className="br-row br-row--pack" data-kind={data ? 'data' : 'pack'} data-sel={r.id === row?.id || undefined} data-dim={r.dim || undefined} onMouseEnter={() => setPick(r.id)} onFocus={() => setPick(r.id)}>
       <span className="br-row__cv" aria-hidden="true">
         {r.cover ? <img src={r.cover} alt="" /> : r.icon}
       </span>
@@ -151,13 +151,16 @@ export default function StoragePane() {
   return (
     <div className="br-set2" role="tabpanel" aria-label="STORAGE">
       <ul className="br-set2__list">
-        <li className="br-grp">
-          PACKS
-          <span className="br-lobby__dim"> · {fmt(installed)} INSTALLED</span>
+        <li className="br-grp br-grp--packs">
+          <b>PACKS</b>
+          <span>GAME CONTENT · {fmt(installed)} INSTALLED</span>
         </li>
-        {packRows.length ? packRows.map(line) : <li className="br-row"><span className="br-row__l"><span className="br-row__d">NO PACK LIST IN THIS VERSION</span></span></li>}
-        <li className="br-grp">BROWSER DATA</li>
-        {dataRows.map(line)}
+        {packRows.length ? packRows.map((r) => line(r)) : <li className="br-row"><span className="br-row__l"><span className="br-row__d">NO PACK LIST IN THIS VERSION</span></span></li>}
+        <li className="br-grp br-grp--data">
+          <b>BROWSER DATA</b>
+          <span>CACHE AND LOCAL SETTINGS, NOT GAME CONTENT</span>
+        </li>
+        {dataRows.map((r) => line(r, true))}
       </ul>
       <aside className="br-set2__side" aria-live="polite">
         <p className="br-set2__h">{row?.name}</p>
@@ -183,8 +186,8 @@ export default function StoragePane() {
         {msg && <p role="alert">{msg}</p>}
       </aside>
       <div className="br-pane__foot">
-        <button type="button" className="br-opt" disabled={!packs.some((p) => have[p.id]?.have)} onClick={() => void Promise.all(packs.map((p) => remove(p))).then(refresh)}>
-          REMOVE ALL PACKS
+        <button type="button" className="br-opt" disabled={!packs.some((p) => !p.required && have[p.id]?.have)} onClick={() => void Promise.all(packs.filter((p) => !p.required).map((p) => remove(p))).then(refresh)}>
+          REMOVE OPTIONAL PACKS
         </button>
         <span className="br-lobby__dim br-lobby__keys">↑ ↓ SELECT · ESC BACK</span>
       </div>

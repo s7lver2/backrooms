@@ -103,8 +103,8 @@ const bakeLods = (): Plugin => {
 
 // los paquetes (SETTINGS > STORAGE, src/packs.ts): el manifiesto con los archivos de cada uno se genera al compilar (con los de public/ y los de assets/) y,
 // en desarrollo, solo con los de public/. core (todo lo común), phoenyx (el motor, solo en esa variante), la textura HD (aún sin archivos) y uno por nivel
-const PACKS: { id: string; name: string; desc: string; auto?: boolean; soon?: boolean; cover?: string }[] = [
-  { id: 'core', name: 'CORE', desc: 'THE MENU, THE LOBBY, ITEMS, COSMETICS AND EVERYTHING SHARED', auto: true },
+const PACKS: { id: string; name: string; desc: string; auto?: boolean; required?: boolean; soon?: boolean; cover?: string }[] = [
+  { id: 'core', name: 'CORE', desc: 'THE MENU, THE LOBBY, ITEMS, COSMETICS AND EVERYTHING SHARED', auto: true, required: true },
   { id: 'phoenyx', name: 'PHOENYX', desc: 'THE GRAPHICS ENGINE (WEBGPU)', auto: true, cover: '/brand/phoenyx-128.png' },
   { id: 'hd', name: 'HIGH-RES TEXTURES', desc: 'SHARPER WALLS, FLOORS AND PROPS', soon: true },
   { id: 'level0', name: 'LEVEL 0 · THE LOBBY', desc: 'THE YELLOW OFFICE MAZE' },
