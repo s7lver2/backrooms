@@ -120,9 +120,9 @@ const proxy = {
 
 // el juego pregunta por process.env.NODE_ENV (avisos y atajos de desarrollo): se define a mano
 export default defineConfig(({ mode }) => ({
-  plugins: [react(), gripsSaver(), animPack(), bakeLods()],
+  plugins: [react(), gripsSaver(), animPack(), ...(PHOENYX ? [bakeLods()] : [])],
   cacheDir: PHOENYX ? 'node_modules/.vite-phoenyx' : undefined, // (cada variante con su cache: si no, dos servidores a la vez se pisan las dependencias optimizadas)
-  resolve: { alias: [{ find: /^three-real$/, replacement: REAL_THREE }, { find: /^@phoenyx\/collide$/, replacement: `${PHOENYX_DIR}/packages/phoenyx/src/collide.ts` }, ...phoenyxAlias] },
+  resolve: { alias: [{ find: /^three-real$/, replacement: REAL_THREE }, { find: /^@phoenyx\/collide$/, replacement: PHOENYX ? `${PHOENYX_DIR}/packages/phoenyx/src/collide.ts` : fileURLToPath(new URL('./src/game/collideStub.ts', import.meta.url)).replaceAll('\\', '/') }, ...phoenyxAlias] },
   define: { __PHOENYX__: JSON.stringify(PHOENYX), 'process.env.NODE_ENV': JSON.stringify(mode === 'production' ? 'production' : 'development') },
   // the game server goes through the same port as the page (one forwarded port or tunnel is enough, no mixed content over https)
   // fs.strict: el servidor de desarrollo (y /@fs) solo sirve archivos del proyecto; no lo desactives mientras haya un túnel abierto
