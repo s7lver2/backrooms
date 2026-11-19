@@ -7,7 +7,7 @@ Run with no arguments for the interactive menu, or pass flags to skip the questi
   python tools/build.py dev|release              start servers (client :5180, server :5181)
   python tools/build.py --build                  production client build (client/dist)
   python tools/build.py --check                  typecheck client and server
-  --renderer three|phoenyx                       graphics engine (default: three)
+  --renderer three|phoenyx                       graphics engine (default: phoenyx)
   --phoenyx-dir PATH                             Phoenyx repo (default: E:/phoenix)
   --tunnel cloudflared|ngrok|localtunnel         expose the client publicly
   --plain                                        stream raw logs instead of the control panel
@@ -50,6 +50,18 @@ COL = {"accent": "#58d6b8", "text": "#d9dee7", "dim": "#6b7588", "ok": "#7bd88f"
 
 def paint(name: str, s: str, bold: bool = False) -> str:
     return f"{'\x1b[1m' if bold else ''}{_rgb(COL[name])}{s}\x1b[0m" if TTY else s
+
+
+def rainbow(text: str, bold: bool = False, shift: float = 0.0) -> str:
+    """Per-character rainbow (truecolor); plain text without a terminal."""
+    if not TTY:
+        return text
+    import colorsys
+    out = []
+    for i, ch in enumerate(text):
+        r, g, b = (int(c * 255) for c in colorsys.hsv_to_rgb((shift + i / max(len(text), 1)) % 1.0, 0.55, 1.0))
+        out.append(f"{'\x1b[1m' if bold else ''}\x1b[38;2;{r};{g};{b}m{ch}")
+    return "".join(out) + "\x1b[0m"
 
 
 SPINNER = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"  # same frames as phycode's status bar
@@ -131,7 +143,8 @@ def ask(question: str, options: list[tuple[str, str]], default: int = 0) -> str:
         for i, (_, label) in enumerate(options):
             mark = paint("accent", "▸ ") if i == sel else "  "
             num = paint("dim", f"{i + 1} ")
-            print(f"\x1b[2K{mark}{num}{paint('accent', label, bold=True) if i == sel else paint('text', label)}")
+            text = rainbow(label, bold=i == sel, shift=time.time() * 0.5) if label == "phoenyx" else paint("accent", label, bold=True) if i == sel else paint("text", label)
+            print(f"\x1b[2K{mark}{num}{text}")
         print(f"\x1b[2K{paint('dim', '↑↓ move · enter select · q quit')}")
         key = read_key()
         if key in ("up", "k"):
@@ -149,7 +162,8 @@ def ask(question: str, options: list[tuple[str, str]], default: int = 0) -> str:
             for _ in range(len(options) + 1):
                 sys.stdout.write("\x1b[2K\n")
             sys.stdout.write(f"\x1b[{len(options) + 1}A")
-            print(f"{paint('ok', '✓')} {paint('dim', question)} {paint('accent', options[sel][1])}\n")
+            chosen = options[sel][1]
+            print(f"{paint('ok', '✓')} {paint('dim', question)} {rainbow(chosen) if chosen == 'phoenyx' else paint('accent', chosen)}\n")
             return options[sel][0]
         sys.stdout.write(f"\x1b[{len(options) + 1}A")
 
@@ -181,6 +195,31 @@ def step(label: str, cmd: str, env: dict | None = None) -> int:
     if not ok:
         print(paint("dim", "\n".join(lines[-25:])))
     return p.returncode
+
+
+PHOENYX_REPO = "https://github.com/s7lver2/phoenyx.git"
+
+
+def find_phoenyx(explicit: str | None) -> str | None:
+    """Phoenyx repo: --phoenyx-dir / PHOENYX_DIR, then E:/ (Windows) or ~ (Linux/macOS); None if not found."""
+    roots = [Path(explicit)] if explicit else [Path(os.environ["PHOENYX_DIR"])] if os.environ.get("PHOENYX_DIR") else []
+    base = [Path("E:/")] if os.name == "nt" else [Path.home()]
+    if not explicit:
+        roots += [b / n for b in base + [ROOT.parent] for n in ("phoenyx", "phoenix")]
+    for r in roots:
+        if (r / "packages" / "phoenyx").is_dir():
+            return str(r).replace("\\", "/")
+    return None
+
+
+def ensure_phoenyx(explicit: str | None) -> str | None:
+    found = find_phoenyx(explicit)
+    if found:
+        return found
+    target = Path(explicit) if explicit else (Path("E:/") if os.name == "nt" and Path("E:/").exists() else Path.home()) / "phoenyx"
+    if step("clone phoenyx", f'git clone --depth 1 {PHOENYX_REPO} "{target}"') == 0:
+        return str(target).replace("\\", "/")
+    return None
 
 
 def port_busy(port: int) -> bool:
@@ -235,25 +274,15 @@ def main() -> int:
         splash()
     task = "build" if a.build else "check" if a.check else a.mode
     if not task:
-        task = ask("What do you want to do?", [
-            ("dev", "Dev servers (hot reload, client + game server)"),
-            ("release", "Release (production build, preview + game server)"),
-            ("build", "Production build only (client/dist)"),
-            ("check", "Typecheck only"),
-        ]) if interactive else "dev"
+        task = ask("Run", [("dev", "dev"), ("release", "release"), ("build", "build"), ("check", "check")]) if interactive else "dev"
 
     env = dict(os.environ)
     if task in ("dev", "release", "build"):
-        renderer = a.renderer or (ask("Graphics engine?", [
-            ("three", "three.js (classic, WebGL)"),
-            ("phoenyx", "Phoenyx (own engine, WebGPU; needs the Phoenyx repo)"),
-        ]) if interactive else "three")
+        renderer = a.renderer or (ask("Engine", [("phoenyx", "phoenyx"), ("three", "three")]) if interactive else "phoenyx")
         if renderer == "phoenyx":
-            pdir = a.phoenyx_dir or env.get("PHOENYX_DIR") or "E:/phoenix"
-            if interactive and not a.phoenyx_dir and not env.get("PHOENYX_DIR"):
-                pdir = input(f"Phoenyx repo path [{pdir}]: ").strip() or pdir
-            if not (Path(pdir) / "packages" / "phoenyx").is_dir():
-                print(f"{paint('err', '✗')} Phoenyx not found at {pdir} (expected packages/phoenyx inside it).")
+            pdir = ensure_phoenyx(a.phoenyx_dir)
+            if not pdir:
+                print(f"{paint('err', '✗')} Phoenyx not found and the clone failed.")
                 return 1
             env["RENDERER"], env["PHOENYX_DIR"] = "phoenyx", pdir
         else:
@@ -266,14 +295,7 @@ def main() -> int:
     if task == "check":
         return step("typecheck client + server", "npm run typecheck", env)
 
-    tunnel = a.tunnel
-    if not tunnel and interactive:
-        found = available_tunnels()
-        opts = [("none", "No tunnel (local only)")] + [(k, f"{k} (installed)") for k in found] + [
-            (k, f"{k} (not installed: needs `{TUNNELS[k][0]}` on PATH)") for k in TUNNELS if k not in found
-        ]
-        tunnel = ask("Expose the game publicly through a tunnel?", opts)
-    tunnel = None if tunnel in (None, "none") else tunnel
+    tunnel = a.tunnel  # no question: the tunnel is toggled from the panel (key t); --tunnel starts one at launch
     if tunnel and not shutil.which(TUNNELS[tunnel][0]):
         print(f"{paint('err', '✗')} `{TUNNELS[tunnel][0]}` is not on PATH, so the {tunnel} tunnel cannot start.")
         return 1
@@ -287,14 +309,15 @@ def main() -> int:
     if release and step("build client", "npm run build -w client", env):  # release: client build + server on `start`
         return 1
     specs = [("server", f"npm run {'start' if release else 'dev'} -w server"), ("client", f"npm run {'preview' if release else 'dev'} -w client")]
-    if tunnel:
-        specs.append(("tunnel", TUNNELS[tunnel][1]))
     if TTY and sys.stdin.isatty() and not a.plain:  # the control panel (logs, tabs, restart); --plain streams the raw output instead
         from dash import Dashboard, Proc, TAGCOL
         procs = [Proc(t, c, env, ROOT, TAGCOL[i % len(TAGCOL)]) for i, (t, c) in enumerate(specs)]
+        procs.append(Proc("tunnel", TUNNELS[tunnel][1] if tunnel else "", env, ROOT, TAGCOL[2], auto=bool(tunnel)))  # idle until key t
         urls = [("client", f"http://localhost:{CLIENT_PORT}"), ("server", f"http://localhost:{SERVER_PORT}")]
         branch = subprocess.run("git rev-parse --abbrev-ref HEAD", shell=True, cwd=ROOT, capture_output=True, text=True).stdout.strip()
-        return Dashboard("backrooms", f"{task} · {env.get('RENDERER', 'three')}", procs, urls, branch).run()
+        return Dashboard("backrooms", f"{task} · {env.get('RENDERER', 'three')}", procs, urls, branch, [(k, TUNNELS[k][1]) for k in available_tunnels()]).run()
+    if tunnel:
+        specs.append(("tunnel", TUNNELS[tunnel][1]))
     popens = [subprocess.Popen(c, shell=True, cwd=ROOT, env=env) for _, c in specs]
     return serve(popens, task, env.get("RENDERER", "three"), tunnel)
 

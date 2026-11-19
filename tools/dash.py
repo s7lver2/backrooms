@@ -44,8 +44,8 @@ def fit(s: str, w: int) -> str:
 
 
 class Proc:
-    def __init__(self, tag: str, cmd: str, env: dict, cwd, color: str):
-        self.tag, self.cmd, self.env, self.cwd, self.color = tag, cmd, env, cwd, color
+    def __init__(self, tag: str, cmd: str, env: dict, cwd, color: str, auto: bool = True):
+        self.tag, self.cmd, self.env, self.cwd, self.color, self.auto = tag, cmd, env, cwd, color, auto
         self.p: subprocess.Popen | None = None
         self.started = 0.0
         self.code: int | None = None
@@ -78,7 +78,8 @@ class Proc:
 
 
 class Dashboard:
-    def __init__(self, title: str, subtitle: str, procs: list[Proc], urls: list[tuple[str, str]], branch: str = ""):
+    def __init__(self, title: str, subtitle: str, procs: list[Proc], urls: list[tuple[str, str]], branch: str = "", tunnels: list[tuple[str, str]] | None = None):
+        self.tunnels = tunnels or []  # (name, command) of the installed tunnel tools; key t starts/stops the `tunnel` process
         self.title, self.subtitle, self.procs, self.urls, self.branch = title, subtitle, procs, urls, branch
         self.logs: collections.deque = collections.deque(maxlen=6000)  # (proc, text, level)
         self.lock = threading.Lock()
@@ -157,7 +158,9 @@ class Dashboard:
         # dock: one row per process with the ▌ rail
         lines.append(f"{sgr('dim', BG)}{'─' * w}{RESET}")
         for p in self.procs:
-            if p.alive:
+            if p.p is None:
+                dot, dc, state = "○", "dim", "off"
+            elif p.alive:
                 dot, dc, state = "●", "ok", f"running {int(time.time() - p.started)}s"
             elif p.code is None:
                 dot, dc, state = SPINNER[f % len(SPINNER)], "run", "starting"
@@ -169,16 +172,16 @@ class Dashboard:
             lines.append(row + f"{bgc(RAISED)}{' ' * max(w - vis, 0)}{RESET}")
         # status bar
         working = any(p.alive for p in self.procs)
-        dead = [p for p in self.procs if p.code is not None and not p.alive]
+        dead = [p for p in self.procs if p.p is not None and p.code is not None and not p.alive]
         if dead:
             lead, lc, msg = "✗", "err", f"{dead[0].tag} exited ({dead[0].code})"
-        elif working:
+        elif working and all(p.alive or p.p is None for p in self.procs):
             lead, lc, msg = "●", "ok", "ready"
         else:
             lead, lc, msg = SPINNER[f % len(SPINNER)], "run", "starting"
         if self.flash and time.time() - self.flash_at < 4:
             msg = self.flash
-        hints = "1-%d tabs · ↑↓ scroll · f follow · w wrap · r restart · o open · c clear · q quit" % (len(self.procs) + 1)
+        hints = "1-%d tabs · ↑↓ scroll · t tunnel · r restart · o open · c clear · q quit" % (len(self.procs) + 1)
         scr = f"  ↑ {self.scroll} lines up" if self.scroll else "  ▼ following"
         left = f" {lead} {msg}{scr}"
         hint = fit(hints, max(w - len(left) - 2, 0))
@@ -230,15 +233,30 @@ class Dashboard:
             with self.lock:
                 self.logs.clear()
             self.scroll = 0
+        elif k in ("t", "T"):
+            tp = next((p for p in self.procs if p.tag == "tunnel"), None)
+            if tp is None:
+                return
+            if tp.alive:
+                tp.stop()
+                self.tunnel_url = ""
+                self.say("tunnel stopped")
+            elif not self.tunnels:
+                self.say("no tunnel tool found (install cloudflared or ngrok)")
+            else:
+                tp.cmd = self.tunnels[0][1]
+                tp.start(self.sink)
+                self.say(f"starting {self.tunnels[0][0]} tunnel…")
         elif k in ("o", "O"):
             webbrowser.open(self.tunnel_url or self.urls[0][1])
             self.say("opened " + (self.tunnel_url or self.urls[0][1]))
         elif k in ("r", "R"):
             self.say("restarting…")
-            for p in self.procs:
+            live = [p for p in self.procs if p.alive]
+            for p in live:
                 p.stop()
             time.sleep(0.4)
-            for p in self.procs:
+            for p in live:
                 p.start(self.sink)
         elif k.isdigit() and 1 <= int(k) <= n + 1:
             self.tab, self.scroll = int(k) - 1, 0
@@ -255,7 +273,8 @@ class Dashboard:
             tty.setcbreak(sys.stdin.fileno())
         sys.stdout.write("\x1b[?1049h\x1b[?25l\x1b[2J")  # alternate screen, hidden cursor
         for p in self.procs:
-            p.start(self.sink)
+            if p.auto:
+                p.start(self.sink)
         threading.Thread(target=self.key_thread, daemon=True).start()
         f = 0
         try:
