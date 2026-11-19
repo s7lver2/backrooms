@@ -1829,7 +1829,7 @@ export class World implements Terrain {
     // las geometrías son de este laberinto; los materiales, compartidos (ver `materials`), se quedan
     this.root.traverse((o) => {
       const im = o as THREE.InstancedMesh;
-      if (im.isInstancedMesh) im.geometry.dispose(), im.dispose();
+      if (im.isInstancedMesh) (im.geometry.dispose(), im.dispose(), (im.userData.gpuLods as { geometry: THREE.BufferGeometry }[] | undefined)?.forEach((l) => l.geometry.dispose()));
       else if ((o as THREE.Mesh).isMesh && !(o as THREE.SkinnedMesh).isSkinnedMesh && (o as THREE.Mesh).geometry.type !== 'BufferGeometry') (o as THREE.Mesh).geometry.dispose();
     });
     for (const g of this.pitGeos) g.dispose();

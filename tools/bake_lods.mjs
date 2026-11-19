@@ -36,7 +36,13 @@ for (const file of walk(src)) {
   const rel = path.relative(src, file).split(path.sep).join('/').slice(0, -4);
   const json = path.join(out, rel + '.json'), bin = path.join(out, rel + '.bin');
   if (fs.existsSync(json) && fs.existsSync(bin) && fs.statSync(json).mtimeMs > fs.statSync(file).mtimeMs) { skipped++; continue; }
-  const doc = await io.read(file);
+  let doc;
+  try {
+    doc = await io.read(file);
+  } catch (e) {
+    console.warn(`bake_lods: ${rel} no se puede leer (${e.message}), sin LOD`);
+    continue;
+  }
   const scene = doc.getRoot().getDefaultScene() ?? doc.getRoot().listScenes()[0];
   // material -> posiciones sin indexar (x,y,z por vertice) en el orden en que three recorre la escena
   const byMat = new Map();
@@ -97,7 +103,8 @@ for (const file of walk(src)) {
   }
   fs.mkdirSync(path.dirname(json), { recursive: true });
   fs.writeFileSync(bin, Buffer.concat(chunks));
-  fs.writeFileSync(json, JSON.stringify({ groups }));
+  fs.writeFileSync(json + '.tmp', JSON.stringify({ groups }));
+  fs.renameSync(json + '.tmp', json); // (el json el ultimo y de golpe: nunca queda uno que no case con su .bin)
   baked++;
 }
 console.log(`bake_lods: ${baked} horneados, ${skipped} al dia`);

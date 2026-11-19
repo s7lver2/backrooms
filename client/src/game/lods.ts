@@ -28,8 +28,9 @@ export function lodsFor(model: string | undefined, matName: string, geo: THREE.B
   const d = model && data.get(model);
   const pos = geo.attributes.position;
   if (!d || !pos || geo.index) return;
-  const g = d.groups.find((x) => x.mat === matName && x.verts === pos.count);
-  if (!g) return;
+  const m = d.groups.filter((x) => x.mat === matName && x.verts === pos.count);
+  const g = m[0];
+  if (m.length !== 1 || g.lods.some((l) => l.off + l.count * 4 > d.bin.byteLength)) return; // (ambiguo o .bin que no casa: sin LOD)
   geo.computeBoundingBox();
   const ratio = geo.boundingBox!.getSize(new THREE.Vector3()).length() / g.diag; // el modelo puede ir a otra escala que la horneada
   if (!(ratio > 0)) return;
