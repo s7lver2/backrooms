@@ -1229,7 +1229,9 @@ io.on('connection', (sock) => {
   sock.on('upgrade', (id, cb) => {
     const r = roomOf(sock.id), p = r?.players.get(sock.id);
     const reply = (ok: boolean, error?: string) => typeof cb === 'function' && cb({ ok, error });
-    if (!r || !p || r.phase !== 'lobby' || !UP_IDS.includes(id)) return reply(false, 'NOT AVAILABLE');
+    if (!r || !p) return reply(false, 'NOT IN A ROOM: RELOAD THE PAGE');
+    if (r.phase !== 'lobby') return reply(false, 'ONLY BETWEEN ROUNDS');
+    if (!UP_IDS.includes(id)) return reply(false, 'UNKNOWN UPGRADE');
     const cost = upCost(p.ups, id);
     if (cost === null) return reply(false, upLevel(p.ups, id) >= UPGRADES[id].cost.length ? 'MAXED OUT' : 'LOCKED');
     if (r.bank < cost) return reply(false, 'NOT ENOUGH MONEY');

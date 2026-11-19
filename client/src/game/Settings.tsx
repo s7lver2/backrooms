@@ -4,6 +4,7 @@ import { Crosshair } from './Crosshair';
 import { DEFAULTS, FPS_CAPS, PRESETS, applyPreset, presetOf, setSetting, useSettings, type Settings } from '../settings';
 import { Circle } from 'lucide-react';
 import { ic } from './ic';
+import StoragePane from './Storage';
 
 /*
  * SETTINGS: una pestaña por bloque (audio, controles, imagen, accesibilidad) a todo el ancho y en dos columnas: a la izquierda
@@ -80,8 +81,8 @@ const SECTIONS = {
     { id: 'toggleBreath', label: 'TOGGLE BREATH HOLD', desc: 'Press once, not hold', long: 'Hiding in a niche and an entity looks in: press SPACE once to hold your breath and again to let go, instead of keeping the key down.', flag: 'toggleBreath' },
   ],
 } satisfies Record<string, Row[]>;
-type Section = keyof typeof SECTIONS;
-const TABS = Object.keys(SECTIONS) as Section[];
+type Section = keyof typeof SECTIONS | 'STORAGE';
+const TABS = [...Object.keys(SECTIONS), 'STORAGE'] as Section[];
 const BLOCKS = 24;
 
 const show = (n: NonNullable<Row['num']>, v: number) => n.labels?.[Math.round(v)] ?? `${n.unit === 'x' ? (v * n.scale).toFixed(1) : Math.round(v * n.scale)}${n.unit}`;
@@ -243,12 +244,18 @@ export default function SettingsPane({ muted, toggleSound, onBack }: { muted: bo
     document.addEventListener('fullscreenchange', f);
     return () => document.removeEventListener('fullscreenchange', f);
   }, []);
-  const rows: Row[] = SECTIONS[tab];
+  const rows: Row[] = tab === 'STORAGE' ? [] : SECTIONS[tab];
   const row = rows.find((r) => r.id === pick[tab]) ?? rows[0];
   const pi = presetOf(s), pv = pi < 0 ? PRESETS.length : pi; // (el último paso de la barra es CUSTOM)
   const keys = (tab === 'VIDEO' ? ['quality' as keyof Settings] : []).concat(rows.flatMap((r) => (r.num ? [r.num.k] : r.flag && r.flag !== 'mute' && r.flag !== 'fullscreen' ? [r.flag] : [])));
   const reset = (ks: (keyof Settings)[]) => ks.forEach((k) => setSetting(k, DEFAULTS[k] as never));
 
+  if (tab === 'STORAGE')
+    return (
+      <Frame title="SETTINGS" tabs={TABS} tab={tab} onTab={setTab} onBack={onBack}>
+        <StoragePane />
+      </Frame>
+    );
   return (
     <Frame title="SETTINGS" tabs={TABS} tab={tab} onTab={setTab} onBack={onBack}>
       <div className="br-set2" role="tabpanel" aria-label={tab}>
