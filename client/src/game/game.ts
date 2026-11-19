@@ -929,7 +929,7 @@ export class BackroomsGame {
     u.tPrev.value = new THREE.DataTexture(new Uint8Array([0, 0, 0, 255]), 1, 1);
     u.tPrev.value.needsUpdate = true;
     this.scene.background = new THREE.Color(0x17130a);
-    this.scene.fog = new THREE.Fog(0x17130a, 2.5, 19);
+    this.scene.fog = new THREE.Fog(0x17130a, 2.5, 28);
     this.scene.add(this.hemi, this.camera, this.dust, ...this.points);
     this.dust.frustumCulled = false;
     this.camera.add(this.flash, this.flash.target);
@@ -1159,7 +1159,7 @@ export class BackroomsGame {
     if (mp && this.caps.pool) return void this.startPool(seed, mp);
     // Las Suites: más luz de ambiente y la niebla más lejos (hotel cálido, no sótano); el resto de niveles, lo de siempre
     this.hemi.intensity = this.caps.hotel ? 0.45 : 0.16;
-    (this.scene.fog as THREE.Fog).far = this.caps.hotel ? 24 : 19;
+    (this.scene.fog as THREE.Fog).far = this.caps.hotel ? 30 : 28;
     (this.scene.fog as THREE.Fog).color.set(this.caps.hotel ? 0x1d0c0a : 0x17130a);
     this.points.forEach((l) => l.color.set(this.caps.hotel ? 0xffd2a0 : 0xffefc6)); // las luces puntuales que dan el brillo al cuarzo: cálidas en el hotel
     if (this.bloom) (this.bloom.strength = this.caps.hotel ? 0.62 : 0.55), (this.bloom.threshold = this.caps.hotel ? 0.9 : 0.92), (this.bloom.radius = this.caps.hotel ? 0.9 : 0.6);

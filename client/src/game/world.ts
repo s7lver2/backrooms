@@ -22,7 +22,7 @@ import { Vents, roomFloorMaterial } from './vents';
 export const HEIGHT = 2.7;
 /** Lo que gira la hoja de una puerta abierta de las Suites (rad). */
 const SWING = 1.75;
-const PROP_FAR = 24;
+const PROP_FAR = 36;
 /** El mobiliario de las suites: qué modelo, a qué medida (el lado `axis` mide `size` m), a qué altura cuelga (`mount`: el centro; si no, al suelo) y lo que no se atraviesa (círculos `r` en [lateral, hacia donde mira]). */
 const SUITE_PROPS: Partial<Record<PropKind, { key: 'suites/bed' | 'suites/sofa' | 'suites/luggage' | 'suites/bin' | 'suites/mirror' | 'suites/plant' | 'suites/chair' | 'suites/wardrobe' | 'suites/table' | 'suites/secretary' | 'suites/panel' | 'suites/trolley'; turn?: number; tint?: number; axis: 'x' | 'y' | 'z'; size: number; mount?: number; r?: number; at?: [number, number][] }>> = {
   bed: { key: 'suites/bed', axis: 'z', size: 2.25, r: 0.62, at: [[0, -0.8], [0, 0], [0, 0.8]] },
