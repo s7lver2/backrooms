@@ -20,8 +20,9 @@ export function setCrashContext(f: () => unknown) {
   ctx = f;
 }
 
-export function initTelemetry() {
-  if (!DSN || !getConsent()?.reports) return;
+/** `force`: el jugador aceptó el envío de diagnóstico por otra vía (el aviso de la versión WebGPU, GpuNotice.tsx). */
+export function initTelemetry(force = false) {
+  if (!DSN || on || !(force || getConsent()?.reports)) return;
   on = true;
   void import('@sentry/browser').then((S) => {
     sdk = S;

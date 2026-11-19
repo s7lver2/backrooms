@@ -100,7 +100,7 @@ const proxy = {
 export default defineConfig(({ mode }) => ({
   plugins: [react(), gripsSaver(), animPack()],
   resolve: { alias: [{ find: /^three-real$/, replacement: REAL_THREE }, ...phoenyxAlias] },
-  define: { 'process.env.NODE_ENV': JSON.stringify(mode === 'production' ? 'production' : 'development') },
+  define: { __PHOENYX__: JSON.stringify(PHOENYX), 'process.env.NODE_ENV': JSON.stringify(mode === 'production' ? 'production' : 'development') },
   // the game server goes through the same port as the page (one forwarded port or tunnel is enough, no mixed content over https)
   // fs.strict: el servidor de desarrollo (y /@fs) solo sirve archivos del proyecto; no lo desactives mientras haya un túnel abierto
   server: { port: CLIENT_PORT, strictPort: true, host: true, allowedHosts: true, proxy, fs: { strict: true, allow: PHOENYX ? ['..', PHOENYX_DIR] : undefined } },
