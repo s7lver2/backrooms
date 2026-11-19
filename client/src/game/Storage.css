@@ -1,11 +1,18 @@
-/* STORAGE (Storage.tsx): una lista de paquetes, cada uno con su portada */
-.br-packs { display: flex; flex-direction: column; gap: 10px; }
-.br-pack { display: flex; align-items: center; gap: 16px; padding: 10px 14px 10px 10px; border: 1px solid #3a3a3a; background: #000; }
-.br-pack[data-dim] { opacity: 0.5; }
-.br-pack--sum { padding-left: 16px; }
-.br-pack__cover { flex: none; width: 72px; height: 72px; display: grid; place-items: center; border: 1px solid #3a3a3a; background: #0b0b0b; overflow: hidden; }
-.br-pack__cover img { width: 100%; height: 100%; object-fit: cover; display: block; }
-.br-pack__cover svg { width: 32px; height: 32px; stroke-width: 1.6; color: var(--br-dim); }
-.br-pack__txt { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
-.br-pack__meta { color: var(--br-ink); letter-spacing: 0.12em; font-size: 0.85em; }
-.br-pack .br-row__sw { flex: none; }
+/* STORAGE (Storage.tsx): las filas de los demás ajustes, con portada a la izquierda, y el detalle con portada grande y datos */
+.br-grp { margin: 14px 0 6px; padding-bottom: 4px; border-bottom: 1px solid #3a3a3a; letter-spacing: 0.2em; font-size: 0.85em; list-style: none; }
+.br-grp:first-child { margin-top: 0; }
+.br-row--pack { align-items: center; gap: 14px; }
+.br-row--pack[data-dim] { opacity: 0.5; }
+.br-row__cv { flex: none; width: 44px; height: 44px; display: grid; place-items: center; border: 1px solid #3a3a3a; background: #0b0b0b; overflow: hidden; }
+.br-row__cv img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.br-row__cv svg { width: 22px; height: 22px; stroke-width: 1.6; }
+.br-row--pack .br-row__l { flex: 1; min-width: 0; }
+.br-cover { width: 96px; height: 96px; display: grid; place-items: center; border: 1px solid #3a3a3a; background: #0b0b0b; overflow: hidden; margin-bottom: 14px; }
+.br-cover img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.br-cover svg { width: 44px; height: 44px; stroke-width: 1.4; color: var(--br-dim); }
+.br-stats { margin: 0 0 14px; display: grid; gap: 4px; }
+.br-stats div { display: flex; justify-content: space-between; gap: 12px; border-bottom: 1px dotted #2a2a2a; }
+.br-stats dt { color: var(--br-dim); letter-spacing: 0.12em; }
+.br-stats dd { margin: 0; }
+.br-set2__prev.br-prev--col { display: flex; flex-direction: column; align-items: stretch; justify-content: flex-start; gap: 0; }
+.br-prev--col .br-cover { align-self: flex-start; }

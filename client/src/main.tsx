@@ -14,12 +14,17 @@ import GpuNotice from './GpuNotice';
 import { initTelemetry } from './telemetry';
 
 import { installCapture } from './dev/capture';
+import { autoInstall, registerWorker } from './packs';
 
 
 
 installCapture(); // (solo desarrollo local con /?capture: reloj y semilla congelados, dev/capture.ts)
 
 initTelemetry(); // (solo con DSN y con el permiso de las condiciones: telemetry.ts)
+
+registerWorker(); // (producción: el service worker sirve desde el disco lo que se instaló en SETTINGS > STORAGE; src/packs.ts)
+
+setTimeout(() => void autoInstall(), 20000); // (los paquetes automáticos —core y phoenyx— se guardan en segundo plano, ya con el juego abierto)
 
 installErrLog(); // los shaders que no compilan y los fallos de carga que vengan después se guardan para la consola de admin (errlog.ts)
 

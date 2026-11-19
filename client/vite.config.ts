@@ -1,6 +1,7 @@
 import { defineConfig, type Plugin } from 'vite';
 import react from '@vitejs/plugin-react';
-import { existsSync, readdirSync, readFileSync, watch, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, watch, writeFileSync } from 'node:fs';
+import { dirname, join, relative } from 'node:path';
 import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
@@ -100,6 +101,65 @@ const bakeLods = (): Plugin => {
   };
 };
 
+// los paquetes (SETTINGS > STORAGE, src/packs.ts): el manifiesto con los archivos de cada uno se genera al compilar (con los de public/ y los de assets/) y,
+// en desarrollo, solo con los de public/. core (todo lo común), phoenyx (el motor, solo en esa variante), la textura HD (aún sin archivos) y uno por nivel
+const PACKS: { id: string; name: string; desc: string; auto?: boolean; soon?: boolean; cover?: string }[] = [
+  { id: 'core', name: 'CORE', desc: 'THE MENU, THE LOBBY, ITEMS, COSMETICS AND EVERYTHING SHARED', auto: true },
+  { id: 'phoenyx', name: 'PHOENYX', desc: 'THE GRAPHICS ENGINE (WEBGPU)', auto: true, cover: '/brand/phoenyx-128.png' },
+  { id: 'hd', name: 'HIGH-RES TEXTURES', desc: 'SHARPER WALLS, FLOORS AND PROPS', soon: true },
+  { id: 'level0', name: 'LEVEL 0 · THE LOBBY', desc: 'THE YELLOW OFFICE MAZE' },
+  { id: 'parking', name: 'LEVEL 1 · THE HABITABLE ZONE', desc: 'CONCRETE DECKS AND DARK AISLES' },
+  { id: 'poolrooms', name: 'LEVEL 37 · THE POOLROOMS', desc: 'WHITE TILE AND WARM WATER' },
+  { id: 'suites', name: 'LEVEL -20 · THE SUITES', desc: 'THE HOTEL: RED WALLPAPER AND NO FACES' },
+];
+const packOf = (f: string) =>
+  /^assets\/phoenyx/.test(f) ? 'phoenyx' : /^assets\/parking/.test(f) || f.startsWith('models/parking/') ? 'parking' : f.startsWith('models/pool/') ? 'poolrooms' : f.startsWith('models/suites/') || f.startsWith('models/backrooms/suites/') ? 'suites' : f.startsWith('models/backrooms/hospital/') ? 'core' : f.startsWith('models/backrooms/') ? 'level0' : 'core';
+function packsManifest(dirs: string[]): string {
+  const files: string[] = [];
+  const walk = (root: string, d: string) => {
+    if (!existsSync(d)) return;
+    for (const e of readdirSync(d, { withFileTypes: true })) {
+      const p = join(d, e.name);
+      if (e.isDirectory()) walk(root, p);
+      else files.push(relative(root, p).replaceAll('\\', '/') + '|' + statSync(p).size);
+    }
+  };
+  const seen = new Set<string>();
+  const by: Record<string, { files: string[]; bytes: number }> = {};
+  for (const d of dirs) walk(d, d);
+  for (const entry of files) {
+    const [f, size] = entry.split('|');
+    // (fuera: la página y el worker, que se piden siempre frescos; los originales .zip y las animaciones FBX sin empaquetar, que el juego no usa; el propio manifiesto)
+    if (seen.has(f) || f === 'index.html' || f === 'sw.js' || f.endsWith('.zip') || f.endsWith('.md') || f.startsWith('animations/player/') || f.startsWith('models/packs/')) continue;
+    seen.add(f);
+    const b = (by[packOf(f)] ??= { files: [], bytes: 0 });
+    b.files.push('/' + f);
+    b.bytes += Number(size);
+  }
+  return JSON.stringify({ packs: PACKS.filter((p) => by[p.id] || p.soon).map((p) => ({ ...p, files: by[p.id]?.files ?? [], bytes: by[p.id]?.bytes ?? 0 })) });
+}
+const packs = (): Plugin => {
+  let out = '';
+  return {
+    name: 'packs-manifest',
+    configResolved(c) {
+      out = c.build.outDir;
+      if (!out.includes(':') && !out.startsWith('/')) out = join(c.root, out);
+    },
+    configureServer(server) {
+      server.middlewares.use('/models/packs/manifest.json', (_req, res) => {
+        res.setHeader('content-type', 'application/json');
+        res.end(packsManifest([fileURLToPath(new URL('./public', import.meta.url))]));
+      });
+    },
+    closeBundle() {
+      if (!existsSync(join(out, 'index.html'))) return; // (solo al compilar)
+      mkdirSync(join(out, 'models/packs'), { recursive: true });
+      writeFileSync(join(out, 'models/packs/manifest.json'), packsManifest([out]));
+    },
+  };
+};
+
 // RENDERER=phoenyx: `three` se sustituye por Phoenyx (E:/phoenix, motor Rust + WebGPU con la misma API); sin la variable, three de siempre
 const PHOENYX = process.env.RENDERER === 'phoenyx';
 const PHOENYX_DIR = (process.env.PHOENYX_DIR ?? 'E:/phoenix').replaceAll('\\', '/');
@@ -120,7 +180,7 @@ const proxy = {
 
 // el juego pregunta por process.env.NODE_ENV (avisos y atajos de desarrollo): se define a mano
 export default defineConfig(({ mode }) => ({
-  plugins: [react(), gripsSaver(), animPack(), ...(PHOENYX ? [bakeLods()] : [])],
+  plugins: [react(), gripsSaver(), animPack(), packs(), ...(PHOENYX ? [bakeLods()] : [])],
   cacheDir: PHOENYX ? 'node_modules/.vite-phoenyx' : undefined, // (cada variante con su cache: si no, dos servidores a la vez se pisan las dependencias optimizadas)
   resolve: { alias: [{ find: /^three-real$/, replacement: REAL_THREE }, { find: /^@phoenyx\/collide$/, replacement: PHOENYX ? `${PHOENYX_DIR}/packages/phoenyx/src/collide.ts` : fileURLToPath(new URL('./src/game/collideStub.ts', import.meta.url)).replaceAll('\\', '/') }, ...phoenyxAlias] },
   define: { __PHOENYX__: JSON.stringify(PHOENYX), 'process.env.NODE_ENV': JSON.stringify(mode === 'production' ? 'production' : 'development') },
