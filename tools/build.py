@@ -45,7 +45,7 @@ def _rgb(hex_: str) -> str:
     return f"\x1b[38;2;{int(hex_[1:3], 16)};{int(hex_[3:5], 16)};{int(hex_[5:7], 16)}m"
 
 
-COL = {"accent": "#58d6b8", "text": "#d9dee7", "dim": "#6b7588", "ok": "#7bd88f", "warn": "#f2c36b", "err": "#ff6b81", "run": "#6cb6ff"}
+COL = {"faint": "#4a4a52", "accent": "#58d6b8", "text": "#d9dee7", "dim": "#6b7588", "ok": "#7bd88f", "warn": "#f2c36b", "err": "#ff6b81", "run": "#6cb6ff"}
 
 
 def paint(name: str, s: str, bold: bool = False) -> str:
@@ -129,6 +129,46 @@ def read_key() -> str:
         termios.tcsetattr(fd, termios.TCSADRAIN, old)
 
 
+def poll_key(timeout: float) -> str | None:
+    """A key press if one arrives within `timeout` seconds, else None (lets the menu animate while it waits)."""
+    if os.name == "nt":
+        import msvcrt
+        end = time.time() + timeout
+        while time.time() < end:
+            if msvcrt.kbhit():
+                ch = msvcrt.getwch()
+                if ch in ("\x00", "\xe0"):
+                    return {"H": "up", "P": "down"}.get(msvcrt.getwch(), "")
+                return {"\r": "enter", "\x1b": "esc", "\x03": "esc"}.get(ch, ch)
+            time.sleep(0.02)
+        return None
+    import select
+    import termios
+    import tty
+    fd = sys.stdin.fileno()
+    old = termios.tcgetattr(fd)
+    try:
+        tty.setcbreak(fd)
+        if not select.select([sys.stdin], [], [], timeout)[0]:
+            return None
+        ch = sys.stdin.read(1)
+        if ch == "\x1b":
+            if select.select([sys.stdin], [], [], 0.02)[0] and sys.stdin.read(1) == "[":
+                return {"A": "up", "B": "down"}.get(sys.stdin.read(1), "")
+            return "esc"
+        return {"\n": "enter", "\r": "enter", "\x03": "esc"}.get(ch, ch)
+    finally:
+        termios.tcsetattr(fd, termios.TCSADRAIN, old)
+
+
+def option_label(key: str, label: str, selected: bool) -> str:
+    if key == "phoenyx":  # the rainbow drifts on its own
+        return rainbow(label, bold=selected, shift=time.time() * 0.35)
+    if key == "three":  # half off, with its tag
+        return paint("faint", label) + paint("faint", " (deprecated)")
+    return paint("accent", label, bold=True) if selected else paint("text", label)
+
+
 def ask(question: str, options: list[tuple[str, str]], default: int = 0) -> str:
     """Single choice. Arrow keys / j k / numbers on a terminal, a numbered prompt otherwise."""
     if not (TTY and sys.stdin.isatty()):
@@ -143,10 +183,12 @@ def ask(question: str, options: list[tuple[str, str]], default: int = 0) -> str:
         for i, (_, label) in enumerate(options):
             mark = paint("accent", "▸ ") if i == sel else "  "
             num = paint("dim", f"{i + 1} ")
-            text = rainbow(label, bold=i == sel, shift=time.time() * 0.5) if label == "phoenyx" else paint("accent", label, bold=True) if i == sel else paint("text", label)
-            print(f"\x1b[2K{mark}{num}{text}")
+            print(f"\x1b[2K{mark}{num}{option_label(options[i][0], label, i == sel)}")
         print(f"\x1b[2K{paint('dim', '↑↓ move · enter select · q quit')}")
-        key = read_key()
+        key = poll_key(0.066)  # ~15 fps redraw while waiting
+        if key is None:
+            sys.stdout.write(f"\x1b[{len(options) + 1}A")
+            continue
         if key in ("up", "k"):
             sel = (sel - 1) % len(options)
         elif key in ("down", "j"):
@@ -163,7 +205,7 @@ def ask(question: str, options: list[tuple[str, str]], default: int = 0) -> str:
                 sys.stdout.write("\x1b[2K\n")
             sys.stdout.write(f"\x1b[{len(options) + 1}A")
             chosen = options[sel][1]
-            print(f"{paint('ok', '✓')} {paint('dim', question)} {rainbow(chosen) if chosen == 'phoenyx' else paint('accent', chosen)}\n")
+            print(f"{paint('ok', '✓')} {paint('dim', question)} {option_label(options[sel][0], chosen, True)}\n")
             return options[sel][0]
         sys.stdout.write(f"\x1b[{len(options) + 1}A")
 
@@ -313,6 +355,7 @@ def main() -> int:
         from dash import Dashboard, Proc, TAGCOL
         procs = [Proc(t, c, env, ROOT, TAGCOL[i % len(TAGCOL)]) for i, (t, c) in enumerate(specs)]
         procs.append(Proc("tunnel", TUNNELS[tunnel][1] if tunnel else "", env, ROOT, TAGCOL[2], auto=bool(tunnel)))  # idle until key t
+        procs.append(Proc("vercel", "", env, ROOT, TAGCOL[3], auto=False, oneshot=True))  # one-shot `vercel` commands, driven from the panel
         urls = [("client", f"http://localhost:{CLIENT_PORT}"), ("server", f"http://localhost:{SERVER_PORT}")]
         branch = subprocess.run("git rev-parse --abbrev-ref HEAD", shell=True, cwd=ROOT, capture_output=True, text=True).stdout.strip()
         return Dashboard("backrooms", f"{task} · {env.get('RENDERER', 'three')}", procs, urls, branch, [(k, TUNNELS[k][1]) for k in available_tunnels()]).run()

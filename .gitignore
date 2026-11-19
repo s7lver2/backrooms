@@ -30,3 +30,4 @@ assets-src/
 # LOD de los modelos: los genera tools/bake_lods.mjs al compilar y al arrancar el servidor
 client/public/models/lods/
 .phoenyx
+__pycache__/
