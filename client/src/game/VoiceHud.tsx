@@ -1,7 +1,7 @@
 import type { RoomView } from '@backrooms/shared';
 import { settings } from '../settings';
 import { useVoice } from '../voice';
-import { Mic, MicOff } from 'lucide-react';
+import { Lock, Mic, MicOff } from 'lucide-react';
 import { ic } from './ic';
 
 /** El estado del chat de voz, abajo a la izquierda: tu micrófono y quién está hablando. Solo en una sala y con la voz encendida. */
@@ -14,6 +14,11 @@ export default function VoiceHud({ room, me }: { room: RoomView; me: string }) {
       <span className="br-voice__mic" data-on={v.talking || undefined} data-bad={v.state === 'denied' || undefined}>
         {v.state === 'denied' ? v.why : v.linked()[0] < v.linked()[1] ? 'LINKING…' : settings.voiceMode === 1 ? (v.talking ? <><Mic {...ic} /> TALKING</> : <><MicOff {...ic} /> HOLD [V]</>) : v.talking ? <><Mic {...ic} /> MIC OPEN</> : <><MicOff {...ic} /> MIC</>}
       </span>
+      {v.secure()[1] > 0 && v.secure()[0] === v.secure()[1] && (
+        <span className="br-voice__who" title={room.players.filter((p) => p.id !== me).map((p) => `${p.name}: ${v.safety(p.id) ?? '-'}`).join(' · ')}>
+          <Lock {...ic} /> ENCRYPTED
+        </span>
+      )}
       {talking.filter((p) => p.id !== me).map((p) => (
         <span key={p.id} className="br-voice__who">▮ {p.name}</span>
       ))}

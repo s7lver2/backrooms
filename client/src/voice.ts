@@ -1,7 +1,7 @@
 import { useSyncExternalStore } from 'react';
 import { settings } from './settings';
 import type { Sock } from './net';
-import { FX_PRESETS, Mesh, Mic, Spatial, createCapture, type Capture, type SpatialQuality, type Vec3, type VoiceWorld } from '@phoenyx/voice';
+import { E2ee, FX_PRESETS, Mesh, Mic, Spatial, createCapture, type Capture, type SpatialQuality, type Vec3, type VoiceWorld } from '@phoenyx/voice';
 
 /** El micrófono (permiso y dispositivos): lo usa también SETTINGS para configurarlo desde el juego. */
 export const voiceMic = new Mic();
@@ -76,6 +76,10 @@ class Voice {
   why = '';
   /** Conexiones de voz establecidas y las que debería haber. */
   linked = (): [number, number] => this.mesh?.linked() ?? [0, 0];
+  /** Conexiones cifradas de extremo a extremo y las que hay. */
+  secure = (): [number, number] => this.mesh?.secure() ?? [0, 0];
+  /** El código de seguridad con ese jugador (si coincide en los dos lados, nadie se ha puesto en medio). */
+  safety = (id: string) => this.mesh?.safetyCode(id);
   /** Estoy emitiendo (tecla pulsada o micro abierto). */
   talking = false;
   /** Con quién hay una llamada de Nokia: se oyen como si estuvieran al lado, estén donde estén. */
@@ -94,7 +98,7 @@ class Voice {
     this.sock = sock;
     const mesh = (this.mesh = new Mesh(
       { send: (to, data) => sock.emit('rtc', to, data), on: (cb) => (sock.on('rtc', cb), () => void sock.off('rtc', cb)) },
-      { iceServers: ICE },
+      { iceServers: ICE, e2ee: settings.voiceLock > 0 && E2ee.supported ? new E2ee() : undefined, e2eeMode: settings.voiceLock === 2 ? 'required' : 'optional' },
     ));
     if (this.mic) mesh.setTrack(this.mic.getAudioTracks()[0] ?? null);
     mesh.onTrack = (id, ms) => this.hear(id, ms);

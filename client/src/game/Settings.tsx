@@ -6,7 +6,7 @@ import { Circle } from 'lucide-react';
 import { ic } from './ic';
 import StoragePane from './Storage';
 import { voice, voiceMic } from '../voice';
-import { FX_PRESETS } from '@phoenyx/voice';
+import { E2ee, FX_PRESETS } from '@phoenyx/voice';
 
 /*
  * SETTINGS: una pestaña por bloque (audio, controles, imagen, accesibilidad) a todo el ancho y en dos columnas: a la izquierda
@@ -49,6 +49,7 @@ const SECTIONS = {
     { id: 'sfx', label: 'EFFECTS', desc: 'Footsteps, shots, entities', long: 'Sounds that happen at a moment: footsteps, the camera, the rifle, whatever is hunting you. Lowering it makes the Backrooms quieter, not safer.', num: pct('sfx') },
     { id: 'voiceMode', label: 'VOICE CHAT', desc: 'Talk to your room', long: 'Hear and talk to the other players in your room. PUSH TO TALK: hold V. OPEN MIC: always transmitting (the browser asks for the microphone). Voices go straight between players.', num: { k: 'voiceMode', min: 0, max: 2, step: 1, unit: '', scale: 1, labels: ['OFF', 'PUSH TO TALK [V]', 'OPEN MIC'] } },
     { id: 'voiceVol', label: 'VOICE VOLUME', desc: 'How loud your mates are', long: 'The level of the other players voices. Above 100% they are boosted (with a limiter so they do not distort).', num: { k: 'voiceVol', min: 0, max: 3, step: 0.05, unit: '%', scale: 100 } },
+    { id: 'voiceLock', label: 'ENCRYPTED VOICE', desc: 'Only your room can listen', long: 'Encrypts the voice from your microphone to the other players, so nobody in between (not even the server) can listen. ON: encrypts with everyone who can and talks in the clear with the rest. STRICT: you only talk to and hear players whose voice is encrypted. Hover ENCRYPTED in the room to see a security code per player: if you both read the same number, nobody is listening in the middle. Takes effect when you enter a room.', num: { k: 'voiceLock', min: 0, max: 2, step: 1, unit: '', scale: 1, labels: ['OFF', 'ON', 'STRICT'] } },
     { id: 'voice3d', label: 'VOICE 3D', desc: 'Voices placed in the space', long: 'How the other players voices sound in the world. FLAT: everyone the same, centred. LOW: quieter with distance and panned left or right. MEDIUM: also real 3D positioning (headphones help) and echo. HIGH: walls muffle and quiet voices and the echo follows the size of the room you are in.', num: { k: 'voice3d', min: 0, max: 3, step: 1, unit: '', scale: 1, labels: ['FLAT', 'LOW', 'MEDIUM', 'HIGH'] } },
     { id: 'micDev', label: 'MICROPHONE', desc: 'Which one you talk into', long: 'Choose the microphone here, in the game, instead of in the browser. The browser asks for permission once (ALLOW below); after that everything is set here. The list shows after you allow it.', num: { k: 'micDev', min: 0, max: 0, step: 1, unit: '', scale: 1, labels: ['DEFAULT'] } },
     { id: 'micGain', label: 'MIC GAIN', desc: 'How strong your voice goes out', long: 'Boosts or lowers what your microphone picks up before it is sent. Watch the meter while you talk: it should reach about three quarters on a normal sentence.', num: { k: 'micGain', min: 0, max: 3, step: 0.05, unit: '%', scale: 100 } },
@@ -228,6 +229,13 @@ function Monitor({ s, id }: { s: Settings; id: string }) {
 /** El texto de la vista previa del ajuste elegido (bajo el monitor, si lo lleva). */
 function Caption({ row, s, muted }: { row: Row; s: Settings; muted: boolean }): ReactNode {
   switch (row.id) {
+    case 'voiceLock':
+      return (
+        <p className="br-big">
+          {['OFF', 'ON', 'STRICT'][Math.round(s.voiceLock)]}
+          <span className="br-lobby__dim br-big__s"> · {['VOICE GOES AS IT IS', 'ENCRYPTED WITH EVERYONE WHO CAN', 'ONLY ENCRYPTED VOICE, NO FALLBACK'][Math.round(s.voiceLock)]}{E2ee.supported ? '' : ' · THIS BROWSER CANNOT ENCRYPT'}</span>
+        </p>
+      );
     case 'voice3d': {
       const d = ['EVERYONE THE SAME, CENTRED', 'DISTANCE AND LEFT/RIGHT', 'DISTANCE, 3D POSITION AND ECHO', 'ALSO WALLS AND ROOM SIZE'][Math.round(s.voice3d)] ?? '';
       return (
