@@ -141,9 +141,11 @@ function Static({ still, scenes }: { still: boolean; scenes: HTMLCanvasElement[]
 function Fps() {
   const [n, setN] = useState(0);
   useEffect(() => {
-    let f0 = drawn.n, last = performance.now(), id = 0;
+    let f0 = drawn.n, raf = 0, last = performance.now(), id = 0;
     const tick = (t: number) => {
-      if (t - last >= 500) (setN(Math.round(((drawn.n - f0) * 1000) / (t - last))), (f0 = drawn.n), (last = t));
+      raf++;
+      // (los fotogramas que dibuja el juego; en el menu, donde el juego no dibuja, los del navegador)
+      if (t - last >= 500) (setN(Math.round(((drawn.n !== f0 ? drawn.n - f0 : raf) * 1000) / (t - last))), (f0 = drawn.n), (raf = 0), (last = t));
       id = requestAnimationFrame(tick);
     };
     id = requestAnimationFrame(tick);

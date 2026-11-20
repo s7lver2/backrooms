@@ -59,9 +59,19 @@ export async function install(p: Pack, onProgress?: (f: number) => void, signal?
   const worker = async () => {
     for (let f = queue.shift(); f; f = queue.shift()) {
       if (!(await c.match(f))) {
-        const r = await fetch(f, { signal });
-        if (!r.ok) throw new Error(`${f}: ${r.status}`);
-        await c.put(f, r);
+        // (hasta 3 intentos por archivo: un corte suelto de red no tira todo el paquete; lo ya bajado se conserva y se reanuda)
+        for (let t = 1; ; t++) {
+          try {
+            const r = await fetch(f, { signal });
+            if (!r.ok) throw new Error(`${f}: ${r.status}`);
+            if (!/\.(html?|json)$/.test(f) && (r.headers.get('content-type') ?? '').includes('text/html')) throw new Error(`${f}: NOT FOUND`); // (la reescritura de la SPA devuelve la pagina)
+            await c.put(f, r);
+            break;
+          } catch (e) {
+            if (signal?.aborted || t >= 3) throw e;
+            await new Promise((ok) => setTimeout(ok, 400 * t));
+          }
+        }
       }
       onProgress?.(++done / p.files.length);
     }
@@ -69,6 +79,7 @@ export async function install(p: Pack, onProgress?: (f: number) => void, signal?
   try {
     await Promise.all(Array.from({ length: 4 }, worker)); // (cuatro descargas a la vez)
     localStorage.removeItem(OFF + p.id);
+    void navigator.storage?.persist?.().catch(() => {}); // (que el navegador no lo borre al faltar espacio)
   } catch (e) {
     queue.length = 0;
     throw e;
@@ -119,7 +130,7 @@ export async function startInstall(p: Pack, quiet = false): Promise<void> {
     emit();
     setTimeout(() => dls.get(p.id) === d && dismissDownload(p.id), 4000);
   } catch (e) {
-    await caches.delete(PREFIX + p.id).catch(() => {});
+    // (si falla o se cancela, lo ya bajado se queda: al reintentar solo baja lo que falta)
     if (ac.signal.aborted) dismissDownload(p.id);
     else ((d.err = (e as Error).message || 'FAILED'), emit());
   } finally {

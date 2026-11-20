@@ -1,6 +1,10 @@
 import { useSyncExternalStore } from 'react';
 import { settings } from './settings';
 import type { Sock } from './net';
+import { FX_PRESETS, Mic, createCapture, type Capture } from '@phoenyx/voice';
+
+/** El micrófono (permiso y dispositivos): lo usa también SETTINGS para configurarlo desde el juego. */
+export const voiceMic = new Mic();
 
 /*
  * Chat de voz de la sala: WebRTC entre jugadores (malla: cada uno con cada uno; vale para 4). El servidor solo reenvía la señalización
@@ -56,6 +60,11 @@ class Voice {
   private me = '';
   private peers = new Map<string, Peer>();
   private mic?: MediaStream;
+  private cap?: Capture;
+  private capKey = '';
+  private devKey = '';
+  private testing = false;
+  private mon?: { src: MediaStreamAudioSourceNode; gain: GainNode };
   private micAsk?: Promise<void>;
   private ctx?: AudioContext;
   private micLevel?: () => number;
@@ -102,8 +111,9 @@ class Voice {
     removeEventListener('blur', this.release);
     clearInterval(this.tickId);
     [...this.peers.keys()].forEach((id) => this.drop(id));
+    this.cap?.dispose();
     this.mic?.getTracks().forEach((t) => t.stop());
-    this.mic = this.micAsk = this.micLevel = undefined;
+    this.cap = this.mic = this.micAsk = this.micLevel = undefined;
     this.bus = undefined;
     this.ctx?.close().catch(() => {});
     this.ctx = undefined;
@@ -260,25 +270,73 @@ class Voice {
     };
   }
 
+  /** Lo que se le pide a la captura segun los ajustes (ganancia, puerta y modulacion). */
+  private capOpts() {
+    return { gain: settings.micGain, gate: settings.micGate, fx: { preset: FX_PRESETS[settings.micFx] ?? 'none' } };
+  }
+  private devId = () => voiceMic.devices[settings.micDev - 1]?.id;
+
   private async ensureMic() {
     if (this.mic || this.state === 'denied') return;
     this.micAsk ??= (async () => {
       try {
-        const s = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true, channelCount: 1, sampleRate: { ideal: 48000 } }, video: false });
-        this.mic = s;
-        const t = s.getAudioTracks()[0];
-        t.enabled = false;
+        const raw = await voiceMic.request(this.devId());
+        const c = (this.ctx ??= new AudioContext());
+        if (c.state === 'suspended') void c.resume();
+        this.cap = await createCapture(c, raw, this.capOpts());
+        this.capKey = JSON.stringify(this.capOpts());
+        this.devKey = String(settings.micDev);
+        this.mic = this.cap.stream;
+        const t = this.cap.track;
+        t.enabled = this.testing;
         for (const p of this.peers.values()) void p.pc.getSenders().find((x) => !x.track || x.track.kind === 'audio')?.replaceTrack(t);
-        this.micLevel = this.meter(s);
+        this.micLevel = this.cap.level;
         this.state = 'on';
-      } catch {
-        this.state = 'denied';
-        this.why = navigator.mediaDevices ? 'MIC BLOCKED' : 'MIC NEEDS HTTPS';
+      } catch (e) {
+        const denied = voiceMic.state === 'denied' || voiceMic.state === 'unavailable';
+        this.state = denied ? 'denied' : 'idle';
+        this.why = voiceMic.state === 'unavailable' ? 'MIC NEEDS HTTPS' : denied ? 'MIC BLOCKED' : 'MIC NOT FOUND';
+        if (!denied) this.micAsk = undefined; // (otro dispositivo o reintentar)
+        void e;
       }
       this.bump();
     })();
     await this.micAsk;
   }
+
+  /** Suelta el micrófono (para cambiar de dispositivo o al acabar una prueba sin sala): el aviso rojo del navegador se apaga. */
+  private freeMic() {
+    this.cap?.dispose();
+    this.cap = this.mic = this.micLevel = this.micAsk = undefined;
+    this.state = this.state === 'denied' ? 'denied' : 'idle';
+    this.bump();
+  }
+
+  /** Pedir el permiso desde el juego (un boton de ajustes): el navegador pregunta aqui y, concedido, ya queda configurado dentro del juego. */
+  async allowMic() {
+    this.state = this.state === 'denied' ? 'idle' : this.state;
+    await this.ensureMic();
+    if (!this.sock && !this.testing) this.freeMic();
+    await voiceMic.refresh();
+  }
+
+  /** Prueba de micrófono en ajustes: medidor en vivo y, con `hear`, tu voz ya procesada por los altavoces. */
+  async test(on: boolean, hear = false) {
+    this.testing = on;
+    if (on) await this.ensureMic();
+    const t = this.cap?.track;
+    if (t) t.enabled = on || (settings.voiceMode === 2 && !!this.sock);
+    if (this.mon) (this.mon.src.disconnect(), this.mon.gain.disconnect(), (this.mon = undefined));
+    if (on && hear && this.cap && this.ctx) {
+      const src = this.ctx.createMediaStreamSource(this.cap.stream), gain = this.ctx.createGain();
+      gain.gain.value = 0.8;
+      src.connect(gain).connect(this.ctx.destination);
+      this.mon = { src, gain };
+    }
+    if (!on && !this.sock) this.freeMic();
+  }
+  /** Nivel actual de la entrada (0–1) y si la puerta de ruido deja pasar la voz. */
+  micMeter = () => ({ level: this.cap?.level() ?? 0, open: this.cap?.open() ?? false });
 
   private key = (e: KeyboardEvent) => {
     if (e.code !== PTT || e.repeat) return;
@@ -289,6 +347,14 @@ class Voice {
   private release = () => (this.held = false);
 
   private tick = () => {
+    // ajustes de micrófono en vivo: otro dispositivo rehace la captura, lo demás solo se afina
+    if (this.cap) {
+      if (String(settings.micDev) !== this.devKey) (this.freeMic(), void this.ensureMic());
+      else {
+        const k = JSON.stringify(this.capOpts());
+        if (k !== this.capKey) (this.cap.set(this.capOpts()), (this.capKey = k));
+      }
+    }
     const mode = settings.voiceMode, want = mode === 2 || (mode === 1 && this.held);
     if (want && !this.mic) void this.ensureMic();
     const on = want && !!this.mic;

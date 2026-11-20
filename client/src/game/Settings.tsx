@@ -5,6 +5,8 @@ import { DEFAULTS, FPS_CAPS, PRESETS, applyPreset, presetOf, setSetting, useSett
 import { Circle } from 'lucide-react';
 import { ic } from './ic';
 import StoragePane from './Storage';
+import { voice, voiceMic } from '../voice';
+import { FX_PRESETS } from '@phoenyx/voice';
 
 /*
  * SETTINGS: una pestaña por bloque (audio, controles, imagen, accesibilidad) a todo el ancho y en dos columnas: a la izquierda
@@ -47,6 +49,10 @@ const SECTIONS = {
     { id: 'sfx', label: 'EFFECTS', desc: 'Footsteps, shots, entities', long: 'Sounds that happen at a moment: footsteps, the camera, the rifle, whatever is hunting you. Lowering it makes the Backrooms quieter, not safer.', num: pct('sfx') },
     { id: 'voiceMode', label: 'VOICE CHAT', desc: 'Talk to your room', long: 'Hear and talk to the other players in your room. PUSH TO TALK: hold V. OPEN MIC: always transmitting (the browser asks for the microphone). Voices go straight between players.', num: { k: 'voiceMode', min: 0, max: 2, step: 1, unit: '', scale: 1, labels: ['OFF', 'PUSH TO TALK [V]', 'OPEN MIC'] } },
     { id: 'voiceVol', label: 'VOICE VOLUME', desc: 'How loud your mates are', long: 'The level of the other players voices. Above 100% they are boosted (with a limiter so they do not distort).', num: { k: 'voiceVol', min: 0, max: 3, step: 0.05, unit: '%', scale: 100 } },
+    { id: 'micDev', label: 'MICROPHONE', desc: 'Which one you talk into', long: 'Choose the microphone here, in the game, instead of in the browser. The browser asks for permission once (ALLOW below); after that everything is set here. The list shows after you allow it.', num: { k: 'micDev', min: 0, max: 0, step: 1, unit: '', scale: 1, labels: ['DEFAULT'] } },
+    { id: 'micGain', label: 'MIC GAIN', desc: 'How strong your voice goes out', long: 'Boosts or lowers what your microphone picks up before it is sent. Watch the meter while you talk: it should reach about three quarters on a normal sentence.', num: { k: 'micGain', min: 0, max: 3, step: 0.05, unit: '%', scale: 100 } },
+    { id: 'micGate', label: 'NOISE GATE', desc: 'Cuts the room noise when you are quiet', long: 'The microphone only opens when your voice passes this level, so keyboard, fans and breathing do not go out. 0 is off. Set it just above the meter while you stay silent.', num: { k: 'micGate', min: 0, max: 0.15, step: 0.005, unit: '%', scale: 667 } },
+    { id: 'micFx', label: 'VOICE EFFECT', desc: 'Change how you sound', long: 'The others hear your voice with this effect. DEEP and DEMON lower it, CHIPMUNK raises it, ROBOT and RADIO colour it. Use TEST and HEAR YOURSELF to try them.', num: { k: 'micFx', min: 0, max: FX_PRESETS.length - 1, step: 1, unit: '', scale: 1, labels: FX_PRESETS.map((n) => n.toUpperCase()) } },
     { id: 'ambient', label: 'AMBIENT', desc: 'Lights, vents, tape hiss', long: 'The constant bed: the fluorescent hum, the ventilation and the hiss of the tape.', num: pct('ambient') },
   ],
   CONTROLS: [
@@ -87,6 +93,58 @@ const TABS = [...Object.keys(SECTIONS), 'STORAGE'] as Section[];
 const BLOCKS = 24;
 
 const show = (n: NonNullable<Row['num']>, v: number) => n.labels?.[Math.round(v)] ?? `${n.unit === 'x' ? (v * n.scale).toFixed(1) : Math.round(v * n.scale)}${n.unit}`;
+
+/** La lista de micrófonos (se rellena al dar permiso). */
+function useMicDevices() {
+  const [n, setN] = useState(0);
+  useEffect(() => {
+    void voiceMic.query();
+    return voiceMic.onChange(() => setN((x) => x + 1));
+  }, []);
+  void n;
+  return voiceMic.devices;
+}
+
+/** La vista previa de los ajustes del micrófono: permiso, medidor en vivo, la puerta y escucharse a uno mismo. */
+function MicCaption() {
+  const [, bump] = useState(0);
+  useEffect(() => voiceMic.onChange(() => bump((x) => x + 1)), []);
+  const [on, setOn] = useState(false), [hear, setHear] = useState(false), [lv, setLv] = useState({ level: 0, open: false });
+  useEffect(() => {
+    if (!on) return;
+    void voice.test(true, hear);
+    const id = setInterval(() => setLv(voice.micMeter()), 60);
+    return () => (clearInterval(id), void voice.test(false));
+  }, [on, hear]);
+  const st = voiceMic.state;
+  if (st === 'unavailable') return <p className="br-big">NEEDS HTTPS<span className="br-lobby__dim br-big__s"> · the browser only offers the microphone on secure pages</span></p>;
+  if (st === 'denied')
+    return (
+      <p className="br-big">
+        BLOCKED<span className="br-lobby__dim br-big__s"> · allow the microphone with the lock icon next to the address, then reload</span>
+      </p>
+    );
+  if (st !== 'granted')
+    return (
+      <>
+        <button type="button" className="br-opt" onClick={() => void voice.allowMic()}>ALLOW MICROPHONE</button>
+        <p className="br-lobby__dim">The browser asks once. Then you pick the device and tune it here.</p>
+      </>
+    );
+  return (
+    <>
+      <Meter v={on ? lv.level : 0} />
+      <p className="br-big">
+        {on ? (lv.open ? 'VOICE GOES OUT' : 'GATE CLOSED') : 'READY'}
+        <span className="br-lobby__dim br-big__s"> · {voiceMic.devices.length} MICROPHONE{voiceMic.devices.length === 1 ? '' : 'S'}</span>
+      </p>
+      <p>
+        <button type="button" className="br-opt" onClick={() => setOn(!on)}>{on ? 'STOP TEST' : 'TEST'}</button>
+        <button type="button" className="br-opt" onClick={() => (setHear(!hear), on || setOn(true))}>HEAR YOURSELF: {hear ? 'ON' : 'OFF'}</button>
+      </p>
+    </>
+  );
+}
 
 function Meter({ v }: { v: number }) {
   const on = Math.round(v * BLOCKS);
@@ -169,6 +227,11 @@ function Monitor({ s, id }: { s: Settings; id: string }) {
 /** El texto de la vista previa del ajuste elegido (bajo el monitor, si lo lleva). */
 function Caption({ row, s, muted }: { row: Row; s: Settings; muted: boolean }): ReactNode {
   switch (row.id) {
+    case 'micDev':
+    case 'micGain':
+    case 'micGate':
+    case 'micFx':
+      return <MicCaption />;
     case 'mute':
       return <p className="br-big">{muted ? 'SOUND OFF' : 'SOUND ON'}</p>;
     case 'volume':
@@ -261,7 +324,8 @@ export default function SettingsPane({ muted, toggleSound, onBack }: { muted: bo
     document.addEventListener('fullscreenchange', f);
     return () => document.removeEventListener('fullscreenchange', f);
   }, []);
-  const rows: Row[] = tab === 'STORAGE' ? [] : SECTIONS[tab];
+  const devs = useMicDevices();
+  const rows: Row[] = tab === 'STORAGE' ? [] : (SECTIONS[tab] as Row[]).map((r) => (r.id === 'micDev' && r.num ? { ...r, num: { ...r.num, max: devs.length, labels: ['DEFAULT', ...devs.map((d) => d.label.replace(/\s*\(.*$/, '').slice(0, 18).toUpperCase() || 'MIC')] } } : r));
   const row = rows.find((r) => r.id === pick[tab]) ?? rows[0];
   const pi = presetOf(s), pv = pi < 0 ? PRESETS.length : pi; // (el último paso de la barra es CUSTOM)
   const keys = (tab === 'VIDEO' ? ['quality' as keyof Settings] : []).concat(rows.flatMap((r) => (r.num ? [r.num.k] : r.flag && r.flag !== 'mute' && r.flag !== 'fullscreen' ? [r.flag] : [])));

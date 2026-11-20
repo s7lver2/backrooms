@@ -46,6 +46,7 @@ import { holdStill } from './still';
 import { netStats, type Sock } from '../net';
 import { worldTl } from './interp';
 import { ANISO, FPS_CAPS, setSetting, settings } from '../settings';
+import { loadTapes, saveTape } from './tapes';
 import { watchCanvas } from '../errlog';
 import { gearIcons } from './invIcons';
 import { prepAvatar } from './InvAvatar';
@@ -792,6 +793,8 @@ export class BackroomsGame {
   }
   private renderMs = 0;
   private drsAcc = { n: 0, ms: 0, t: 0 };
+  private upStreak = 0;
+  private drsAt = 0;
   private relayout?: () => void;
   private adapt(dt: number) {
     const a = this.drsAcc, cap = FPS_CAPS[settings.fpsLimit] ?? 0, now = performance.now();
@@ -808,7 +811,11 @@ export class BackroomsGame {
     const down = avg > 200 ? 0.3 : avg > 100 ? 0.2 : 0.1;
     // sube otra vez si, al subir, el fotograma seguiria bajo ~18 ms (el coste de los pixeles crece con el cuadrado de la escala): antes solo subia por encima de 90 fps y se quedaba borroso para siempre
     const up = Math.min(1, this.drs + 0.1), canUp = up > this.drs && avg * (up / this.drs) ** 2 < 18;
-    const next = cpuBound ? up : avg > 20 ? Math.max(0.35, this.drs - down) : canUp ? up : this.drs;
+    // (cada cambio de escala rehace los buffers y da un tirón: a subir solo tras dos ventanas seguidas que lo permitan, y nunca antes de 4 s del ultimo cambio)
+    this.upStreak = canUp || cpuBound ? this.upStreak + 1 : 0;
+    const wantUp = this.upStreak >= 2 && now - this.drsAt > 4000;
+    const next = avg > 20 && !cpuBound ? Math.max(0.35, this.drs - down) : wantUp ? up : this.drs;
+    if (next !== this.drs) ((this.upStreak = 0), (this.drsAt = now));
     if (Math.abs(next - this.drs) > 1e-3) ((this.drs = next), this.relayout?.());
     if (avg > 66 && (this.drs <= 0.45 || cpuBound) && !this.alerted) ((this.alerted = true), this.onSlow?.(Math.round(1000 / avg)));
     // si aun así va por debajo de ~10 fps (a la resolución mínima, o porque manda la CPU): lo opcional se apaga y queda guardado
@@ -944,6 +951,7 @@ export class BackroomsGame {
         if (!gl.getContext().isContextLost()) throw e;
       }
       this.renderMs += (performance.now() - t0 - this.renderMs) * 0.05; // (lo que tarda la CPU en mandar el fotograma: la resolución dinámica lo mira)
+      this.tapeTick();
     };
     this.composer.addPass(new RenderPass(this.scene, this.camera));
     if (!opts.low) {
@@ -1068,7 +1076,7 @@ export class BackroomsGame {
     // fase 3: las escenas de la nieve del menú
     at(3, 0);
     await paint();
-    this.stills = this.prerender(w, p, es);
+    this.stills = [...this.prerender(w, p, es), ...(await loadTapes())];
     warmItems.dispose();
     es.forEach((e) => e.dispose());
     p.dispose();
@@ -1076,9 +1084,25 @@ export class BackroomsGame {
     at(3, 1);
   }
 
+  /** Grabar cintas para el menu: en niveles que no son la Lobby, cada ~40 s, 3 fotogramas (ver tapes.ts). Se copia en el mismo momento de pintar (el lienzo WebGPU no se puede leer despues). */
+  private tape = { next: 0, last: 0, frames: [] as HTMLCanvasElement[] };
+  private tapeTick() {
+    const t = this.tape, now = performance.now();
+    if (!this.player || this.paused || this.waiting || this.winning || this.dying >= 0 || document.hidden || this.opts.low || window.__capture) return;
+    const lvl = this.mp?.level ?? (this.parking ? 'parking' : this.pool instanceof PoolLevel ? 'poolrooms' : 'level0');
+    if (lvl === 'level0') return;
+    if (!t.next) t.next = now + 15000;
+    if (!t.frames.length && now < t.next) return;
+    if (now - t.last < 250) return;
+    const src = this.renderer.domElement, c = Object.assign(document.createElement('canvas'), { width: 320, height: 180 }), k = Math.max(320 / src.width, 180 / src.height);
+    c.getContext('2d')!.drawImage(src, (320 - src.width * k) / 2, (180 - src.height * k) / 2, src.width * k, src.height * k);
+    t.frames.push(c), (t.last = now);
+    if (t.frames.length >= 3) (saveTape(lvl, t.frames), (t.frames = []), (t.next = now + 40000 + Math.random() * 30000));
+  }
+
   /**
    * Las escenas de la nieve del menú, pintadas una vez con el mapa de prueba ya compilado: salas y pasillos
-   * vistos desde el suelo, con una a tres entidades bailando; cada escena son 3 fotogramas de su baile, a
+   * vistos desde el suelo, con una a tres entidades bailando; cada escena son 4 fotogramas de su baile, a
    * 320×180, que el menú saca de vez en cuando entre la nieve.
    */
   private prerender(w: World, p: Player, es: Entity[]) {
@@ -1086,7 +1110,7 @@ export class BackroomsGame {
     p.rig.root.visible = false;
     for (const it of Object.values(p.items)) it.visible = false;
     this.vhs.enabled = false;
-    const extra = (['bacteria', 'partygoer'] as Kind[]).map((k, i) => new Entity(k, w, this.assets!, m.spawns[i] ?? m.start));
+    const extra = (['bacteria', 'partygoer', 'faceling', 'partygoer'] as Kind[]).map((k, i) => new Entity(k, w, this.assets!, m.spawns[i] ?? m.start));
     const pool = [...es, ...extra];
     const DIRS = [[1, 0], [-1, 0], [0, 1], [0, -1]] as const;
     const free = (x: number, y: number) => x >= 0 && y >= 0 && x < m.w && y < m.h && !!m.open[y * m.w + x] && !m.voids.some((v) => v.x === x && v.y === y);
@@ -1098,7 +1122,7 @@ export class BackroomsGame {
     };
     cam.fov = 70;
     cam.updateProjectionMatrix();
-    for (let tries = 0; out.length < 7 && tries < 400; tries++) {
+    for (let tries = 0; out.length < 10 && tries < 600; tries++) {
       const cx = 1 + ((Math.random() * (m.w - 2)) | 0), cy = 1 + ((Math.random() * (m.h - 2)) | 0);
       if (!free(cx, cy)) continue;
       // hacia dónde hay más sitio libre en línea recta (se quiere profundidad: un pasillo o una sala)
@@ -1113,7 +1137,7 @@ export class BackroomsGame {
       const eye = center({ x: cx, y: cy }, 1.3).addScaledVector(new THREE.Vector3(dx, 0, dz), -0.4);
       // una tercera parte con la linterna encendida: en las zonas apagadas no se vería nada
       const lit = !!m.lit[cy * m.w + cx], torch = !lit || Math.random() < 0.3;
-      const n = 1 + (Math.random() < 0.6 ? 1 : 0) + (Math.random() < 0.25 ? 1 : 0);
+      const n = 1 + (Math.random() < 0.7 ? 1 : 0) + (Math.random() < 0.45 ? 1 : 0) + (Math.random() < 0.2 ? 1 : 0);
       const cast = [...pool].sort(() => Math.random() - 0.5);
       cast.forEach((e, i) => {
         const on = i < n;
@@ -1133,7 +1157,7 @@ export class BackroomsGame {
       cam.updateMatrixWorld(true);
       this.flash.intensity = torch ? FLASH : 0;
       const frames: HTMLCanvasElement[] = [];
-      for (let f = 0; f < 3; f++) {
+      for (let f = 0; f < 4; f++) {
         // el baile avanza entre fotogramas (el primero, desde un punto cualquiera del clip)
         cast.slice(0, n).forEach((e) => e.update(f ? 0.16 : Math.random() * 3, eye, eye, null, false, true));
         w.update(this.t + f * 0.1, 0.1);
