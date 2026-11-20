@@ -5,3 +5,4 @@
 /client/public/models/parking/**/*.jpg filter=lfs diff=lfs merge=lfs -text
 /client/public/models/parking/**/*.webp filter=lfs diff=lfs merge=lfs -text
 /.githooks/* text eol=lf
+/client/public/hd/**/*.webp filter=lfs diff=lfs merge=lfs -text

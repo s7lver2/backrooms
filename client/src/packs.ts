@@ -20,6 +20,8 @@ export interface Pack {
   cover?: string;
 }
 
+import { useSyncExternalStore } from 'react';
+
 export const PREFIX = 'br-pack-';
 export const MANIFEST = '/models/packs/manifest.json'; // (fuera de /assets: la reescritura de la SPA no la toca)
 const OFF = 'br-pack-off:'; // ajuste local: quitado a mano, no se reinstala solo
@@ -49,7 +51,7 @@ export async function status(p: Pack): Promise<{ have: number; bytes: number }> 
 }
 
 /** Baja los archivos que falten, quita los que ya no son del paquete (una versión nueva) y avisa del avance (0–1). */
-export async function install(p: Pack, onProgress?: (f: number) => void): Promise<void> {
+export async function install(p: Pack, onProgress?: (f: number) => void, signal?: AbortSignal): Promise<void> {
   const c = await caches.open(PREFIX + p.id), want = new Set(p.files.map((f) => new URL(f, location.origin).href));
   for (const r of await c.keys()) if (!want.has(r.url)) await c.delete(r);
   let done = 0;
@@ -57,7 +59,7 @@ export async function install(p: Pack, onProgress?: (f: number) => void): Promis
   const worker = async () => {
     for (let f = queue.shift(); f; f = queue.shift()) {
       if (!(await c.match(f))) {
-        const r = await fetch(f);
+        const r = await fetch(f, { signal });
         if (!r.ok) throw new Error(`${f}: ${r.status}`);
         await c.put(f, r);
       }
@@ -70,6 +72,58 @@ export async function install(p: Pack, onProgress?: (f: number) => void): Promis
   } catch (e) {
     queue.length = 0;
     throw e;
+  }
+}
+
+/*
+ * Las descargas en curso viven aqui (no en una pantalla): se pueden dejar y seguir jugando o cambiar de pestaña del navegador, siguen bajando, y
+ * DownloadToast las enseña abajo en cualquier pantalla. Cada una se puede cancelar.
+ */
+export interface Download {
+  id: string;
+  name: string;
+  f: number; // 0-1
+  done?: boolean;
+  err?: string;
+  quiet?: boolean; // las automaticas no enseñan el aviso
+}
+const dls = new Map<string, Download>(), ctl = new Map<string, AbortController>(), subs = new Set<() => void>();
+let snap: Download[] = [];
+const emit = () => ((snap = [...dls.values()].map((d) => ({ ...d }))), subs.forEach((f) => f()));
+export const useDownloads = () =>
+  useSyncExternalStore(
+    (f) => (subs.add(f), () => void subs.delete(f)),
+    () => snap,
+  );
+export const dismissDownload = (id: string) => (dls.delete(id), emit());
+export const cancelDownload = (id: string) => ctl.get(id)?.abort();
+
+export async function startInstall(p: Pack, quiet = false): Promise<void> {
+  const cur = dls.get(p.id);
+  if (cur && !cur.done && !cur.err) return;
+  const d: Download = { id: p.id, name: p.name, f: 0, quiet };
+  const ac = new AbortController();
+  dls.set(p.id, d), ctl.set(p.id, ac), emit();
+  let last = -1;
+  try {
+    await install(
+      p,
+      (f) => {
+        d.f = f;
+        if (Math.round(f * 100) !== last) ((last = Math.round(f * 100)), emit());
+      },
+      ac.signal,
+    );
+    d.done = true;
+    d.f = 1;
+    emit();
+    setTimeout(() => dls.get(p.id) === d && dismissDownload(p.id), 4000);
+  } catch (e) {
+    await caches.delete(PREFIX + p.id).catch(() => {});
+    if (ac.signal.aborted) dismissDownload(p.id);
+    else ((d.err = (e as Error).message || 'FAILED'), emit());
+  } finally {
+    ctl.delete(p.id);
   }
 }
 
@@ -87,7 +141,7 @@ export async function autoInstall(): Promise<void> {
   for (const p of await loadManifest()) {
     try {
       if (!p.auto || p.soon || (!p.required && localStorage.getItem(OFF + p.id))) continue;
-      if ((await status(p)).have < p.files.length) await install(p);
+      if ((await status(p)).have < p.files.length) await startInstall(p, true);
     } catch {}
   }
 }

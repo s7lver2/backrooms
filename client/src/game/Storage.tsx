@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState, type ReactNode } from 'react';
 import { BedDouble, Car, Database, HardDrive, Image as ImageIcon, Layers, Package, SlidersHorizontal, Waves } from 'lucide-react';
-import { PREFIX, fmt, install, loadManifest, remove, status, type Pack } from '../packs';
+import { PREFIX, cancelDownload, fmt, loadManifest, remove, startInstall, status, useDownloads, type Pack } from '../packs';
 import './Storage.css';
 
 /*
@@ -33,8 +33,10 @@ export default function StoragePane() {
   const [packs, setPacks] = useState<Pack[]>([]);
   const [have, setHave] = useState<Record<string, { have: number; bytes: number }>>({});
   const [cache, setCache] = useState<{ files: number; bytes: number; names: string[] }>({ files: 0, bytes: 0, names: [] });
-  const [busy, setBusy] = useState<Record<string, number>>({}); // paquete -> 0..1 mientras se baja
-  const [msg, setMsg] = useState('');
+  const dl = useDownloads(); // (las descargas viven en packs.ts: siguen al salir de esta pestaña; ver DownloadToast)
+  const busy: Record<string, number> = Object.fromEntries(dl.filter((d) => !d.done && !d.err).map((d) => [d.id, d.f]));
+  const failed = dl.find((d) => d.err);
+  const msg = failed ? `COULD NOT DOWNLOAD ${failed.name}: ${failed.err}`.toUpperCase() : '';
   const [pick, setPick] = useState('');
 
   const refresh = useCallback(async () => {
@@ -60,19 +62,9 @@ export default function StoragePane() {
       }
     setCache(c);
   }, []);
-  useEffect(() => void refresh(), [refresh]);
+  useEffect(() => void refresh(), [refresh, dl]);
 
-  const doInstall = async (p: Pack) => {
-    setMsg('');
-    try {
-      await install(p, (f) => setBusy((b) => ({ ...b, [p.id]: f })));
-    } catch (e) {
-      await remove(p);
-      setMsg(`COULD NOT DOWNLOAD ${p.name}: ${(e as Error).message}`.toUpperCase());
-    }
-    setBusy(({ [p.id]: _, ...rest }) => rest);
-    void refresh();
-  };
+  const doInstall = (p: Pack) => void startInstall(p);
   const local = (() => {
     try {
       return Object.keys(localStorage).reduce((a, k) => a + k.length + (localStorage.getItem(k)?.length ?? 0), 0) * 2;
@@ -92,7 +84,7 @@ export default function StoragePane() {
       cover: p.cover,
       stats: [['SIZE', p.soon ? '-' : fmt(p.bytes)], ['FILES', String(p.files.length)], ['STATE', p.soon ? 'SOON' : done ? 'INSTALLED' : 'NOT INSTALLED'], ...(p.required ? ([['REMOVABLE', 'NO · REQUIRED']] as [string, string][]) : p.auto ? ([['INSTALL', 'AUTOMATIC']] as [string, string][]) : [])],
       dim: p.soon,
-      act: p.soon || p.required ? undefined : { label: done ? 'REMOVE' : 'INSTALL', run: () => void (done ? remove(p).then(refresh) : doInstall(p)), off: work !== undefined },
+      act: p.soon || p.required ? undefined : { label: work !== undefined ? 'CANCEL' : done ? 'REMOVE' : 'INSTALL', run: () => void (done ? remove(p).then(refresh) : work !== undefined ? cancelDownload(p.id) : doInstall(p)) },
     };
   });
   const dataRows: Row[] = [

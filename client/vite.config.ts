@@ -106,14 +106,15 @@ const bakeLods = (): Plugin => {
 const PACKS: { id: string; name: string; desc: string; auto?: boolean; required?: boolean; soon?: boolean; cover?: string }[] = [
   { id: 'core', name: 'CORE', desc: 'THE MENU, THE LOBBY, ITEMS, COSMETICS AND EVERYTHING SHARED', auto: true, required: true },
   { id: 'phoenyx', name: 'PHOENYX', desc: 'THE GRAPHICS ENGINE (WEBGPU)', auto: true, cover: '/brand/phoenyx-128.png' },
-  { id: 'hd', name: 'HIGH-RES TEXTURES', desc: 'SHARPER WALLS, FLOORS AND PROPS', soon: true },
+  { id: 'hd', name: 'HIGH-RES TEXTURES', desc: 'PROPS AND FURNITURE WITH THEIR ORIGINAL 2K TEXTURES' },
+  { id: 'hdmodels', name: 'HIGH-DETAIL MODELS', desc: 'THE ORIGINAL NORMAL MAPS: FABRIC, METAL AND WOOD WITH RELIEF' },
   { id: 'level0', name: 'LEVEL 0 · THE LOBBY', desc: 'THE YELLOW OFFICE MAZE' },
   { id: 'parking', name: 'LEVEL 1 · THE HABITABLE ZONE', desc: 'CONCRETE DECKS AND DARK AISLES' },
   { id: 'poolrooms', name: 'LEVEL 37 · THE POOLROOMS', desc: 'WHITE TILE AND WARM WATER' },
   { id: 'suites', name: 'LEVEL -20 · THE SUITES', desc: 'THE HOTEL: RED WALLPAPER AND NO FACES' },
 ];
 const packOf = (f: string) =>
-  /^assets\/phoenyx/.test(f) ? 'phoenyx' : /^assets\/parking/.test(f) || f.startsWith('models/parking/') ? 'parking' : f.startsWith('models/pool/') ? 'poolrooms' : f.startsWith('models/suites/') || f.startsWith('models/backrooms/suites/') ? 'suites' : f.startsWith('models/backrooms/hospital/') ? 'core' : f.startsWith('models/backrooms/') ? 'level0' : 'core';
+  f.startsWith('hd/tex') ? 'hd' : f.startsWith('hd/nrm') ? 'hdmodels' : /^assets\/phoenyx/.test(f) ? 'phoenyx' : /^assets\/parking/.test(f) || f.startsWith('models/parking/') ? 'parking' : f.startsWith('models/pool/') ? 'poolrooms' : f.startsWith('models/suites/') || f.startsWith('models/backrooms/suites/') ? 'suites' : f.startsWith('models/backrooms/hospital/') ? 'core' : f.startsWith('models/backrooms/') ? 'level0' : 'core';
 function packsManifest(dirs: string[]): string {
   const files: string[] = [];
   const walk = (root: string, d: string) => {

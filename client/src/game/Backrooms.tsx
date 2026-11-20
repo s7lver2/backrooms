@@ -1,6 +1,7 @@
 'use client';
 import { setCrashContext } from '../telemetry';
 import { DEV_LOCAL } from '../devGate';
+import DownloadToast from './DownloadToast';
 import { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import gsap from 'gsap';
 import { holdStill } from './still';
@@ -987,6 +988,7 @@ export default function Backrooms({ onQuit, onWin }: { onQuit: () => void; onWin
         </div>
       )}
       <Toasts items={toasts} />
+      <DownloadToast />
       {slow > 0 && (
         <aside className="br-slow" role="alert">
           <p className="br-slow__t">RUNNING AT ~{slow} FPS</p>

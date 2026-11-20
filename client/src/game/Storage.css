@@ -23,3 +23,14 @@
 .br-stats dd { margin: 0; }
 .br-set2__prev.br-prev--col { display: flex; flex-direction: column; align-items: stretch; justify-content: flex-start; gap: 0; }
 .br-prev--col .br-cover { align-self: flex-start; }
+
+/* DownloadToast: las descargas de paquetes, abajo a la izquierda */
+.br-dl { position: fixed; right: 16px; bottom: 16px; z-index: 130; display: flex; flex-direction: column; gap: 8px; width: min(22em, calc(100vw - 32px)); font-family: ui-monospace, 'Cascadia Mono', Consolas, monospace; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; font-size: 13px; color: #f2f1ea; }
+.br-dl__row { position: relative; padding: 8px 32px 8px 12px; border: 1px solid #555; background: rgba(0, 0, 0, 0.9); }
+.br-dl__row[data-err] { border-color: #ff3a2e; }
+.br-dl__t { margin: 0 0 6px; display: flex; justify-content: space-between; gap: 8px; }
+.br-dl__t span { color: #8d8b80; }
+.br-dl__bar { height: 4px; background: #2a2a2a; }
+.br-dl__bar i { display: block; height: 100%; background: #f2f1ea; transition: width 0.2s linear; }
+.br-dl__x { position: absolute; right: 6px; top: 4px; padding: 2px 6px; background: none; border: 0; color: #8d8b80; font: inherit; cursor: pointer; }
+.br-dl__x:hover { color: #f2f1ea; }

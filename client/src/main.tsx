@@ -15,6 +15,7 @@ import { initTelemetry } from './telemetry';
 
 import { installCapture } from './dev/capture';
 import { autoInstall, registerWorker } from './packs';
+import './hd'; // (los packs de alta definicion se enganchan a GLTFLoader: src/hd.ts)
 
 
 
