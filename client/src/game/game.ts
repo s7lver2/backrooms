@@ -32,7 +32,8 @@ import { Entity, type Kind } from './entity';
 import { Shatter } from './shatter';
 import { unlock } from '../achievements';
 import { Remote } from './remote';
-import { voice } from '../voice';
+import { voice, type VoicePos } from '../voice';
+import { gridWorld } from '@phoenyx/voice';
 import { Minimap } from './minimap';
 import { Gadgets, ROLL } from './gadgets';
 import { loadAnimations } from './anim/animator';
@@ -1234,6 +1235,7 @@ export class BackroomsGame {
     this.god = !mp && DEV_LOCAL && new URLSearchParams(location.search).has('god');
     const w = (this.world = new World(this.caps.hotel ? suitesMaze(seed, mp?.floor) : generateMaze(seed, mp?.players ?? 1), this.assets!, this.caps.hotel));
     w.maze.totem = totemSpot(w.maze, seed, mp?.players ?? 1); // el Tótem de la vida, si toca (como en el servidor)
+    voice.setWorld(gridWorld({ open: w.maze.open, w: w.maze.w, h: w.maze.h, cell: CELL, ceil: 2.8 })); // (la voz mide paredes y salas contra el laberinto)
     this.scene.add(w.root);
     const m = w.maze, s = m.start;
     this.hides = hideStates(m);
@@ -2762,14 +2764,14 @@ export class BackroomsGame {
     const hall = this.caps.hotel && this.player ? { x: this.player.pos.x, span: SUITE_L * CELL } : undefined;
     for (const r of this.remotes.values()) ((r.hall = hall), r.update(dt), r.talk(voice.speaking.has(r.id)));
     // el chat de voz según la distancia (voice.ts): cuánto y hacia qué lado oigo a cada compañero; muerto o espectando, a todos por igual; a los muertos que espectean, también por igual
-    const me = this.player, ears = new Map<string, { d: number; pan: number }>();
-    if (me && !me.dead && !this.spectating)
+    const me = this.player, ears = new Map<string, VoicePos>();
+    if (me && !me.dead && !this.spectating) {
       for (const r of this.remotes.values()) {
         if (r.dead) continue; // (un muerto que espectea no tiene sitio en el mapa: sin entrada se oye entero y centrado, para poder hablarle)
-        const dx = r.pos.x - me.pos.x, dz = r.pos.z - me.pos.z, d = Math.hypot(dx, dz);
-        ears.set(r.id, { d: Math.hypot(d, (r.pos.y - me.pos.y) * 0.5), pan: d > 0.01 ? (dx * Math.cos(me.yaw) - dz * Math.sin(me.yaw)) / d : 0 });
+        ears.set(r.id, { pos: [r.pos.x, r.pos.y + 1.5, r.pos.z] });
       }
-    voice.listen(ears);
+      voice.pose({ pos: [me.pos.x, me.pos.y + 1.5, me.pos.z], yaw: me.yaw }, ears);
+    } else voice.pose({ pos: [0, 0, 0], yaw: 0 }, ears);
     for (const e of this.entities) e.hall = e.kind === 'faceling' ? hall : undefined;
     if (!this.spectating) {
       this.sendT += dt;
@@ -3322,6 +3324,7 @@ fps ${(1 / Math.max(dt, 1e-3)).toFixed(0)}`;
     const tok = ++this.poolTok;
     this.pics = { thumbs: [], full: [] };
     this.renderer.setAnimationLoop(null);
+    voice.setWorld(undefined);
     this.player = undefined;
     this.world = undefined;
     this.items = undefined;

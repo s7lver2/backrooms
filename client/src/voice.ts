@@ -1,15 +1,14 @@
 import { useSyncExternalStore } from 'react';
 import { settings } from './settings';
 import type { Sock } from './net';
-import { FX_PRESETS, Mic, createCapture, type Capture } from '@phoenyx/voice';
+import { FX_PRESETS, Mesh, Mic, Spatial, createCapture, type Capture, type SpatialQuality, type Vec3, type VoiceWorld } from '@phoenyx/voice';
 
 /** El micrófono (permiso y dispositivos): lo usa también SETTINGS para configurarlo desde el juego. */
 export const voiceMic = new Mic();
 
 /*
- * Chat de voz de la sala: WebRTC entre jugadores (malla: cada uno con cada uno; vale para 4). El servidor solo reenvía la señalización
- * (`rtc`), el audio no pasa por él. Cada pareja abre UNA conexión con un transceptor de audio desde el principio: el micrófono se
- * engancha después con replaceTrack, sin renegociar. Inicia la oferta el de id menor (así no se cruzan).
+ * Chat de voz de la sala, sobre la librería del motor (phoenyx-voice): transporte en malla (Mesh), captura con puerta y modulación (Capture) y sonido en el
+ * espacio (Spatial: distancia, HRTF, paredes y reverb según la sala). El servidor solo reenvía la señalización (`rtc`): el audio no pasa por él.
  * Modos (ajuste voiceMode): 0 apagado, 1 pulsar para hablar (V), 2 micrófono abierto. Con el modo 1 el micrófono se pide al primer V.
  * Servidores: STUN de Google; para redes que no dejan pasar P2P, VITE_ICE_SERVERS (JSON de RTCIceServer[], p. ej. un TURN).
  */
@@ -24,56 +23,51 @@ const ICE: RTCIceServer[] = (() => {
 })();
 
 interface Peer {
-  pc: RTCPeerConnection;
   audio: HTMLAudioElement;
-  pending: RTCIceCandidateInit[];
-  level?: () => number;
-  src?: MediaStreamAudioSourceNode;
-  /** Su tramo propio: volumen, filtro y balance según dónde esté respecto a ti (ver `listen`). */
-  gain?: GainNode;
-  lp?: BiquadFilterNode;
-  pan?: StereoPannerNode;
+  src: MediaStreamAudioSourceNode;
+  level: () => number;
 }
 
-/** La voz según la distancia (m): entera hasta NEAR, nada a FAR; más lejos, también más apagada. */
-const NEAR = 3, FAR = 24;
 /** El volumen máximo de las voces (×3 = 300 %): el limitador del final evita que sature. */
 export const VOL_MAX = 3;
+/** El perfil del sonido 3D (ajuste VOICE 3D): posición en la lista = SpatialQuality. */
+export const VOICE_3D: readonly SpatialQuality[] = ['off', 'low', 'medium', 'high'];
 
-/** El sonido de la voz según dónde se esté: filtro de paso bajo, cantidad de eco (wet) y lo que dura. */
+/** El sonido de la voz según dónde se esté (sin medida de la sala): brillo del eco, cantidad (wet) y lo que dura. */
 const ENV: Record<string, { lp: number; wet: number; decay: number }> = {
   wait: { lp: 16000, wet: 0.04, decay: 0.4 },
   maze: { lp: 7500, wet: 0.3, decay: 1.1 }, // pasillos de moqueta y ladrillo: apagada y con cola
   pool: { lp: 12000, wet: 0.5, decay: 2.4 }, // azulejo: brillante y con mucho eco
 };
-/** Opus para voz: 64 kb/s mono (el de serie ronda 32), corrección de pérdidas en banda (FEC) y banda completa a 48 kHz. */
-const opus = (sdp = '') => {
-  const pt = /a=rtpmap:(\d+) opus\/48000/i.exec(sdp)?.[1];
-  if (!pt) return sdp;
-  const strip = /;?(maxaveragebitrate|stereo|sprop-stereo|useinbandfec|cbr|maxplaybackrate)=[^;\r\n]*/g;
-  return sdp.replace(new RegExp(`a=fmtp:${pt} ([^\r\n]*)`), (_, f: string) => `a=fmtp:${pt} ${f.replace(strip, '')};maxaveragebitrate=64000;useinbandfec=1;stereo=0;sprop-stereo=0;cbr=0;maxplaybackrate=48000`);
-};
-type Sig = { sdp?: RTCSessionDescriptionInit; ice?: RTCIceCandidateInit };
+
+/** Dónde está alguien (m) para el sonido 3D. */
+export interface VoicePos {
+  pos: Vec3;
+  /** Sin sitio en el mapa (un muerto que espectea): se oye entero y centrado, para poder hablarle. */
+  free?: boolean;
+}
 
 class Voice {
   private sock?: Sock;
+  private mesh?: Mesh;
   private me = '';
   private peers = new Map<string, Peer>();
   private mic?: MediaStream;
+  private micAsk?: Promise<void>;
   private cap?: Capture;
   private capKey = '';
   private devKey = '';
   private testing = false;
   private mon?: { src: MediaStreamAudioSourceNode; gain: GainNode };
-  private micAsk?: Promise<void>;
   private ctx?: AudioContext;
   private micLevel?: () => number;
   private held = false;
   private tickId?: ReturnType<typeof setInterval>;
   private ver = 0;
-  private bus?: { inp: GainNode; lp: BiquadFilterNode; conv: ConvolverNode; wet: GainNode };
+  private bus?: { inp: GainNode; spatial: Spatial };
   private envKind = 'wait';
   private subs = new Set<() => void>();
+  private view?: { t: number; me: { pos: Vec3; yaw: number }; others: Map<string, VoicePos> };
   /** Quién suena ahora (ids de socket; el mío incluido). */
   speaking = new Set<string>();
   /** Estado del micrófono: sin pedir, en marcha o denegado/ausente. */
@@ -81,9 +75,11 @@ class Voice {
   /** Por qué no hay micrófono: sin HTTPS el navegador ni lo ofrece (solo en localhost o https). */
   why = '';
   /** Conexiones de voz establecidas y las que debería haber. */
-  linked = () => [[...this.peers.values()].filter((p) => p.pc.connectionState === 'connected').length, this.peers.size];
+  linked = (): [number, number] => this.mesh?.linked() ?? [0, 0];
   /** Estoy emitiendo (tecla pulsada o micro abierto). */
   talking = false;
+  /** Con quién hay una llamada de Nokia: se oyen como si estuvieran al lado, estén donde estén. */
+  calls = new Set<string>();
 
   private bump() {
     this.ver++;
@@ -96,24 +92,33 @@ class Voice {
   attach(sock: Sock) {
     this.detach();
     this.sock = sock;
-    sock.on('rtc', this.onSignal);
+    const mesh = (this.mesh = new Mesh(
+      { send: (to, data) => sock.emit('rtc', to, data), on: (cb) => (sock.on('rtc', cb), () => void sock.off('rtc', cb)) },
+      { iceServers: ICE },
+    ));
+    if (this.mic) mesh.setTrack(this.mic.getAudioTracks()[0] ?? null);
+    mesh.onTrack = (id, ms) => this.hear(id, ms);
+    mesh.onDrop = (id) => this.forget(id);
+    mesh.onState = () => this.bump();
     addEventListener('keydown', this.key);
     addEventListener('keyup', this.key);
     addEventListener('blur', this.release);
-    this.tickId = setInterval(this.tick, 100);
+    this.tickId = setInterval(this.tick, 50);
   }
 
   detach() {
-    this.sock?.off('rtc', this.onSignal);
     this.sock = undefined;
     removeEventListener('keydown', this.key);
     removeEventListener('keyup', this.key);
     removeEventListener('blur', this.release);
     clearInterval(this.tickId);
-    [...this.peers.keys()].forEach((id) => this.drop(id));
+    this.mesh?.close();
+    this.mesh = undefined;
+    [...this.peers.keys()].forEach((id) => this.forget(id));
     this.cap?.dispose();
     this.mic?.getTracks().forEach((t) => t.stop());
     this.cap = this.mic = this.micAsk = this.micLevel = undefined;
+    this.bus?.spatial.dispose();
     this.bus = undefined;
     this.ctx?.close().catch(() => {});
     this.ctx = undefined;
@@ -126,133 +131,41 @@ class Voice {
   /** El entorno que suena en la voz de los demás: 'wait' (sala de espera), 'maze' o 'pool'. */
   env(kind: string) {
     this.envKind = ENV[kind] ? kind : 'maze';
-    if (this.bus) this.tune();
+    this.bus?.spatial.configure({ reverb: ENV[this.envKind] });
   }
-  private tune() {
-    const b = this.bus!, e = ENV[this.envKind], c = this.ctx!, n = Math.floor(c.sampleRate * e.decay), buf = c.createBuffer(2, n, c.sampleRate);
-    for (let ch = 0; ch < 2; ch++) {
-      const d = buf.getChannelData(ch);
-      for (let i = 0; i < n; i++) d[i] = (Math.random() * 2 - 1) * (1 - i / n) ** 2.5;
-    }
-    b.conv.buffer = buf;
-    b.lp.frequency.value = e.lp;
-    b.wet.gain.value = e.wet;
+
+  /** El mundo contra el que la voz mide paredes y salas (lo pone el juego al cargar un nivel; sin él, solo distancia). */
+  setWorld(w: VoiceWorld | undefined) {
+    this.world = w;
+    if (this.bus) this.bus.spatial.world = w;
   }
-  /** La cadena común de la voz recibida: volumen → filtro → (seco + eco) → altavoces. */
+  private world?: VoiceWorld;
+
+  /** El juego dice, cada fotograma, dónde estoy y dónde está cada compañero (sin entrada = se oye entero y centrado). */
+  pose(me: { pos: Vec3; yaw: number }, others: Map<string, VoicePos>) {
+    this.view = { t: performance.now(), me, others };
+  }
+
+  /** La cadena común: voces -> Spatial -> volumen -> limitador -> altavoces. */
   private chain() {
     const c = (this.ctx ??= new AudioContext());
     if (!this.bus) {
-      const inp = c.createGain(), lp = c.createBiquadFilter(), conv = c.createConvolver(), wet = c.createGain(), dry = c.createGain(), lim = c.createDynamicsCompressor();
-      lp.type = 'lowpass';
+      const inp = c.createGain(),
+        lim = c.createDynamicsCompressor();
       // limitador al final: con el volumen por encima de 100 % la voz sube sin saturar ni romper
       lim.threshold.value = -8;
       lim.knee.value = 6;
       lim.ratio.value = 14;
       lim.attack.value = 0.003;
       lim.release.value = 0.2;
-      lim.connect(c.destination);
-      inp.connect(lp);
-      lp.connect(dry).connect(lim);
-      lp.connect(conv).connect(wet).connect(lim);
-      this.bus = { inp, lp, conv, wet };
-      this.tune();
+      inp.connect(lim).connect(c.destination);
+      const spatial = new Spatial(c, inp, { quality: VOICE_3D[settings.voice3d] ?? 'high', reverb: ENV[this.envKind] });
+      spatial.world = this.world;
+      this.bus = { inp, spatial };
     }
     if (c.state === 'suspended') void c.resume();
     return this.bus;
   }
-
-  /** Con quién hay una llamada de Nokia: se oyen como si estuvieran al lado, estén donde estén. */
-  calls = new Set<string>();
-  private ears?: { t: number; m: Map<string, { d: number; pan: number }> };
-  /** El juego dice, cada fotograma, a qué distancia (m) y hacia qué lado (−1 izquierda, 1 derecha) está cada compañero. */
-  listen(m: Map<string, { d: number; pan: number }>) {
-    this.ears = { t: performance.now(), m };
-  }
-
-  /** Los jugadores de la sala ahora: se abren las conexiones que faltan y se cierran las de quien se fue. */
-  sync(me: string, ids: string[]) {
-    if (!this.sock) return;
-    this.me = me;
-    const want = new Set(ids.filter((i) => i !== me));
-    for (const id of want) if (!this.peers.has(id)) this.open(id);
-    for (const id of [...this.peers.keys()]) if (!want.has(id)) this.drop(id);
-  }
-
-  private open(id: string) {
-    const pc = new RTCPeerConnection({ iceServers: ICE }), audio = new Audio();
-    audio.autoplay = true;
-    const p: Peer = { pc, audio, pending: [] };
-    this.peers.set(id, p);
-    if (this.me < id) {
-      // solo quien ofrece crea el transceptor: el que responde usa el que trae la oferta (uno creado antes con addTransceiver no se asocia a ella y su micrófono no sonaba: voz en un solo sentido)
-      const tr = pc.addTransceiver('audio', { direction: 'sendrecv' });
-      if (this.mic) void tr.sender.replaceTrack(this.mic.getAudioTracks()[0] ?? null);
-    }
-    pc.onicecandidate = (e) => e.candidate && this.send(id, { ice: e.candidate.toJSON() });
-    pc.ontrack = (e) => {
-      const ms = e.streams[0] ?? new MediaStream([e.track]);
-      audio.srcObject = ms;
-      audio.muted = true; // (se oye por la cadena de Web Audio; el elemento solo mantiene vivo el flujo)
-      void audio.play().catch(() => {});
-      p.src?.disconnect();
-      {
-        const b = this.chain(), c = this.ctx!;
-        p.src = c.createMediaStreamSource(ms);
-        p.gain ??= c.createGain();
-        if (!p.lp) (p.lp = c.createBiquadFilter()), (p.lp.type = 'lowpass'), (p.lp.frequency.value = 16000);
-        p.pan ??= c.createStereoPanner();
-        p.gain.disconnect(), p.lp.disconnect(), p.pan.disconnect();
-        p.src.connect(p.gain).connect(p.lp).connect(p.pan).connect(b.inp);
-      }
-      p.level = this.meter(ms);
-    };
-    pc.onconnectionstatechange = () => (this.bump(), pc.connectionState === 'failed') && this.peers.get(id) === p && (this.drop(id), this.sock && this.open(id));
-    if (this.me < id) {
-      void (async () => {
-        try {
-          const o = await pc.createOffer();
-          await pc.setLocalDescription({ type: 'offer', sdp: opus(o.sdp) });
-          this.send(id, { sdp: pc.localDescription!.toJSON() });
-        } catch {}
-      })();
-    }
-    return p;
-  }
-
-  private drop(id: string) {
-    const p = this.peers.get(id);
-    if (!p) return;
-    this.peers.delete(id);
-    p.pc.close();
-    p.audio.srcObject = null;
-    p.src?.disconnect(), p.gain?.disconnect(), p.lp?.disconnect(), p.pan?.disconnect();
-    this.speaking.delete(id);
-  }
-
-  private send(to: string, data: Sig) {
-    this.sock?.emit('rtc', to, data);
-  }
-
-  private onSignal = async (from: string, data: unknown) => {
-    const d = data as Sig;
-    const p = this.peers.get(from) ?? this.open(from);
-    try {
-      if (d.sdp) {
-        await p.pc.setRemoteDescription(d.sdp);
-        if (d.sdp.type === 'offer') {
-          const tr = p.pc.getTransceivers()[0];
-          if (tr) (tr.direction = 'sendrecv'), void tr.sender.replaceTrack(this.mic?.getAudioTracks()[0] ?? null);
-          const a = await p.pc.createAnswer();
-          await p.pc.setLocalDescription({ type: 'answer', sdp: opus(a.sdp) });
-          this.send(from, { sdp: p.pc.localDescription!.toJSON() });
-        }
-        for (const c of p.pending.splice(0)) await p.pc.addIceCandidate(c).catch(() => {});
-      } else if (d.ice) {
-        if (p.pc.remoteDescription) await p.pc.addIceCandidate(d.ice).catch(() => {});
-        else p.pending.push(d.ice);
-      }
-    } catch {}
-  };
 
   /** Un medidor del nivel (0–1) de un flujo, para saber quién habla. */
   private meter(stream: MediaStream) {
@@ -270,7 +183,35 @@ class Voice {
     };
   }
 
-  /** Lo que se le pide a la captura segun los ajustes (ganancia, puerta y modulacion). */
+  private hear(id: string, ms: MediaStream) {
+    this.forget(id);
+    const audio = new Audio();
+    audio.autoplay = true;
+    audio.srcObject = ms;
+    audio.muted = true; // (se oye por la cadena de Web Audio; el elemento solo mantiene vivo el flujo)
+    void audio.play().catch(() => {});
+    const b = this.chain(), src = this.ctx!.createMediaStreamSource(ms);
+    b.spatial.addEmitter(id, src);
+    this.peers.set(id, { audio, src, level: this.meter(ms) });
+  }
+  private forget(id: string) {
+    const p = this.peers.get(id);
+    if (!p) return;
+    this.peers.delete(id);
+    p.audio.srcObject = null;
+    this.bus?.spatial.removeEmitter(id);
+    p.src.disconnect();
+    this.speaking.delete(id);
+  }
+
+  /** Los jugadores de la sala ahora: se abren las conexiones que faltan y se cierran las de quien se fue. */
+  sync(me: string, ids: string[]) {
+    if (!this.sock) return;
+    this.me = me;
+    this.mesh?.sync(me, ids);
+  }
+
+  /** Lo que se le pide a la captura según los ajustes (ganancia, puerta y modulación). */
   private capOpts() {
     return { gain: settings.micGain, gate: settings.micGate, fx: { preset: FX_PRESETS[settings.micFx] ?? 'none' } };
   }
@@ -289,15 +230,14 @@ class Voice {
         this.mic = this.cap.stream;
         const t = this.cap.track;
         t.enabled = this.testing;
-        for (const p of this.peers.values()) void p.pc.getSenders().find((x) => !x.track || x.track.kind === 'audio')?.replaceTrack(t);
+        this.mesh?.setTrack(t);
         this.micLevel = this.cap.level;
         this.state = 'on';
-      } catch (e) {
+      } catch {
         const denied = voiceMic.state === 'denied' || voiceMic.state === 'unavailable';
         this.state = denied ? 'denied' : 'idle';
         this.why = voiceMic.state === 'unavailable' ? 'MIC NEEDS HTTPS' : denied ? 'MIC BLOCKED' : 'MIC NOT FOUND';
         if (!denied) this.micAsk = undefined; // (otro dispositivo o reintentar)
-        void e;
       }
       this.bump();
     })();
@@ -308,11 +248,12 @@ class Voice {
   private freeMic() {
     this.cap?.dispose();
     this.cap = this.mic = this.micLevel = this.micAsk = undefined;
+    this.mesh?.setTrack(null);
     this.state = this.state === 'denied' ? 'denied' : 'idle';
     this.bump();
   }
 
-  /** Pedir el permiso desde el juego (un boton de ajustes): el navegador pregunta aqui y, concedido, ya queda configurado dentro del juego. */
+  /** Pedir el permiso desde el juego (un botón de ajustes): el navegador pregunta aquí y, concedido, ya queda configurado dentro del juego. */
   async allowMic() {
     this.state = this.state === 'denied' ? 'idle' : this.state;
     await this.ensureMic();
@@ -359,21 +300,27 @@ class Voice {
     if (want && !this.mic) void this.ensureMic();
     const on = want && !!this.mic;
     const track = this.mic?.getAudioTracks()[0];
-    if (track && track.enabled !== on) track.enabled = on;
+    if (track && track.enabled !== on && !this.testing) track.enabled = on;
     if (this.ctx?.state === 'suspended') void this.ctx.resume().catch(() => {}); // (creado sin gesto, el contexto nace parado: sin esto las voces no sonaban hasta recrearse)
     const vol = settings.voiceMode ? settings.voiceVol : 0;
-    if (this.bus) this.bus.inp.gain.value = Math.max(0, Math.min(VOL_MAX, vol));
-    // la distancia: volumen, filtro y balance de cada voz (la pone el juego cada fotograma; sin datos —sala de espera—, se oyen todos igual)
-    const live = this.ears && performance.now() - this.ears.t < 600 ? this.ears.m : undefined, now = this.ctx?.currentTime ?? 0;
-    for (const [id, p] of this.peers) {
-      if (!p.gain || !p.lp || !p.pan) continue;
-      const e = this.calls.has(id) ? undefined : live?.get(id), k = e ? Math.max(0, Math.min(1, 1 - (e.d - NEAR) / (FAR - NEAR))) ** 1.6 : 1;
-      p.gain.gain.setTargetAtTime(k, now, 0.08);
-      p.lp.frequency.setTargetAtTime(900 + 15100 * k ** 0.7, now, 0.08);
-      p.pan.pan.setTargetAtTime(e ? Math.max(-0.85, Math.min(0.85, e.pan)) * Math.min(1, e.d / 2) : 0, now, 0.08);
+    if (this.bus) {
+      this.bus.inp.gain.value = Math.max(0, Math.min(VOL_MAX, vol));
+      // el sonido 3D: perfil, dónde estoy y dónde está cada voz (lo pone el juego cada fotograma; sin datos —sala de espera—, se oyen todos igual)
+      const sp = this.bus.spatial, q = VOICE_3D[settings.voice3d] ?? 'high';
+      if (sp.cfg.quality !== q) sp.configure({ quality: q });
+      const v = this.view && performance.now() - this.view.t < 600 ? this.view : undefined;
+      if (v) {
+        const y = v.me.yaw;
+        sp.setListener(v.me.pos, [-Math.sin(y), 0, -Math.cos(y)]);
+      }
+      for (const id of this.peers.keys()) {
+        const o = v?.others.get(id);
+        sp.setEmitter(id, o?.pos, { near: this.calls.has(id), free: !v || !o || o.free });
+      }
+      sp.update();
     }
     const next = new Set<string>();
-    for (const [id, p] of this.peers) if ((p.level?.() ?? 0) > 0.04) next.add(id);
+    for (const [id, p] of this.peers) if (p.level() > 0.04) next.add(id);
     if (on && (this.micLevel?.() ?? 0) > 0.04) next.add(this.me);
     const changed = on !== this.talking || next.size !== this.speaking.size || [...next].some((i) => !this.speaking.has(i));
     this.talking = on;

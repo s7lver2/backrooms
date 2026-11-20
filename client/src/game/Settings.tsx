@@ -49,6 +49,7 @@ const SECTIONS = {
     { id: 'sfx', label: 'EFFECTS', desc: 'Footsteps, shots, entities', long: 'Sounds that happen at a moment: footsteps, the camera, the rifle, whatever is hunting you. Lowering it makes the Backrooms quieter, not safer.', num: pct('sfx') },
     { id: 'voiceMode', label: 'VOICE CHAT', desc: 'Talk to your room', long: 'Hear and talk to the other players in your room. PUSH TO TALK: hold V. OPEN MIC: always transmitting (the browser asks for the microphone). Voices go straight between players.', num: { k: 'voiceMode', min: 0, max: 2, step: 1, unit: '', scale: 1, labels: ['OFF', 'PUSH TO TALK [V]', 'OPEN MIC'] } },
     { id: 'voiceVol', label: 'VOICE VOLUME', desc: 'How loud your mates are', long: 'The level of the other players voices. Above 100% they are boosted (with a limiter so they do not distort).', num: { k: 'voiceVol', min: 0, max: 3, step: 0.05, unit: '%', scale: 100 } },
+    { id: 'voice3d', label: 'VOICE 3D', desc: 'Voices placed in the space', long: 'How the other players voices sound in the world. FLAT: everyone the same, centred. LOW: quieter with distance and panned left or right. MEDIUM: also real 3D positioning (headphones help) and echo. HIGH: walls muffle and quiet voices and the echo follows the size of the room you are in.', num: { k: 'voice3d', min: 0, max: 3, step: 1, unit: '', scale: 1, labels: ['FLAT', 'LOW', 'MEDIUM', 'HIGH'] } },
     { id: 'micDev', label: 'MICROPHONE', desc: 'Which one you talk into', long: 'Choose the microphone here, in the game, instead of in the browser. The browser asks for permission once (ALLOW below); after that everything is set here. The list shows after you allow it.', num: { k: 'micDev', min: 0, max: 0, step: 1, unit: '', scale: 1, labels: ['DEFAULT'] } },
     { id: 'micGain', label: 'MIC GAIN', desc: 'How strong your voice goes out', long: 'Boosts or lowers what your microphone picks up before it is sent. Watch the meter while you talk: it should reach about three quarters on a normal sentence.', num: { k: 'micGain', min: 0, max: 3, step: 0.05, unit: '%', scale: 100 } },
     { id: 'micGate', label: 'NOISE GATE', desc: 'Cuts the room noise when you are quiet', long: 'The microphone only opens when your voice passes this level, so keyboard, fans and breathing do not go out. 0 is off. Set it just above the meter while you stay silent.', num: { k: 'micGate', min: 0, max: 0.15, step: 0.005, unit: '%', scale: 667 } },
@@ -227,6 +228,15 @@ function Monitor({ s, id }: { s: Settings; id: string }) {
 /** El texto de la vista previa del ajuste elegido (bajo el monitor, si lo lleva). */
 function Caption({ row, s, muted }: { row: Row; s: Settings; muted: boolean }): ReactNode {
   switch (row.id) {
+    case 'voice3d': {
+      const d = ['EVERYONE THE SAME, CENTRED', 'DISTANCE AND LEFT/RIGHT', 'DISTANCE, 3D POSITION AND ECHO', 'ALSO WALLS AND ROOM SIZE'][Math.round(s.voice3d)] ?? '';
+      return (
+        <p className="br-big">
+          {['FLAT', 'LOW', 'MEDIUM', 'HIGH'][Math.round(s.voice3d)]}
+          <span className="br-lobby__dim br-big__s"> · {d}</span>
+        </p>
+      );
+    }
     case 'micDev':
     case 'micGain':
     case 'micGate':

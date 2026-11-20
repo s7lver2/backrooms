@@ -172,9 +172,8 @@ const phoenyxAlias = PHOENYX
     ]
   : [];
 
-// la voz del motor (phoenyx-voice): del repo de Phoenyx si esta (con o sin el renderer Phoenyx); si no, un sustituto minimo (sin modulacion ni puerta)
-const VOICE_REAL = `${PHOENYX_DIR}/packages/phoenyx-voice/src/index.ts`;
-const VOICE = existsSync(VOICE_REAL) ? VOICE_REAL : fileURLToPath(new URL('./src/voiceStub.ts', import.meta.url)).replaceAll('\\', '/');
+// la voz del motor (phoenyx-voice): vive en el repo de Phoenyx (con o sin el renderer Phoenyx)
+const VOICE = `${PHOENYX_DIR}/packages/phoenyx-voice/src/index.ts`;
 
 const proxy = {
   '/socket.io': { target: `http://localhost:${SERVER_PORT}`, ws: true },
