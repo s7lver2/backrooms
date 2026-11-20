@@ -118,7 +118,7 @@ export default function Upgrades({ bank, ups, sock, assets }: { bank: number; up
   const fit = (smooth = false) => {
     const v = view.current, w = world.current;
     if (!v || !w) return;
-    pan.current.z = Math.min(1, v.clientWidth / w.offsetWidth, v.clientHeight / w.offsetHeight) || 1;
+    pan.current.z = Math.max(0.8, Math.min(1, v.clientWidth / w.offsetWidth, v.clientHeight / w.offsetHeight)) || 1; // (no por debajo de 0,8: más pequeño el texto se emborrona; el resto se recorre arrastrando)
     setZoom(pan.current.z);
     setPan(0, 0, smooth);
   };

@@ -225,7 +225,9 @@ const DIR = '/models/backrooms/';
 const RIDE = 3.5;
 export const MODELS = ['hazmat', 'bacteria', 'partygoer', 'balloon', 'camcorder', 'vhs', 'gun', 'flashlight', 'water', 'elevator', 'vent', 'socket', 'exit', 'door', 'armchair', 'cabinet', 'shelf', 'chair', 'chair2', 'desk', 'crt', 'lamp', 'duct', 'radar', 'totem', 'hospital/stretcher', 'hospital/stools', 'hospital/curtain', 'hospital/extinguisher', 'hospital/cupboard', 'hospital/clock', 'hospital/exitdoor', 'hospital/locker', 'hospital/drip', 'hospital/wheelchair', 'hospital/shelf', 'suites/door', 'suites/bed', 'suites/sofa', 'suites/secretary', 'suites/faceling', 'suites/chair', 'suites/wardrobe', 'suites/table', 'suites/luggage', 'suites/bin', 'suites/mirror', 'suites/plant', 'suites/panel', 'suites/trolley', 'suites/cart', 'suites/camera', 'suites/control', 'suites/officechair', 'suites/cables', 'suites/tv'] as const;
 export type ModelName = (typeof MODELS)[number];
-export const TEXTURES = ['wall', 'carpet', 'ceiling'] as const;
+/** Fotogramas dibujados por el juego (los lee el contador de FPS). */
+export const drawn = { n: 0 };
+export const TEXTURES =['wall', 'carpet', 'ceiling'] as const;
 
 export interface Assets {
   gltf: Record<ModelName, GLTF>;
@@ -796,6 +798,7 @@ export class BackroomsGame {
     if (!settings.autoRes) return void (this.drs !== 1 && ((this.drs = 1), this.relayout?.()));
     // (dt > 2 s: cambio de pestaña o una carga, no es rendimiento; antes, con dt > 0,25 s —menos de 4 fps— jamás se actuaba, justo cuando más hacía falta)
     if (window.__capture || dt > 2 || document.hidden || !document.hasFocus() || (cap && cap < 60)) return void (a.n = a.ms = 0);
+    if (dt > 0.25) return; // (un tirón suelto —cargar un nivel, reaparecer— no es lo que va a costar cada fotograma)
     (a.n++, (a.ms += dt * 1000));
     if (a.ms < 2500 || a.n < 4 || now - a.t < 1500) return; // (una ventana de 2,5 s de juego, sean los fotogramas que sean)
     const avg = a.ms / a.n;
@@ -803,7 +806,9 @@ export class BackroomsGame {
     // si el fotograma lo come la CPU (mandar los dibujos), bajar píxeles no ayuda: se deja la resolución entera
     const cpuBound = this.renderMs > avg * 0.6;
     const down = avg > 200 ? 0.3 : avg > 100 ? 0.2 : 0.1;
-    const next = cpuBound ? Math.min(1, this.drs + 0.1) : avg > 20 ? Math.max(0.35, this.drs - down) : avg < 11 ? Math.min(1, this.drs + 0.1) : this.drs;
+    // sube otra vez si, al subir, el fotograma seguiria bajo ~18 ms (el coste de los pixeles crece con el cuadrado de la escala): antes solo subia por encima de 90 fps y se quedaba borroso para siempre
+    const up = Math.min(1, this.drs + 0.1), canUp = up > this.drs && avg * (up / this.drs) ** 2 < 18;
+    const next = cpuBound ? up : avg > 20 ? Math.max(0.35, this.drs - down) : canUp ? up : this.drs;
     if (Math.abs(next - this.drs) > 1e-3) ((this.drs = next), this.relayout?.());
     if (avg > 66 && (this.drs <= 0.45 || cpuBound) && !this.alerted) ((this.alerted = true), this.onSlow?.(Math.round(1000 / avg)));
     // si aun así va por debajo de ~10 fps (a la resolución mínima, o porque manda la CPU): lo opcional se apaga y queda guardado
@@ -986,6 +991,15 @@ export class BackroomsGame {
     addEventListener('resize', resize);
     this.relayout = resize;
     this.offs.push(() => removeEventListener('resize', resize));
+    // al volver de otra pestaña/ventana el lienzo (sobre todo en WebGPU) puede haberse vaciado: en pausa no hay bucle que lo repinte, se hace aqui
+    const repaint = () => {
+      if (document.hidden || !this.paused) return;
+      this.composer?.render(0);
+      requestAnimationFrame(() => this.paused && this.composer?.render(0));
+    };
+    document.addEventListener('visibilitychange', repaint);
+    addEventListener('focus', repaint);
+    this.offs.push(() => (document.removeEventListener('visibilitychange', repaint), removeEventListener('focus', repaint)));
     const resumeParkingAudio = () => this.parking?.audio?.resume();
     canvas.addEventListener('pointerdown', resumeParkingAudio);
     this.offs.push(() => canvas.removeEventListener('pointerdown', resumeParkingAudio));
@@ -1275,6 +1289,7 @@ export class BackroomsGame {
 
   private frame() {
     if (this.capped()) return;
+    drawn.n++; // (el contador de FPS cuenta fotogramas dibujados, no los del monitor: con el tope puesto no marca de mas)
     this.renderer.shadowMap.autoUpdate = true;
     const realDt = this.clock.getDelta();
     this.adapt(realDt);

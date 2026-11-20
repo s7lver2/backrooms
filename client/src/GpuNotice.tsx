@@ -87,7 +87,15 @@ export default function GpuNotice({ children }: { children: ReactNode }) {
           presetForGpu({ vendor: i.vendor as string | undefined, architecture: i.architecture as string | undefined }, !!((a as { isFallbackAdapter?: boolean }).isFallbackAdapter || i.isFallbackAdapter));
           setGpu(String(i.description || i.vendor || i.architecture || 'GPU OK'));
         }
-        setState(a ? 'ask' : 'none');
+        // ya aceptado antes (o volviendo del login con Discord, que recarga la pagina): sin repetir el aviso
+        let seen = false;
+        try {
+          seen = localStorage.getItem('br-gpu-ok') === '1';
+        } catch {
+          /* sin almacenamiento: se pregunta */
+        }
+        if (a && seen) initTelemetry(true);
+        setState(a ? (seen ? 'ok' : 'ask') : 'none');
       } catch {
         setState('none');
       }
@@ -125,6 +133,11 @@ export default function GpuNotice({ children }: { children: ReactNode }) {
       </Viewfinder>
     );
   const go = () => {
+    try {
+      localStorage.setItem('br-gpu-ok', '1');
+    } catch {
+      /* da igual */
+    }
     initTelemetry(true); // continuar = aceptar el envío de diagnóstico de esta versión
     report('webgpu-session', 'inicio', 'info', { gpu: info.current, ua: navigator.userAgent });
     setState('leave');

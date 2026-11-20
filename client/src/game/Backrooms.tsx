@@ -5,7 +5,7 @@ import DownloadToast from './DownloadToast';
 import { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import gsap from 'gsap';
 import { holdStill } from './still';
-import { BackroomsGame, LOAD_PHASES, type Hud, type Inv, type LoadProgress } from './game';
+import { BackroomsGame, drawn, LOAD_PHASES, type Hud, type Inv, type LoadProgress } from './game';
 import { generateMaze } from './maze';
 import Touch from './Touch';
 import Inventory, { type Cell } from './Inventory';
@@ -141,10 +141,9 @@ function Static({ still, scenes }: { still: boolean; scenes: HTMLCanvasElement[]
 function Fps() {
   const [n, setN] = useState(0);
   useEffect(() => {
-    let f = 0, last = performance.now(), id = 0;
+    let f0 = drawn.n, last = performance.now(), id = 0;
     const tick = (t: number) => {
-      f++;
-      if (t - last >= 500) (setN(Math.round((f * 1000) / (t - last))), (f = 0), (last = t));
+      if (t - last >= 500) (setN(Math.round(((drawn.n - f0) * 1000) / (t - last))), (f0 = drawn.n), (last = t));
       id = requestAnimationFrame(tick);
     };
     id = requestAnimationFrame(tick);
@@ -356,6 +355,7 @@ export default function Backrooms({ onQuit, onWin }: { onQuit: () => void; onWin
   const game = useRef<BackroomsGame>();
   const gl = useRef<HTMLDivElement>(null);
   const cursor = useRef<HTMLCanvasElement>(null);
+  const zoomOff = useRef<() => void>();
   const quit = useRef<HTMLButtonElement>(null);
   const reduced = useRef(false);
   const showFps = useSettings().fps;
@@ -429,9 +429,20 @@ export default function Backrooms({ onQuit, onWin }: { onQuit: () => void; onWin
     const bright = () => void (g.canvas.style.filter = settings.brightness === 1 ? '' : `brightness(${settings.brightness})`);
     bright();
     onSetting('brightness', bright);
-    const ui = () => void root.current?.style.setProperty('--br-ui', String(settings.ui));
+    // el tamaño de la interfaz es un ajuste del juego (UI SIZE): el zoom del navegador no lo cambia. Se estima por la ventana (exterior/interior) y se compensa;
+    // además se bloquean Ctrl+rueda y Ctrl +/-/0 mientras el juego esta abierto
+    const ui = () => {
+      const r = innerWidth ? outerWidth / innerWidth : 1, bz = r > 1.06 || r < 0.94 ? r : 1;
+      root.current?.style.setProperty('--br-ui', String(settings.ui / bz));
+    };
     ui();
     onSetting('ui', ui);
+    const noZoomKey = (e: KeyboardEvent) => (e.ctrlKey || e.metaKey) && ['+', '-', '=', '0', '_'].includes(e.key) && e.preventDefault();
+    const noZoomWheel = (e: WheelEvent) => e.ctrlKey && e.preventDefault();
+    addEventListener('resize', ui);
+    addEventListener('keydown', noZoomKey);
+    addEventListener('wheel', noZoomWheel, { passive: false });
+    zoomOff.current = () => (removeEventListener('resize', ui), removeEventListener('keydown', noZoomKey), removeEventListener('wheel', noZoomWheel));
     setCrashContext(() => g.crashContext()); // (informes de fallo: nivel, semilla, posición)
     // desarrollo local (no por túnel ni en producción, ver devGate.ts): __game y __maze(semilla) en la consola
     if (dev) Object.assign(window, { __game: g, __maze: (seed: number) => console.info(asciiMaze(seed)) });
@@ -459,6 +470,7 @@ export default function Backrooms({ onQuit, onWin }: { onQuit: () => void; onWin
       .finally(free);
     return () => {
       alive = false;
+      zoomOff.current?.();
       if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
       free();
       g.dispose();

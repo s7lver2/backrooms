@@ -9,10 +9,9 @@ import './Storage.css';
  * descargas, los ajustes guardados y pedir al navegador que no borre nada). Quitar algo solo significa bajarlo otra vez más tarde.
  */
 
-const ICON: Record<string, ReactNode> = { core: <Package />, phoenyx: <Layers />, hd: <ImageIcon />, level0: <Layers />, parking: <Car />, poolrooms: <Waves />, suites: <BedDouble /> };
+const ICON: Record<string, ReactNode> = { core: <Package />, hd: <ImageIcon />, level0: <Layers />, parking: <Car />, poolrooms: <Waves />, suites: <BedDouble /> };
 const LONG: Record<string, string> = {
-  core: 'Everything the game needs whatever the level: the menu, the lobby, items, cosmetics and the shared models. Kept on disk so it opens without downloading it again.',
-  phoenyx: 'The graphics engine (WebGPU). Kept on disk so the game starts faster.',
+  core: 'Everything the game needs whatever the level: the menu, the lobby, items, cosmetics, the shared models and the Phoenyx graphics engine (WebGPU). Kept on disk so it opens without downloading it again.',
   hd: 'Sharper textures for walls, floors and props. Not available yet.',
 };
 

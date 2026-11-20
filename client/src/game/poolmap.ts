@@ -410,9 +410,10 @@ export class PoolLevel implements Terrain {
     this.hemi = new THREE.HemisphereLight(0xf6efd6, 0x9aa890, 0.6);
     sc.add(this.hemi, this.torch, this.sun, this.sun.target);
     // el sol: un haz que solo entra por los huecos de las ventanas y proyecta su forma y las sombras de las columnas; sigue al jugador
-    renderer.shadowMap.enabled = true;
+    const SH = settings.quality !== 1 && settings.shadows > 0; // (calidad baja o SHADOWS en OFF: sin el mapa de sombras del sol, otra pasada entera de la escena)
+    renderer.shadowMap.enabled = SH;
     renderer.shadowMap.type = THREE.PCFSoftShadowMap;
-    this.sun.castShadow = true;
+    this.sun.castShadow = SH;
     this.sun.shadow.mapSize.setScalar(settings.shadows === 1 ? 1024 : 2048); // (SHADOWS: bajas = la mitad)
     Object.assign(this.sun.shadow.camera, { left: -34, right: 34, top: 34, bottom: -34, near: 1, far: 220 });
     this.sun.shadow.camera.updateProjectionMatrix();
@@ -436,7 +437,7 @@ export class PoolLevel implements Terrain {
       const t = tiles(tile, irregular, gloss);
       own(t.map), own(t.bump), own(t.rough);
       for (const tx of [t.map, t.bump, t.rough]) tx.anisotropy = renderer.capabilities.getMaxAnisotropy();
-      return own(new THREE.MeshPhysicalMaterial({ map: t.map, bumpMap: t.bump, bumpScale: gloss ? bump : 0.8, roughnessMap: t.rough, roughness: 1, metalness: 0, vertexColors: true, clearcoat: gloss ? 0.7 : 0, specularIntensity: 0.5, clearcoatRoughness: 0.28, envMapIntensity: gloss ? 1.7 : 0.3 }));
+      return own(new THREE.MeshPhysicalMaterial({ map: t.map, bumpMap: t.bump, bumpScale: gloss ? bump : 0.8, roughnessMap: t.rough, roughness: 1, metalness: 0, vertexColors: true, clearcoat: gloss && settings.quality !== 1 ? 0.7 : 0, specularIntensity: 0.5, clearcoatRoughness: 0.28, envMapIntensity: gloss ? 1.7 : 0.3 }));
     };
     const G = { deck: new ChunkGeo(), wall: new ChunkGeo(), pool: new ChunkGeo(), ceil: new ChunkGeo(), slide: new ChunkGeo(), win: new ChunkGeo(), bar: new ChunkGeo() };
     const tile = mat(0.12, 0, true, 3.2); // (el relieve más suave: menos moiré lejos) // la baldosa aprobada, para todo
@@ -1089,13 +1090,14 @@ export class PoolLevel implements Terrain {
     };
     const dpr = Math.min(devicePixelRatio, 1080 / Math.max(renderer.domElement.clientHeight, 1));
     const rf = new Reflector(wg, {
-      textureWidth: Math.max(256, Math.floor(renderer.domElement.clientWidth * dpr * 0.5)),
-      textureHeight: Math.max(256, Math.floor(renderer.domElement.clientHeight * dpr * 0.5)),
+      textureWidth: Math.max(192, Math.floor(renderer.domElement.clientWidth * dpr * (settings.quality === 1 ? 0.25 : 0.5))), // (calidad baja: reflejo a un cuarto y un fotograma de cada dos)
+      textureHeight: Math.max(192, Math.floor(renderer.domElement.clientHeight * dpr * (settings.quality === 1 ? 0.25 : 0.5))),
       clipBias: 0.003, multisample: 0, shader,
     });
     this.rfm = rf;
     const rb = rf.onBeforeRender.bind(rf); // el reflejo solo pinta lo cercano (60 m): es otra pasada entera de la escena
-    rf.onBeforeRender = (...a: Parameters<typeof rb>) => { if (this.skipRefl) return; this.aoCull(true, 60), rb(...a), this.aoCull(false); };
+    let rfN = 0;
+    rf.onBeforeRender = (...a: Parameters<typeof rb>) => { if (this.skipRefl || (settings.quality === 1 && rfN++ % 2)) return; this.aoCull(true, 60), rb(...a), this.aoCull(false); };
     this.water = rf.material as THREE.ShaderMaterial;
     this.water.fog = true;
     this.water.side = THREE.DoubleSide;

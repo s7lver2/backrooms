@@ -104,8 +104,7 @@ const bakeLods = (): Plugin => {
 // los paquetes (SETTINGS > STORAGE, src/packs.ts): el manifiesto con los archivos de cada uno se genera al compilar (con los de public/ y los de assets/) y,
 // en desarrollo, solo con los de public/. core (todo lo común), phoenyx (el motor, solo en esa variante), la textura HD (aún sin archivos) y uno por nivel
 const PACKS: { id: string; name: string; desc: string; auto?: boolean; required?: boolean; soon?: boolean; cover?: string }[] = [
-  { id: 'core', name: 'CORE', desc: 'THE MENU, THE LOBBY, ITEMS, COSMETICS AND EVERYTHING SHARED', auto: true, required: true },
-  { id: 'phoenyx', name: 'PHOENYX', desc: 'THE GRAPHICS ENGINE (WEBGPU)', auto: true, cover: '/brand/phoenyx-128.png' },
+  { id: 'core', name: 'CORE', desc: 'THE MENU, THE LOBBY, ITEMS, COSMETICS AND THE PHOENYX GRAPHICS ENGINE', auto: true, required: true },
   { id: 'hd', name: 'HIGH-RES TEXTURES', desc: 'PROPS AND FURNITURE WITH THEIR ORIGINAL 2K TEXTURES' },
   { id: 'hdmodels', name: 'HIGH-DETAIL MODELS', desc: 'THE ORIGINAL NORMAL MAPS: FABRIC, METAL AND WOOD WITH RELIEF' },
   { id: 'level0', name: 'LEVEL 0 · THE LOBBY', desc: 'THE YELLOW OFFICE MAZE' },
@@ -114,7 +113,7 @@ const PACKS: { id: string; name: string; desc: string; auto?: boolean; required?
   { id: 'suites', name: 'LEVEL -20 · THE SUITES', desc: 'THE HOTEL: RED WALLPAPER AND NO FACES' },
 ];
 const packOf = (f: string) =>
-  f.startsWith('hd/tex') ? 'hd' : f.startsWith('hd/nrm') ? 'hdmodels' : /^assets\/phoenyx/.test(f) ? 'phoenyx' : /^assets\/parking/.test(f) || f.startsWith('models/parking/') ? 'parking' : f.startsWith('models/pool/') ? 'poolrooms' : f.startsWith('models/suites/') || f.startsWith('models/backrooms/suites/') ? 'suites' : f.startsWith('models/backrooms/hospital/') ? 'core' : f.startsWith('models/backrooms/') ? 'level0' : 'core';
+  f.startsWith('hd/tex') ? 'hd' : f.startsWith('hd/nrm') ? 'hdmodels' : /^assets\/phoenyx/.test(f) ? 'core' : /^assets\/parking/.test(f) || f.startsWith('models/parking/') ? 'parking' : f.startsWith('models/pool/') ? 'poolrooms' : f.startsWith('models/suites/') || f.startsWith('models/backrooms/suites/') ? 'suites' : f.startsWith('models/backrooms/hospital/') ? 'core' : f.startsWith('models/backrooms/') ? 'level0' : 'core';
 function packsManifest(dirs: string[]): string {
   const files: string[] = [];
   const walk = (root: string, d: string) => {

@@ -114,9 +114,9 @@ function Monitor({ s, id }: { s: Settings; id: string }) {
   const P = (u: number, q: number, t: number) => `${120 + u * 120 + (cx + u * w - 120 - u * 120) * t},${90 + q * 90 + (cy + q * h - 90 - q * 90) * t}`;
   const quad = (...p: [number, number, number][]) => p.map((a) => P(...a)).join(' ');
   const C = pool ? { back: '#dfe7e6', side: '#c0cdcc', ceil: '#eef3f2', floor: '#4fa3b8', post: '#aebdbc' } : { back: '#a8923a', side: '#8c782c', ceil: '#c9b765', floor: '#655524', post: '#7a6826' };
-  const clamp = (n: number, m: number) => Math.max(-m, Math.min(m, n));
+  const clamp = (n: number, m: number) => Math.max(-m, Math.min(m, n)), fog = [0.9, 0.5, 0][s.drawDist] ?? 0.5;
   return (
-    <div className="br-mon" data-sway={!s.reduceMotion || undefined} style={{ ['--a' as string]: s.vhs }} onMouseMove={(e) => (([mx, my]) => setV((o) => ({ x: clamp(o.x + mx * 0.35 * s.sens, 75), y: clamp(o.y + my * 0.35 * s.sens * (s.invertY ? -1 : 1), 45) })))([e.movementX, e.movementY])} aria-hidden="true">
+    <div className="br-mon" data-sway={!s.reduceMotion || undefined} data-drs={(id === 'autoRes' && s.autoRes) || undefined} style={{ ['--a' as string]: s.vhs }} onMouseMove={(e) => (([mx, my]) => setV((o) => ({ x: clamp(o.x + mx * 0.35 * s.sens, 75), y: clamp(o.y + my * 0.35 * s.sens * (s.invertY ? -1 : 1), 45) })))([e.movementX, e.movementY])} aria-hidden="true">
       <svg viewBox="0 0 240 180" shapeRendering={pool && !s.poolAA ? 'crispEdges' : 'auto'} style={{ filter: `brightness(${s.brightness}) blur(${(1 - s.resScale * (low ? 0.6 : 1)) * 2.5}px)` }}>
         <polygon points={quad([-1, -1, 0], [1, -1, 0], [1, -1, 1], [-1, -1, 1])} fill={C.ceil} />
         <polygon points={quad([-1, 1, 0], [1, 1, 0], [1, 1, 1], [-1, 1, 1])} fill={C.floor} />
@@ -138,12 +138,27 @@ function Monitor({ s, id }: { s: Settings; id: string }) {
         <polygon points={quad([-0.35, -1, 0.3], [0.35, -1, 0.3], [0.35, -1, 0.7], [-0.35, -1, 0.7])} fill="#fffbe6" style={s.bloom && !low ? { filter: 'drop-shadow(0 0 7px #fff3b0) drop-shadow(0 0 14px #fff3b0)' } : undefined} />
         {sh > 0 && <polygon points={quad([0.35, 1, 0.55], [0.7, 1, 0.55], [0.3, 1, 0.2], [-0.3, 1, 0.2])} fill="#000" fillOpacity={sh > 1 ? 0.6 : 0.32} style={{ filter: `blur(${sh > 1 ? 0.6 : 3.5}px)` }} />}
         <polygon points={quad([0.35, -1, 0.55], [0.7, -1, 0.55], [0.7, 1, 0.55], [0.35, 1, 0.55])} fill={C.post} />
+        {/* DRAW DISTANCE: la niebla se cierra (corta) o se aleja (lejos) */}
+        {fog > 0 && (
+          <g fill={pool ? '#cfe0e0' : '#17130a'}>
+            <polygon points={quad([-1, -1, 0.5], [1, -1, 0.5], [1, 1, 0.5], [-1, 1, 0.5], [-1, 1, 1], [1, 1, 1], [1, -1, 1], [-1, -1, 1])} fillOpacity={fog * 0.45} fillRule="evenodd" />
+            <polygon points={quad([-1, -1, 1], [1, -1, 1], [1, 1, 1], [-1, 1, 1])} fillOpacity={fog * 0.55} />
+          </g>
+        )}
+        {/* EXTRA LIGHTS: charcos de luz de las lamparas cercanas */}
+        {[[-0.5, 0.5], [0.5, 0.35], [-0.4, 0.8], [0.45, 0.9]].slice(0, [0, 2, 4][s.lights] ?? 4).map(([u, t]) => {
+          const [gx, gy] = P(u, 1, t).split(',');
+          return <ellipse key={`${u}${t}`} cx={gx} cy={gy} rx={34 * (1 - t * 0.5)} ry={11 * (1 - t * 0.5)} fill="#ffe9a0" fillOpacity="0.28" style={{ filter: 'blur(4px)' }} />;
+        })}
         {s.crosshair && <circle cx="120" cy="90" r="2.4" fill="#f2f1ea" stroke="#000" />}
       </svg>
-      <div className="br-mon__osd">
+      {s.dust && !low && [8, 21, 34, 47, 59, 72, 85, 15, 66].map((x, i) => <i key={x} className="br-mon__dust" style={{ left: `${x}%`, animationDelay: `${-i * 0.9}s`, animationDuration: `${6 + (i % 3) * 2}s` }} />)}
+      {s.film && <div className="br-mon__grain" />}
+      <div className="br-mon__osd" style={{ transform: `scale(${s.ui})`, transformOrigin: '0 0', width: `${100 / s.ui}%` }}>
         <span className="br-mon__rec"><Circle {...ic} fill="currentColor" /> REC</span>
         {s.fps && <span>{cap || 60} FPS</span>}
       </div>
+      {id === 'autoRes' && <p className="br-mon__foot">{s.autoRes ? 'RESOLUTION FOLLOWS THE FRAME RATE' : 'ALWAYS FULL RESOLUTION'}</p>}
       {id === 'warmup' && <p className="br-mon__foot">LOAD {'▮'.repeat(s.warmup + 1)}<span className="br-lobby__dim">{'▮'.repeat(2 - s.warmup)}</span> · HITCH {'▮'.repeat(2 - s.warmup)}<span className="br-lobby__dim">{'▮'.repeat(s.warmup + 1)}</span></p>}
       {id === 'fullscreen' && !document.fullscreenElement && <p className="br-mon__win">BACKROOMS<span>_ □ ×</span></p>}
       {id === 'fpsLimit' && <i className="br-mon__pip" style={{ animationTimingFunction: cap ? `steps(${Math.round(cap * 1.2)})` : 'linear' }} />}
