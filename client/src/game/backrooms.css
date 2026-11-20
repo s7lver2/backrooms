@@ -880,3 +880,8 @@
 .br-terms dd { margin: 0; color: var(--br-dim); }
 .br-terms ul { font-size: clamp(14px, 1.6vw, 22px) !important; }
 .br-terms .br-opt { text-align: left; align-items: flex-start; }
+
+/* aviso de rendimiento (game.onSlow): una caja abajo con qué hacer */
+.br-slow { position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%); z-index: 120; width: min(34em, calc(100vw - 32px)); padding: 12px 16px; border: 1px solid #555; background: rgba(0, 0, 0, 0.88); color: var(--br-ink, #f2f1ea); font-family: ui-monospace, 'Cascadia Mono', Consolas, monospace; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; font-size: 14px; line-height: 1.4; }
+.br-slow__t { margin: 0 0 6px; letter-spacing: 0.2em; }
+.br-slow ul { margin: 0 0 8px; padding-left: 1.2em; color: var(--br-dim, #8d8b80); }

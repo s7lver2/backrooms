@@ -773,6 +773,9 @@ export class BackroomsGame {
   /** Resolución dinámica: si el equipo no llega a ~50 fps baja la resolución de dibujo de 0,1 en 0,1 (hasta 0,6) y la sube si le sobra de largo (>90 fps). Un paso cada 4 s, con la media de ese rato. */
   private drs = 1;
   private rescued = false;
+  private alerted = false;
+  /** Va muy mal (menos de ~15 fps ya a la resolución mínima, o limitado por la CPU): una sola vez por partida, para que el menú avise de qué se puede hacer. */
+  onSlow?: (fps: number) => void;
   private fogBase = 40;
   /** Las sombras de la linterna, en vivo (el interruptor cambia el shader: una recompilación). */
   setShadows(on: boolean) {
@@ -802,6 +805,7 @@ export class BackroomsGame {
     const down = avg > 200 ? 0.3 : avg > 100 ? 0.2 : 0.1;
     const next = cpuBound ? Math.min(1, this.drs + 0.1) : avg > 20 ? Math.max(0.35, this.drs - down) : avg < 11 ? Math.min(1, this.drs + 0.1) : this.drs;
     if (Math.abs(next - this.drs) > 1e-3) ((this.drs = next), this.relayout?.());
+    if (avg > 66 && (this.drs <= 0.45 || cpuBound) && !this.alerted) ((this.alerted = true), this.onSlow?.(Math.round(1000 / avg)));
     // si aun así va por debajo de ~10 fps (a la resolución mínima, o porque manda la CPU): lo opcional se apaga y queda guardado
     if (avg > 100 && (this.drs <= 0.4 || cpuBound) && !this.rescued) {
       this.rescued = true;

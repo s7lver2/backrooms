@@ -316,6 +316,12 @@ export default function Backrooms({ onQuit, onWin }: { onQuit: () => void; onWin
   const [acctOpen, setAcctOpen] = useState(false); // el popup de la cuenta (SIGN IN / REGISTER / SIGN OUT)
   const [authMode, setAuthMode] = useState<AuthMode | null>(null); // el popup de inicio de sesión: abierto con su modo, o cerrado
   const [welcome, setWelcome] = useState(false); // el aviso de la primera vez sin sesión
+  const [slow, setSlow] = useState(0); // los fps a los que va cuando va tan mal que se avisa (game.onSlow)
+  useEffect(() => {
+    if (!slow) return;
+    const t = setTimeout(() => setSlow(0), 30000);
+    return () => clearTimeout(t);
+  }, [slow]);
   const [pauseSettings, setPauseSettings] = useState(false); // los ajustes abiertos desde el menú de pausa
   const [toasts, setToasts] = useState<{ id: number; key: string }[]>([]);
   const server = useServer(net.sock);
@@ -429,6 +435,7 @@ export default function Backrooms({ onQuit, onWin }: { onQuit: () => void; onWin
     // desarrollo local (no por túnel ni en producción, ver devGate.ts): __game y __maze(semilla) en la consola
     if (dev) Object.assign(window, { __game: g, __maze: (seed: number) => console.info(asciiMaze(seed)) });
     if (dev?.has('debug')) void import('./debugPanel').then((m) => m.openDebugPanel(g));
+    g.onSlow = (fps) => alive && setSlow(fps);
     g.onPause = () => alive && setScreen(g.waiting ? 'waitpause' : 'pause');
     g.onDeath = () => alive && setScreen('crash');
     g.onLevelLoad = (f) => alive && setLvl(f);
@@ -980,6 +987,19 @@ export default function Backrooms({ onQuit, onWin }: { onQuit: () => void; onWin
         </div>
       )}
       <Toasts items={toasts} />
+      {slow > 0 && (
+        <aside className="br-slow" role="alert">
+          <p className="br-slow__t">RUNNING AT ~{slow} FPS</p>
+          <ul>
+            <li>Close other tabs and apps that use the graphics card.</li>
+            <li>Turn on hardware acceleration in your browser and plug in the laptop.</li>
+            <li>ESC → SETTINGS → VIDEO → PRESET: pick POTATO (it is already easing glow, dust and shadows).</li>
+          </ul>
+          <button type="button" className="br-opt" onClick={() => setSlow(0)}>
+            OK
+          </button>
+        </aside>
+      )}
       {loadingRoom && <Static still={reduced.current} scenes={game.current?.stills ?? []} />}
       {loadingRoom && (
         <Loading
