@@ -70,6 +70,7 @@ const SECTIONS = {
     { id: 'autoRes', label: 'AUTO RESOLUTION', desc: 'Drops pixels when it lags', long: 'Watches the frame rate and lowers the picture resolution by itself, down to 35%, when the computer cannot keep up. If it still crawls it also turns off glow, dust, shadows and extra lights. Turn it off to keep a fixed RESOLUTION SCALE.', flag: 'autoRes' },
     { id: 'drawDist', label: 'DRAW DISTANCE', desc: 'How far the world is drawn', long: 'SHORT closes the fog in and skips everything far away: a big gain on weak machines. NORMAL skips only what the fog already hides.', num: { k: 'drawDist', min: 0, max: 2, step: 1, unit: '', scale: 1, labels: lab('drawDist') } },
     { id: 'lights', label: 'EXTRA LIGHTS', desc: 'Lights that glow on the surfaces', long: 'Real lights that follow you and shine on the quartz and the walls. Every one costs on every surface: NONE is a big saving on a slow graphics card.', num: { k: 'lights', min: 0, max: 2, step: 1, unit: '', scale: 1, labels: lab('lights') } },
+    { id: 'film', label: 'FILM GRAIN', desc: 'Grain and colour grading pass', long: 'A full-screen pass that adds the tape grain, the warm tint of the hotel and the colour drain when your sanity drops. Off saves a whole pass on a slow graphics card.', flag: 'film' },
     { id: 'dust', label: 'DUST', desc: 'Motes floating in the air', long: 'The specks that catch the light. Pure atmosphere: off on a weak computer.', flag: 'dust' },
     { id: 'poolAO', label: 'AMBIENT OCCLUSION', desc: 'Poolrooms corner shading', long: 'Soft shading in the corners of the Poolrooms. The heaviest effect: turn it off first.', flag: 'poolAO' },
     { id: 'poolAA', label: 'SMOOTH EDGES', desc: 'Poolrooms anti-aliasing', long: 'Smooths jagged edges in the Poolrooms.', flag: 'poolAA' },
@@ -210,6 +211,7 @@ function Caption({ row, s, muted }: { row: Row; s: Settings; muted: boolean }): 
     }
     case 'bloom':
     case 'autoRes':
+    case 'film':
     case 'dust':
     case 'poolAO':
     case 'poolAA':

@@ -1,3 +1,4 @@
+import { settings } from '../settings';
 import * as THREE from 'three';
 import { ElevatorCab } from './elevator';
 import type { ParkingCue } from './parking-audio';
@@ -86,7 +87,7 @@ export class ParkingLevel {
     this.scene.fog = new THREE.Fog(fog, 3, 20);
     this.scene.add(new THREE.HemisphereLight(0xd5dcd5, 0x333a35, .11));
     // El número de luces es constante: nada de una PointLight por fluorescente.
-    for (let i = 0; i < 4; i++) { const l = new THREE.PointLight(0xe0e5df, 0, 14, 2); this.scene.add(l); this.lights.push(l); this.lightSlots.push({gain:0}); }
+    for (let i = 0; i < ([0, 2, 4][settings.lights] ?? 4); i++) { const l = new THREE.PointLight(0xe0e5df, 0, 14, 2); this.scene.add(l); this.lights.push(l); this.lightSlots.push({gain:0}); }
   }
 
   private own<T extends { dispose(): void }>(r: T): T { this.resources.add(r); return r; }

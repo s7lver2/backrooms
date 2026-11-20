@@ -168,6 +168,8 @@ export class Entity implements Target {
    * los fluorescentes encendidos. Devuelve true el fotograma en que alcanza al jugador (solo en solitario).
    * `hidden`: el jugador está en un nicho (no es objetivo); `hides`: los nichos con alguien dentro (pueden inspeccionarlo).
    */
+  private lag = 0;
+  private skip = 0;
   update(dt: number, player: THREE.Vector3, eye: THREE.Vector3, torch: THREE.Vector3 | null, exposed: boolean, god: boolean, hides: HideState[] = [], hidden = false, duck = false, yaw?: number, noises: Noise[] = []) {
     const clip = CLIPS[this.kind];
     let caught = false;
@@ -187,7 +189,9 @@ export class Entity implements Target {
     if (this.ground) this.pos.y = this.ground(this.pos.x, this.pos.z);
     this.rig.root.position.copy(this.pos);
     this.rig.root.rotation.y = this.facing;
-    this.rig.update(dt);
+    // los esqueletos lejanos (a más de 20 m) animan cada tercer fotograma, con el tiempo acumulado: se ven pequeños y borrosos tras la niebla y el hueso es lo caro
+    this.lag += dt;
+    if (this.pos.distanceToSquared(player) < 400 || ++this.skip >= 3) (this.rig.update(this.lag), (this.lag = 0), (this.skip = 0));
     this.dripFx(dt);
     if (this.balloon && this.state !== 'dead') {
       const hand = this.rig.bone('RightHand');

@@ -417,6 +417,7 @@ export default function Backrooms({ onQuit, onWin }: { onQuit: () => void; onWin
     onSetting('resScale', () => dispatchEvent(new Event('resize')));
     onSetting('bloom', (v) => g.setBloom(v));
     onSetting('lights', () => g.applyLooks());
+    onSetting('film', (v) => (g.film.enabled = v));
     onSetting('dust', () => g.applyLooks());
     const bright = () => void (g.canvas.style.filter = settings.brightness === 1 ? '' : `brightness(${settings.brightness})`);
     bright();

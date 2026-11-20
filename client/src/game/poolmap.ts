@@ -939,9 +939,9 @@ export class PoolLevel implements Terrain {
     this.lampPos = [...m.lamps.map((c) => [(c.x + 0.5) * C, (m.vax[at(c.x, c.y)] ? archY((m.voff[at(c.x, c.y)] + 0.5) * C - 3) : m.ceil[at(c.x, c.y)]) - 0.3, (c.y + 0.5) * C]), ...m.lampsUp.map((c) => [(c.x + 0.5) * C, PY.tall - 0.3, (c.y + 0.5) * C])];
     m.lamps.forEach((l, k) => { if (l.r >= 0 && m.rooms[l.r].flicker && this.lampLvl[k] >= 0.45) this.flickIdx.push(k); });
     // luces reales para las luminarias que parpadean más cercanas (el resto de la luz está horneada): el parpadeo se ve en las superficies
-    this.pls = Array.from({ length: 4 }, () => new THREE.PointLight(0xfff0d8, 0, 11, 1.6));
+    this.pls = Array.from({ length: [0, 2, 4][settings.lights] ?? 4 }, () => new THREE.PointLight(0xfff0d8, 0, 11, 1.6));
     if (!raInit) (RectAreaLightUniformsLib.init(), (raInit = true));
-    this.ras = Array.from({ length: 3 }, () => { const l = new THREE.RectAreaLight(0xfff0d8, 0, 1.1, 0.28); l.rotation.x = -Math.PI / 2; sc.add(l); return l; });
+    this.ras = Array.from({ length: [0, 1, 3][settings.lights] ?? 3 }, () => { const l = new THREE.RectAreaLight(0xfff0d8, 0, 1.1, 0.28); l.rotation.x = -Math.PI / 2; sc.add(l); return l; });
     sc.add(...this.pls);
 
     // piezas del kit sobre el nivel (pocas y colocadas por semilla; escalas en metros)

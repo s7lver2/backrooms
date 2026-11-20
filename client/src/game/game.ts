@@ -792,7 +792,7 @@ export class BackroomsGame {
     const a = this.drsAcc, cap = FPS_CAPS[settings.fpsLimit] ?? 0, now = performance.now();
     if (!settings.autoRes) return void (this.drs !== 1 && ((this.drs = 1), this.relayout?.()));
     // (dt > 2 s: cambio de pestaña o una carga, no es rendimiento; antes, con dt > 0,25 s —menos de 4 fps— jamás se actuaba, justo cuando más hacía falta)
-    if (window.__capture || dt > 2 || document.hidden || (cap && cap < 60)) return void (a.n = a.ms = 0);
+    if (window.__capture || dt > 2 || document.hidden || !document.hasFocus() || (cap && cap < 60)) return void (a.n = a.ms = 0);
     (a.n++, (a.ms += dt * 1000));
     if (a.ms < 2500 || a.n < 4 || now - a.t < 1500) return; // (una ventana de 2,5 s de juego, sean los fotogramas que sean)
     const avg = a.ms / a.n;
@@ -805,14 +805,15 @@ export class BackroomsGame {
     // si aun así va por debajo de ~10 fps (a la resolución mínima, o porque manda la CPU): lo opcional se apaga y queda guardado
     if (avg > 100 && (this.drs <= 0.4 || cpuBound) && !this.rescued) {
       this.rescued = true;
-      (setSetting('bloom', false), setSetting('dust', false), setSetting('lights', 0), setSetting('drawDist', 0), setSetting('poolAO', false), setSetting('shadows', 0));
+      (setSetting('bloom', false), setSetting('film', false), setSetting('dust', false), setSetting('lights', 0), setSetting('drawDist', 0), setSetting('poolAO', false), setSetting('shadows', 0));
       this.setShadows(false);
     }
   }
 
   /** El tope de fotogramas (ajuste FPS LIMIT): true si a este fotograma le toca saltarse el dibujo. */
   private capped() {
-    const cap = FPS_CAPS[settings.fpsLimit] ?? 0;
+    // sin el foco (otra ventana encima): ni se dibuja a tope, 10 fotogramas por segundo bastan para que el juego siga vivo
+    const cap = document.hasFocus() ? (FPS_CAPS[settings.fpsLimit] ?? 0) : 10;
     if (!cap) return false;
     const now = performance.now(), step = 1000 / cap;
     if (now < this.nextDraw - 2) return true; // (2 ms de margen: el reloj del navegador no es exacto)
@@ -917,7 +918,7 @@ export class BackroomsGame {
     this.flash.shadow.mapSize.set(sm, sm);
     this.flash.shadow.radius = 4; // sombra suave (el borde de una pared no corta seco)
     this.flash.shadow.camera.near = 0.2;
-    this.flash.shadow.camera.far = 22;
+    this.flash.shadow.camera.far = settings.shadows === 1 ? 14 : 22; // (SHADOWS LOW: el mapa solo cubre lo cercano, menos geometría dentro de la sombra)
     this.flash.shadow.bias = -0.002;
     this.input = new Input(canvas);
     // la imagen: escena, el halo de los fluorescentes (no en calidad baja), color de pantalla, el grano y,
@@ -943,6 +944,7 @@ export class BackroomsGame {
     }
     this.composer.addPass(new OutputPass());
     this.composer.addPass(this.film);
+    this.film.enabled = settings.film;
     this.composer.addPass(this.vhs);
     this.film.uniforms.uMove.value = opts.reduced ? 0 : 1;
     const u = this.vhs.uniforms;
