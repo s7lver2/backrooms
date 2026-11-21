@@ -116,6 +116,8 @@ export class PickupField {
   protected onPut?: (g: THREE.Object3D, x: number, z: number) => void;
   private ownMats = new Map<string, THREE.MeshStandardMaterial>();
   private genHold = 0;
+  /** Accionando un cuadro eléctrico: lo que lleva (0–1) de mantener la tecla o de teclear; lo enseña la barra del HUD (la de beber). */
+  genFrac = 0;
   /** Pone un objeto en el suelo (los del mapa y los soltados). */
   put(id: string, kind: Pickup['kind'], c: Cell, src: THREE.Object3D, size: number, rot = 0, at?: { x: number; z: number; y?: number }, drop?: boolean, rar = spotRarity(id, c), ownSource = false) {
     if (this.disposed) return;
@@ -276,7 +278,8 @@ export class PickupField {
     // el interruptor de la luz (cuadro): hay que mantener G un rato; soltar lo cancela
     const gen = near?.kind === 'gen' && !pl.typeFrac;
     this.genHold = gen && c.grabHeld ? this.genHold + dt : 0;
-    this.hint = near ? this.label(near.kind) + (this.genHold > 0 ? ` · HOLD ${Math.min(99, Math.round((this.genHold / GEN_HOLD) * 100))}%` : gen ? ' · HOLD G' : '') : null;
+    this.genFrac = near?.kind === 'gen' ? (pl.typeFrac > 0 ? pl.typeFrac : Math.min(1, this.genHold / GEN_HOLD)) : 0;
+    this.hint = near ? this.label(near.kind) + (gen ? ' · HOLD G' : '') : null;
     const grab = gen ? this.genHold >= GEN_HOLD : c.grab;
     if (grab) this.genHold = 0;
     if (grab && near?.kind === 'locker') this.onLocker?.(near.id);
