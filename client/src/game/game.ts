@@ -1129,7 +1129,7 @@ export class BackroomsGame {
     // fase 3: las escenas de la nieve del menú
     at(3, 0);
     await paint();
-    this.stills = [...this.prerender(w, p, es), ...(await loadTapes())];
+    this.stills = [...(await this.prerender(w, p, es, () => paint())), ...(await loadTapes())];
     warmItems.dispose();
     es.forEach((e) => e.dispose());
     p.dispose();
@@ -1177,7 +1177,7 @@ export class BackroomsGame {
    * vistos desde el suelo, con una a tres entidades bailando; cada escena son 4 fotogramas de su baile, a
    * 320×180, que el menú saca de vez en cuando entre la nieve.
    */
-  private prerender(w: World, p: Player, es: Entity[]) {
+  private async prerender(w: World, p: Player, es: Entity[], yieldFrame: () => Promise<void>) {
     const m = w.maze, cam = this.camera, out: HTMLCanvasElement[][] = [];
     p.rig.root.visible = false;
     for (const it of Object.values(p.items)) it.visible = false;
@@ -1239,6 +1239,7 @@ export class BackroomsGame {
         frames.push(shoot());
       }
       out.push(frames);
+      await yieldFrame(); // (cada escena son 4 pintadas y lecturas de la GPU: sin ceder el hilo, la pantalla de carga y el menú se congelaban unos segundos)
     }
     extra.forEach((e) => e.dispose());
     this.flash.intensity = 0;
