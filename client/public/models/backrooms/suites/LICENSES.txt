@@ -125,3 +125,13 @@ Preparados para las puertas y la escalera (reducidos con tools/pack_glb.py). Tod
 - "Fire Escape / Exit Doors" (https://sketchfab.com/3d-models/fire-escape-exit-doors-4ad9f395571a4dfaadce33dfeccc7a53) by blue man group (https://sketchfab.com/bloobloo) -> exitdoor.glb
 - "Metal Railing Modular - 2048px²" (https://sketchfab.com/3d-models/metal-railing-modular-2048px2-fe569b1c83ba4daab50787c9e4bb181f) by Mark Peters (https://sketchfab.com/mark-peters) -> railing.glb
 - "Fire Alarm" (https://sketchfab.com/3d-models/fire-alarm-92c9be5efbd8439ebc3fed401b4ca1ca) by Console Art Cybernetic (https://sketchfab.com/cacybernetic) -> firealarm.glb
+
+
+Model Information:
+* title:	Heathmont Concrete Stairs - Handrail Setout v1 (stairs.glb: one floor module, simplified by tools/make_stairs.mjs)
+* source:	https://sketchfab.com/3d-models/heathmont-concrete-stairs-handrail-setout-v1-139a8214eedb416a8eac5872841d8de3
+* author:	Darren Falconer (https://sketchfab.com/dfalconer84)
+
+Model License:
+* license type:	CC-BY-4.0 (http://creativecommons.org/licenses/by/4.0/)
+* requirements:	Author must be credited. Commercial use is allowed.

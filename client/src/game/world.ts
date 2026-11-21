@@ -90,6 +90,109 @@ function instanced(src: THREE.Object3D, mats: THREE.Matrix4[], fix?: (m: THREE.M
   });
 }
 
+/** El módulo de escalera de servicio (models/suites/stairs.glb, de tools/make_stairs.mjs) en el hueco de Las Suites: se ensancha en x al ancho del hueco (4,4 m) y se pone a su sitio. */
+const MOD = { sx: 4.4 / 3.15, xc: 0.075, y0: -1.813, z: 2.4, top: 3.813 };
+/** El suelo pisable del módulo: las alturas de lo que se pisa en cada celda de 10 cm (x relativa al centro del hueco, z del mundo) y las cajas que cierran lo que no se pisa. */
+interface StairGrid {
+  x0: number;
+  z0: number;
+  n: number;
+  m: number;
+  body: number[][];
+  floor: number[][];
+  fences: number[][]; // [x0, y0, z0, x1, y1, z1] (x relativa al centro, y a la altura del suelo del módulo)
+}
+const SG = 0.1, SUB = 4;
+function buildStairGrid(body: THREE.Object3D, floor: THREE.Object3D, M: typeof MOD): StairGrid {
+  const gx0 = -2.2, gz0 = 1.55, n = 44, m = 48, ns = n * SUB, ms = m * SUB, st = SG / SUB;
+  const raster = (root: THREE.Object3D) => {
+    const samples: number[][] = new Array(ns * ms);
+    root.updateMatrixWorld(true);
+    root.traverse((o) => {
+      const mesh = o as THREE.Mesh;
+      if (!mesh.isMesh) return;
+      const pos = mesh.geometry.attributes.position, ind = mesh.geometry.index!;
+      const P = (i: number) => [M.sx * (pos.getX(i) - M.xc), pos.getY(i) - M.y0, pos.getZ(i) + M.z];
+      for (let t = 0; t < ind.count; t += 3) {
+        const a = P(ind.getX(t)), b = P(ind.getX(t + 1)), c = P(ind.getX(t + 2));
+        const nx = (b[1] - a[1]) * (c[2] - a[2]) - (b[2] - a[2]) * (c[1] - a[1]), ny = (b[2] - a[2]) * (c[0] - a[0]) - (b[0] - a[0]) * (c[2] - a[2]), nz = (b[0] - a[0]) * (c[1] - a[1]) - (b[1] - a[1]) * (c[0] - a[0]);
+        if (ny / (Math.hypot(nx, ny, nz) || 1) < 0.5) continue; // (solo lo que mira hacia arriba)
+        const den = (b[2] - c[2]) * (a[0] - c[0]) + (c[0] - b[0]) * (a[2] - c[2]);
+        if (Math.abs(den) < 1e-9) continue;
+        const i0 = Math.max(0, Math.floor((Math.min(a[0], b[0], c[0]) - gx0) / st)), i1 = Math.min(ns - 1, Math.ceil((Math.max(a[0], b[0], c[0]) - gx0) / st));
+        const j0 = Math.max(0, Math.floor((Math.min(a[2], b[2], c[2]) - gz0) / st)), j1 = Math.min(ms - 1, Math.ceil((Math.max(a[2], b[2], c[2]) - gz0) / st));
+        for (let j = j0; j <= j1; j++)
+          for (let i = i0; i <= i1; i++) {
+            const px = gx0 + (i + 0.5) * st, pz = gz0 + (j + 0.5) * st;
+            const w0 = ((b[2] - c[2]) * (px - c[0]) + (c[0] - b[0]) * (pz - c[2])) / den, w1 = ((c[2] - a[2]) * (px - c[0]) + (a[0] - c[0]) * (pz - c[2])) / den, w2 = 1 - w0 - w1;
+            if (w0 < 0 || w1 < 0 || w2 < 0) continue;
+            (samples[j * ns + i] ??= []).push(w0 * a[1] + w1 * b[1] + w2 * c[1]);
+          }
+      }
+    });
+    // por celda: cada altura que cubre al menos 5 de sus 16 muestras (los tubos de las barandillas son estrechos y no cuentan)
+    const cells: number[][] = Array.from({ length: n * m }, () => []);
+    for (let j = 0; j < m; j++)
+      for (let i = 0; i < n; i++) {
+        const hs: number[] = [];
+        for (let dj = 0; dj < SUB; dj++) for (let di = 0; di < SUB; di++) hs.push(...new Set((samples[(j * SUB + dj) * ns + i * SUB + di] ?? []).map((h) => Math.round(h / 0.03) * 0.03)));
+        hs.sort((p, q) => p - q);
+        for (let a = 0; a < hs.length; ) {
+          let e = a;
+          while (e + 1 < hs.length && hs[e + 1] - hs[a] < 0.05) e++;
+          if (e - a + 1 >= 5) cells[j * n + i].push(hs.slice(a, e + 1).reduce((s, v) => s + v, 0) / (e - a + 1));
+          a = e + 1;
+        }
+      }
+    return cells;
+  };
+  const bodyC = raster(body), floorC = raster(floor);
+  const all = (i: number, j: number) => [...bodyC[j * n + i], ...floorC[j * n + i]];
+  // el borde de lo que se pisa: donde el vecino no tiene suelo a un paso de aquí (arriba o abajo); al sur sigue el rellano, que está a la altura del suelo y de la losa de arriba
+  const edges: { d: number; line: number; i: number; h: number }[] = [];
+  const DIRS4 = [[1, 0], [-1, 0], [0, 1], [0, -1]];
+  // solo lo que se alcanza andando desde el rellano (subiendo o bajando un peldaño cada vez): las copas de los muros o los huecos cerrados no llevan caja
+  const seen = new Set<string>(), queue: number[][] = [];
+  const A = Array.from({ length: n * m }, (_, q) => all(q % n, Math.floor(q / n)));
+  for (let i = 0; i < n; i++) A[(m - 1) * n + i].forEach((h, hi) => (Math.abs(h) <= 0.45 || Math.abs(h - M.top) <= 0.45) && (seen.add(`${i},${m - 1},${hi}`), queue.push([i, m - 1, hi])));
+  for (let q = 0; q < queue.length; q++) {
+    const [i, j, hi] = queue[q], h = A[j * n + i][hi];
+    for (const [dx, dz] of DIRS4) {
+      const ni = i + dx, nj = j + dz;
+      if (ni < 0 || ni >= n || nj < 0 || nj >= m) continue;
+      A[nj * n + ni].forEach((h2, hj) => {
+        const key = `${ni},${nj},${hj}`;
+        if (h2 >= h - 0.45 && h2 <= h + 0.5 && !seen.has(key)) (seen.add(key), queue.push([ni, nj, hj]));
+      });
+    }
+  }
+  for (const [i, j, hi] of queue) {
+    const h = A[j * n + i][hi];
+    DIRS4.forEach(([dx, dz], d) => {
+      const ni = i + dx, nj = j + dz;
+      const ok = ni >= 0 && ni < n && nj >= 0 && nj < m ? A[nj * n + ni].some((q) => q >= h - 0.45 && q <= h + 0.5) : nj >= m && ni >= 0 && ni < n ? Math.abs(h) <= 0.45 || Math.abs(h - M.top) <= 0.45 : false;
+      if (!ok) edges.push({ d, line: d < 2 ? i : j, i: d < 2 ? j : i, h });
+    });
+  }
+  const fences: number[][] = [];
+  const T = 0.12;
+  for (let d = 0; d < 4; d++) {
+    const es = edges.filter((e) => e.d === d).sort((p, q) => p.line - q.line || p.i - q.i);
+    const runs: { line: number; i0: number; i1: number; h0: number; h1: number; last: number }[] = [];
+    for (const e of es) {
+      const r = runs.find((q) => q.line === e.line && q.i1 === e.i - 1 && Math.abs(q.last - e.h) <= 0.3 && Math.max(q.h1, e.h) - Math.min(q.h0, e.h) <= 0.9 && q.i1 - q.i0 < 60);
+      if (r) (r.i1 = e.i), (r.h0 = Math.min(r.h0, e.h)), (r.h1 = Math.max(r.h1, e.h)), (r.last = e.h);
+      else runs.push({ line: e.line, i0: e.i, i1: e.i, h0: e.h, h1: e.h, last: e.h });
+    }
+    for (const r of runs) {
+      const along0 = (d < 2 ? gz0 : gx0) + r.i0 * SG, along1 = (d < 2 ? gz0 : gx0) + (r.i1 + 1) * SG;
+      const edge = (d < 2 ? gx0 : gz0) + (r.line + (d % 2 === 0 ? 1 : 0)) * SG, lo = d % 2 === 0 ? edge - 0.02 : edge - T + 0.02, hi = lo + T;
+      fences.push(d < 2 ? [lo, r.h0 - 0.2, along0, hi, r.h1 + 1.3, along1] : [along0, r.h0 - 0.2, lo, along1, r.h1 + 1.3, hi]);
+    }
+  }
+  return { x0: gx0, z0: gz0, n, m, body: bodyC, floor: floorC, fences };
+}
+
 const UP = new THREE.Vector3(0, 1, 0);
 
 // la suciedad, pintada a mano en un lienzo: regueros de agua que bajan desde el techo
@@ -494,6 +597,7 @@ export class World implements Terrain {
     // el mobiliario fijo (los que pasean por el pasillo se mueven: los comprueba `walkerBlocked`)
     const moving = new Set(this.walkers.flatMap((q) => q.blk));
     for (const b of this.blockers) if (!moving.has(b)) cw.addCylinder(0, b.x, -1000, b.z, b.r, 2000);
+    for (const f of this.fences) cw.addBox(0, [f.x0, f.y0, f.z0], [f.x1, f.y1, f.z1]);
     this.cwCells.clear();
     this.syncCollide();
   }
@@ -521,6 +625,8 @@ export class World implements Terrain {
   private lampLevel: Float32Array;
   /** Lo que no se atraviesa: círculos en el suelo (sillones, archivadores, estantes y mesas). */
   private blockers: { x: number; z: number; r: number }[] = [];
+  /** Cajas finas que cierran las barandillas, las paredes y los bordes de la escalera de servicio, cada una a su altura. */
+  private fences: { x0: number; y0: number; z0: number; x1: number; y1: number; z1: number }[] = [];
   private voidSet: Set<number>;
   /** La corriente: 1 normal, 0 en un apagón (la lleva game.ts). */
   power = 1;
@@ -1088,7 +1194,7 @@ export class World implements Terrain {
       dado.color.set(0x77766f);
       [conc, paint, dado, rail].forEach((m) => lightmapped(m));
       [conc, paint, dado].forEach((m) => ((m.emissiveMap = m.map), m.emissive.set(0x8a826e))); // (el hueco es alto y sin focos: luz propia, que se vea la escalera)
-      const RISE = 0.17, TREAD = 0.3, N = 9, Z0 = 7.5, ZT = Z0 - N * TREAD, H1 = RISE * N, TOP = 2 * H1, HW = 2.25, SH = 2 * HEIGHT + 0.3; // SH: el techo del hueco
+      const Z0 = 6.35, TOP = MOD.top, HW = 2.25; // Z0: dónde acaba el módulo y empieza el rellano de cada planta
       const tiled = (g: THREE.BufferGeometry, w: number, h: number) => (g.attributes.uv.array.forEach((_, i, a) => (a[i] *= (i % 2 ? h : w) / 1.5)), g);
       const signTex = (txt: string, bg: string, size = 30) => {
         const cv = Object.assign(document.createElement('canvas'), { width: 256, height: 96 }), g = cv.getContext('2d')!;
@@ -1123,52 +1229,35 @@ export class World implements Terrain {
         t.colorSpace = THREE.SRGBColorSpace;
         return new THREE.MeshBasicMaterial({ map: t });
       };
-      const _u = new THREE.Vector3(0, 1, 0);
       const LV = 5, base = (k: number) => -(FL - 1) * TOP + k * TOP; // el suelo del nivel k (0-4: las plantas 1-5; el 5, la azotea): la planta de ahora queda a y = 0
       const y0 = base(0), SHT = base(LV) + TOP + 0.3, WH = SHT - y0; // el hueco va del suelo de la planta 1 al techo de la azotea
       const sdMats = new Map<string, THREE.MeshStandardMaterial>();
+      // el módulo de una planta (tools/make_stairs.mjs): suelo, dos tramos, descansillo y la losa de arriba; el suelo (`floor`) solo va en la planta de abajo
+      const modBody = assets.gltf['suites/stairs'].scene.getObjectByName('body')!, modFloor = assets.gltf['suites/stairs'].scene.getObjectByName('floor')!;
+      const stairGrid = buildStairGrid(modBody, modFloor, MOD);
+      const modFix = (m: THREE.Material) => {
+        const sm = m as THREE.MeshStandardMaterial;
+        lightmapped(sm);
+        sm.emissive.set(0x5a5648); // (el hueco es alto y sin focos: luz propia, que se vea la escalera)
+        sm.emissiveMap = sm.map;
+      };
       for (const c of stairsAt) {
-        // todo el hueco se funde por material al final (eran ~1000 mallas por escalera: un dibujo cada una)
+        // todo el hueco se funde por material al final (los planos de paredes y señales: un dibujo cada uno)
         const bucket = new Map<THREE.Material, THREE.BufferGeometry[]>();
         const add = (g: THREE.BufferGeometry, x: number, y: number, z: number, mat: THREE.Material = conc, q?: THREE.Quaternion) => {
           g.applyMatrix4(new THREE.Matrix4().compose(new THREE.Vector3(x, y, z), q ?? new THREE.Quaternion(), new THREE.Vector3(1, 1, 1)));
           bucket.set(mat, [...(bucket.get(mat) ?? []), g.index ? g : g.toNonIndexed()]);
         };
-        /** Un tubo de metal entre dos puntos. */
-        const bar = (ax: number, ay: number, az: number, bx: number, by: number, bz: number, r = 0.02) => {
-          const d = new THREE.Vector3(bx - ax, by - ay, bz - az);
-          add(new THREE.CylinderGeometry(r, r, d.length(), 8), (ax + bx) / 2, (ay + by) / 2, (az + bz) / 2, rail, new THREE.Quaternion().setFromUnitVectors(_u, d.normalize()));
-        };
-        /** Una barandilla sobre la línea de peldaños: pasamanos y barra intermedia, y barrotes cada 45 cm. `y(z)`: la altura del suelo bajo ella. */
-        const guard = (x: number, zA: number, zB: number, y: (z: number) => number) => {
-          bar(x, y(zA) + 0.95, zA, x, y(zB) + 0.95, zB, 0.026);
-          bar(x, y(zA) + 0.5, zA, x, y(zB) + 0.5, zB, 0.014);
-          const n = Math.max(2, Math.round(Math.abs(zA - zB) / 0.45));
-          for (let i = 0; i <= n; i++) {
-            const z = zA + ((zB - zA) * i) / n;
-            bar(x, y(z), z, x, y(z) + 0.95, z, 0.012);
-          }
-        };
-        const xl = c.x - 1.5, xr = c.x + 1.5; // el centro de la columna del primer tramo (sube al norte) y el del segundo (vuelve al sur)
-        const steel = new THREE.MeshStandardMaterial({ color: 0x55695c, metalness: 0.5, roughness: 0.5, emissive: 0x1d2a22 });
-        lightmapped(steel);
-        // un nivel por planta, apilados: tramo izquierdo (sube al norte), descansillo, tramo derecho (vuelve al sur) y el rellano de la planta de arriba, con su puerta
-        for (let k = 0; k < LV; k++) {
-          const b = base(k), hL = (z: number) => b + (z <= ZT ? H1 : z >= Z0 ? 0 : RISE * Math.ceil((Z0 - z) / TREAD)), hR = (z: number) => b + (z <= ZT ? H1 : z >= Z0 ? TOP : H1 + RISE * Math.ceil((z - ZT) / TREAD));
-          for (let i = 1; i <= N; i++) {
-            add(tiled(new THREE.BoxGeometry(CELL, 0.3, TREAD), CELL, 0.3), xl, b + RISE * i - 0.15, Z0 - TREAD * (i - 0.5)); // peldaños como losas
-            add(tiled(new THREE.BoxGeometry(CELL, 0.3, TREAD), CELL, 0.3), xr, b + H1 + RISE * i - 0.15, ZT + TREAD * (i - 0.5));
-          }
-          add(tiled(new THREE.BoxGeometry(2 * HW, 0.3, ZT - 1.5), 2 * HW, 0.3), c.x, b + H1 - 0.15, (ZT + 1.5) / 2); // el descansillo
-          guard(c.x - 0.78, Z0 - 0.05, ZT + 0.05, hL);
-          guard(c.x + 0.78, ZT + 0.05, Z0 - 0.05, hR);
-          bar(c.x - 0.78, b + H1 + 0.95, ZT + 0.1, c.x + 0.78, b + H1 + 0.95, ZT + 0.1, 0.026);
-          bar(c.x - 0.78, b + H1 + 0.5, ZT + 0.1, c.x + 0.78, b + H1 + 0.5, ZT + 0.1, 0.014);
-          add(new THREE.PlaneGeometry(0.62, 0.62), c.x, b + H1 + 1.7, 1.52, floorNum(k + 1)); // el número de la planta de este nivel, como en las escaleras de verdad
-        }
+        const xr = c.x + 1.5; // la puerta de cada planta, en la pared del fondo
+        // un módulo por planta, apilados (cada uno acaba donde empieza el siguiente)
+        const place = (k: number) => new THREE.Matrix4().compose(new THREE.Vector3(c.x - MOD.sx * MOD.xc, base(k) - MOD.y0 + 0.006, MOD.z), new THREE.Quaternion(), new THREE.Vector3(MOD.sx, 1, 1));
+        const bodyMs = Array.from({ length: LV }, (_, k) => place(k));
+        for (const [src, ms] of [[modBody, bodyMs], [modFloor, [bodyMs[0]]]] as [THREE.Object3D, THREE.Matrix4[]][])
+          for (const im of instanced(src, ms, modFix)) (im.receiveShadow = true), this.root.add(im);
         for (let k = 0; k <= LV; k++) {
           const b = base(k);
           if (k !== FL - 1) add(tiled(new THREE.BoxGeometry(2 * HW, 0.3, 10.5 - Z0), 2 * HW, 0.3), c.x, b - 0.15, (Z0 + 10.5) / 2); // el rellano de la planta (el de la planta de ahora es el suelo de siempre)
+          if (k < LV) add(new THREE.PlaneGeometry(0.62, 0.62).rotateY(Math.PI / 2), c.x - HW + 0.02, b + 1.6, 8.6, floorNum(k + 1)); // el número de la planta de este nivel, como en las escaleras de verdad
           if (k < LV && k !== FL - 1) {
             // la puerta de esa planta: la de servicio de verdad (el modelo de las puertas del hotel, de acero), que se abre con G solo si la misión está cumplida
             const ds = assets.gltf['suites/door'].scene, db = new THREE.Box3().setFromObject(ds), dk = 2.1 / (db.max.y - db.min.y), dmid = db.getCenter(new THREE.Vector3()), dd = ds.clone(true), dg = new THREE.Group();
@@ -1200,16 +1289,13 @@ export class World implements Terrain {
             add(new THREE.PlaneGeometry(1.2, 0.45).rotateY(Math.PI), xr, b + 2.35, 10.49, floorSign(k + 1));
             this.stairDoors.push({ n: k + 1, x: xr, z: 10.3, y: b });
           }
-          if (k < LV) (bar(c.x - 0.78, b + 0.95, Z0 + 0.05, c.x + 0.78, b + 0.95, Z0 + 0.05, 0.026), bar(c.x - 0.78, b + 0.5, Z0 + 0.05, c.x + 0.78, b + 0.5, Z0 + 0.05, 0.014)); // la barandilla del borde del hueco
         }
-        // el cuarto: suelo, techo alto y paredes pintadas con su zócalo
-        add(tiled(new THREE.PlaneGeometry(2 * HW, 3).rotateX(-Math.PI / 2), 2 * HW, 3), c.x, 0.006, (Z0 + 10.5) / 2);
-        if (FL > 1) add(tiled(new THREE.PlaneGeometry(2 * HW, Z0 - 1.5).rotateX(-Math.PI / 2), 2 * HW, Z0 - 1.5), c.x, y0 + 0.006, (Z0 + 1.5) / 2); // el fondo del hueco
-        else add(tiled(new THREE.PlaneGeometry(CELL, Z0 - 1.5).rotateX(-Math.PI / 2), CELL, Z0 - 1.5), c.x, 0.006, (Z0 + 1.5) / 2);
+        // el cuarto: suelo del rellano, techo alto y paredes pintadas con su zócalo
+        add(tiled(new THREE.PlaneGeometry(2 * HW, 10.5 - Z0).rotateX(-Math.PI / 2), 2 * HW, 10.5 - Z0), c.x, 0.006, (Z0 + 10.5) / 2);
         add(tiled(new THREE.PlaneGeometry(2 * HW, 9).rotateX(Math.PI / 2), 2 * HW, 9), c.x, SHT - 0.006, 6, paint);
-        // los plafones, pegados bajo la losa de arriba (antes flotaban a media altura y el del rellano se fundía con su suelo)
+        // los plafones, pegados bajo la losa de arriba (la del módulo y la del rellano)
         const lamp = new THREE.MeshBasicMaterial({ color: 0xfff2d0 });
-        for (let k = 0; k <= LV; k++) for (const [z, up] of [[3.4, TOP + H1 - 0.31], [8.2, TOP - 0.31]] as const) add(new THREE.PlaneGeometry(1.5, 0.5).rotateX(Math.PI / 2), c.x, k === LV ? SHT - 0.02 : base(k) + up, z, lamp);
+        for (let k = 0; k <= LV; k++) for (const [z, up] of [[5.6, TOP - 0.45], [8.4, TOP - 0.31]] as const) add(new THREE.PlaneGeometry(1.5, 0.5).rotateX(Math.PI / 2), c.x + (z < 6 ? 0.3 : 0), k === LV ? SHT - 0.02 : base(k) + up, z, lamp);
         for (const [sx, rot] of [[-1, Math.PI / 2], [1, -Math.PI / 2]] as const) {
           add(tiled(new THREE.PlaneGeometry(9, WH).rotateY(rot), 9, WH), c.x + sx * (HW - 0.006), y0 + WH / 2, 6, paint);
           for (let k = 0; k <= LV; k++) add(tiled(new THREE.PlaneGeometry(9, 1.05).rotateY(rot), 9, 1.05), c.x + sx * (HW - 0.012), base(k) + 0.525, 6, dado);
@@ -1217,19 +1303,17 @@ export class World implements Terrain {
         add(tiled(new THREE.PlaneGeometry(2 * HW, WH), 2 * HW, WH), c.x, y0 + WH / 2, 1.506, paint);
         add(tiled(new THREE.PlaneGeometry(2 * HW, SHT - HEIGHT).rotateY(Math.PI), 2 * HW, SHT - HEIGHT), c.x, (SHT + HEIGHT) / 2, 10.494, paint); // sobre la pared de la puerta
         if (FL > 1) add(tiled(new THREE.PlaneGeometry(2 * HW, -y0).rotateY(Math.PI), 2 * HW, -y0), c.x, y0 / 2, 10.494, paint); // y bajo el suelo de la planta de ahora
-        add(new THREE.PlaneGeometry(0.9, 0.34), c.x, 1.8, 1.52, staffSign);
-        add(new THREE.PlaneGeometry(0.5, 0.19), c.x, 2.5, 1.52, exitSign);
-        // lo que no se pisa: el borde del hueco entre los dos tramos (para no caer ni colarse)
-        for (let z = ZT + 0.1; z < Z0 + 0.1; z += 0.45) (this.blockers.push({ x: c.x - 0.75, z, r: 0.3 }), this.blockers.push({ x: c.x + 0.75, z, r: 0.3 }));
-        for (let x = c.x - 0.75; x <= c.x + 0.76; x += 0.375) this.blockers.push({ x, z: Z0 - 0.05, r: 0.3 });
+        add(new THREE.PlaneGeometry(0.9, 0.34).rotateY(Math.PI / 2), c.x - HW + 0.02, 1.8, 7.4, staffSign);
+        add(new THREE.PlaneGeometry(0.5, 0.19).rotateY(Math.PI / 2), c.x - HW + 0.02, 2.5, 7.4, exitSign);
+        // lo que no se pisa: las barandillas, las paredes y el borde de los huecos, a cada altura (cajas finas: ver StairGrid)
+        for (let k = 0; k < LV; k++) for (const f of stairGrid.fences) this.fences.push({ x0: c.x + f[0], y0: base(k) + f[1], z0: f[2], x1: c.x + f[3], y1: base(k) + f[4], z1: f[5] });
         for (const [mat, gs] of bucket) {
           const m = new THREE.Mesh(mergeGeometries(gs.map((g) => (g.index ? g.toNonIndexed() : g)))!, mat);
           m.receiveShadow = true;
-          m.castShadow = mat === rail;
           this.root.add(m);
           this.farObjs.push({ o: m, x: c.x, z: 6 }); // (el hueco de la escalera, de un lado a otro del hotel: solo se dibuja cerca)
         }
-        this.stairs.push({ xl: c.x - HW, xm0: c.x - 0.75, xm1: c.x + 0.75, xr: c.x + HW, z0: 1.5, z1: 10.5, ZT, Z0, RISE, H1, TOP, y0, LV });
+        this.stairs.push({ cx: c.x, hw: HW, z0: 1.5, z1: 10.5, zS: Z0, TOP, y0, LV, grid: stairGrid });
       }
     }
     // las mesillas de noche y las lámparas de mesa (hechas aquí: una caja de madera, una base de latón y una pantalla que brilla)
@@ -1679,25 +1763,26 @@ export class World implements Terrain {
     for (const w of this.walkers) w.groups.forEach((g) => (g.visible = false));
   }
   /** Las escaleras de servicio (Las Suites): dónde están y sus medidas. */
-  private stairs: { xl: number; xm0: number; xm1: number; xr: number; z0: number; z1: number; ZT: number; Z0: number; RISE: number; H1: number; TOP: number; y0: number; LV: number }[] = [];
+  private stairs: { cx: number; hw: number; z0: number; z1: number; zS: number; TOP: number; y0: number; LV: number; grid: StairGrid }[] = [];
   /** Las puertas de las plantas en el hueco de la escalera de servicio: planta, sitio y altura del rellano. Cruzarla (con la salida abierta) lleva a esa planta. */
   readonly stairDoors: { n: number; x: number; z: number; y: number }[] = [];
   /** La altura del suelo bajo (x, z) estando a altura `y`: el más alto que se alcanza de un paso (el hueco de la escalera tiene los niveles apilados). */
   floorAt(x: number, z: number, y = 0): number {
     for (const s of this.stairs) {
-      if (x < s.xl || x > s.xr || z < s.z0 || z > s.z1) continue;
+      const rx = x - s.cx;
+      if (rx < -s.hw || rx > s.hw || z < s.z0 || z > s.z1) continue;
       let best = -Infinity, low = Infinity;
       const take = (h: number) => {
         if (h < low) low = h;
         if (h <= y + 0.5 && h > best) best = h;
       };
+      const g = s.grid, inMod = z < s.zS, ix = Math.floor((rx - g.x0) / SG), iz = Math.floor((z - g.z0) / SG), at = inMod && ix >= 0 && ix < g.n && iz >= 0 && iz < g.m ? iz * g.n + ix : -1;
       for (let k = 0; k <= s.LV; k++) {
         const b = s.y0 + k * s.TOP;
-        if (z >= s.Z0) take(b); // el rellano de la planta (todo el ancho)
-        else if (k < s.LV) {
-          if (z <= s.ZT) take(b + s.H1); // el descansillo
-          else if (x >= s.xm0 && x <= s.xm1) continue; // el hueco
-          else take(x < s.xm0 ? b + s.RISE * Math.ceil((s.Z0 - z) / 0.3) : b + s.H1 + s.RISE * Math.ceil((z - s.ZT) / 0.3)); // los dos tramos
+        if (!inMod) take(b); // el rellano de la planta (todo el ancho)
+        else if (k < s.LV && at >= 0) {
+          for (const h of g.body[at]) take(b + h); // los tramos, el descansillo y la losa de arriba
+          if (k === 0) for (const h of g.floor[at]) take(b + h); // el suelo de la planta de abajo
         }
       }
       return best > -Infinity ? best : low === Infinity ? s.y0 : low;
