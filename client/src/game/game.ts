@@ -777,6 +777,18 @@ export class BackroomsGame {
   private hideIdx = -1;
   private breath = new Breath();
   private hitUntil = 0;
+  private pantT = 0;
+  private wasWinded = false;
+  /** Sin aguante: un jadeo al quedarse sin él y bocanadas de aire mientras no se recupera. */
+  private windedSound(dt: number) {
+    const p = this.player;
+    if (!p || p.dead || this.dying >= 0) return void (this.wasWinded = false);
+    if (p.winded) {
+      if (!this.wasWinded) (this.audio?.gasp(), (this.pantT = 0.7));
+      else if ((this.pantT -= dt) <= 0) (this.audio?.pant(1 - Math.min(1, p.stamina / 0.3)), (this.pantT = 0.75 - 0.25 * (1 - Math.min(1, p.stamina / 0.3))));
+    }
+    this.wasWinded = p.winded;
+  }
   private stompT = new WeakMap<Entity, number>();
   private holding = false;
   private inspected = false;
@@ -1462,7 +1474,7 @@ export class BackroomsGame {
     }
     this.t += dt;
     if (this.player) (this.player.speedMul = this.cheats.speed), (this.player.jumpMul = this.cheats.jump);
-    if (this.brightLight) this.brightLight.visible = this.cheats.bright;
+    if (this.brightLight) (this.brightLight.visible = this.cheats.bright), this.brightLight.parent !== this.scene && this.scene.add(this.brightLight);
     if (this.camUse >= 0) this.camFrame(c);
     // Las Suites: en los conductos se va siempre agachado; mirando las cámaras el cuerpo se queda quieto
     const pp = this.player, duct = !!pp && !!this.world?.vents?.inDuct(Math.floor(pp.pos.x / CELL), Math.floor(pp.pos.z / CELL));
@@ -1581,6 +1593,7 @@ export class BackroomsGame {
     }
     if (!this.mp) this.soloTick();
     this.hideFrame(dt, c.hold);
+    this.windedSound(dt);
     this.monsters(dt);
     this.camWatch();
     if (this.shopOpen && !this.bagOpen) this.shopOpen = false; // (cualquier cosa que cierre la mochila —una pausa, la muerte, un reinicio— cierra la tienda)
@@ -3168,6 +3181,10 @@ export class BackroomsGame {
       // el mismo Player de siempre mueve el cuerpo (con las constantes de locomotion.ts y a través del mundo, que sabe de agua, tubos y plantas) y pone la cámara
       pl.speedK = perks.stats.speed * me.speedMul * (me.pillOn ? PILLS.speed : 1);
       pl.speedAdd = me.pillSpeed;
+      pl.duckK = Math.max(perks.stats.sneak, me.duckMin); // (agacharse frena como en el laberinto)
+      (me.speedMul = this.cheats.speed), (me.jumpMul = this.cheats.jump); // (los trucos de velocidad y salto también valen aquí)
+      if (this.cheats.stamina) me.stamina = 1;
+      if (this.brightLight) (this.brightLight.visible = this.cheats.bright), this.brightLight.parent !== pl.scene && pl.scene.add(this.brightLight); // (la luz del truco vive en la escena del nivel en que se está)
       pl.jumpK = me.jumpMul * (me.pillOn ? PILLS.jump : 1);
       pl.slowMul = (me.aiming ? CAM_AIM_SLOW : 1) * me.buffSpeed; // enfocar con la camcorder frena (igual que en el laberinto)
       const cc = pl.pre(dt, me.winded && c.run ? { ...c, run: false } : c); // sin aguante no se corre (el Player lo gasta)
@@ -3176,6 +3193,7 @@ export class BackroomsGame {
       pl.sqShow = me.hand === 'watergun' && !pl.dead;
       pl.sqVal = me.squirt;
       pl.post(dt, cc);
+      this.windedSound(dt);
     } else pl.update(dt, c);
     if (pl instanceof PoolLevel && me) for (const e of this.entities) e.alive && e.update(dt, me.pos, pl.camera.position, null, false, true); // las entidades de la sala (el servidor las lleva)
     if (this.spectating) this.specCam(dt, c);

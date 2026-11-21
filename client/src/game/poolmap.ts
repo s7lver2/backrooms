@@ -1140,6 +1140,8 @@ export class PoolLevel implements Terrain {
   slowMul = 1;
   /** Multiplicadores de velocidad (mejoras, dificultad) y de salto: los pone Game con los del Player; las constantes de andar, correr y saltar son las de locomotion.ts. */
   speedK = 1;
+  /** Lo que frena agacharse (el del laberinto: mejora SOFT STEPS). */
+  duckK = CROUCH_SLOW;
   speedAdd = 0;
   jumpK = 1;
   private refillAt: { x: number; z: number; y: number }[] = [];
@@ -1417,7 +1419,7 @@ export class PoolLevel implements Terrain {
     let mx = 0, mz = 0, mvy = 0;
     const slide = i0 >= 0 && !this.lay && m.ramp[i0] === PR.slide && !this.swim && this.py <= this.ground(i0, this.px, this.pz) + 0.25;
     if (this.swim) {
-      const sp = c.run ? 3.4 : 2.2, look = new THREE.Vector3(-sy * Math.cos(this.pitch), Math.sin(this.pitch), -cy * Math.cos(this.pitch));
+      const sp = (c.run ? RUN : WALK) * this.speedK + this.speedAdd, look = new THREE.Vector3(-sy * Math.cos(this.pitch), Math.sin(this.pitch), -cy * Math.cos(this.pitch));
       const v = look.multiplyScalar(c.move.y).addScaledVector(right, c.move.x);
       mx = v.x * sp * dt, mz = v.z * sp * dt, mvy = (v.y + (c.jump ? 0.8 : 0) - (c.crouch ? 0.8 : 0)) * sp * dt;
       if (c.move.lengthSq() < 0.01 && !c.jump && !c.crouch) mvy = (this.surf - 0.15 - this.py) * Math.min(1, dt * 0.9); // sin tocar nada, el cuerpo sube despacio a flote
@@ -1427,7 +1429,7 @@ export class PoolLevel implements Terrain {
       mz = sz * 5.2 * dt + (sz === 0 ? (cj - this.pz) * Math.min(1, dt * 6) : 0);
       (this.fx = sx * 4.5), (this.fz = sz * 4.5);
     } else {
-      const sp = ((c.run ? RUN : WALK) * this.speedK + this.speedAdd) * (ducking(c.crouch, c.run) ? CROUCH_SLOW : 1), pm = planar(this.yaw, c.move, sp, dt);
+      const sp = ((c.run ? RUN : WALK) * this.speedK + this.speedAdd) * (ducking(c.crouch, c.run) ? this.duckK : 1), pm = planar(this.yaw, c.move, sp, dt);
       mx = pm.x + this.fx * dt;
       mz = pm.y + this.fz * dt;
       const k = Math.max(0, 1 - dt * 2.2); // el impulso del tobogán se apaga

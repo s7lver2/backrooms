@@ -537,6 +537,12 @@ export class GameAudio {
     this.burst(0.5, 0.35, 1300, 0.7, 'bandpass');
     this.burst(0.4, 0.2, 700, 0.8, 'bandpass', 0.35);
   }
+  /** Sin aguante tras correr: una bocanada de aire, inspirar y soltar; `k` (0–1) es lo agotado que se está (más fuerte y más rápido). */
+  pant(k: number) {
+    const g = 0.16 + 0.16 * k;
+    this.burst(0.26, g, 1500, 0.7, 'bandpass');
+    this.burst(0.34, g * 0.8, 800, 0.8, 'bandpass', 0.3);
+  }
   reload() {
     this.burst(0.05, 0.35, 2200, 3);
     this.burst(0.06, 0.4, 1200, 3, 'bandpass', 0.35);
