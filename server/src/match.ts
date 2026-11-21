@@ -358,6 +358,10 @@ export class Match {
   }
 
   /** Un paso de la IA (la llaman 20 veces por segundo). `caught` se llama por cada jugador al que alcanza una. */
+  /** El tipo de una entidad por su id (para saber quién mató a un jugador). */
+  kindOf(id: number) {
+    return this.ents.find((e) => e.id === id)?.sim.kind;
+  }
   tick(dt: number, players: Player[], caught: (p: Player, entityId: number) => void) {
     this.age += dt;
     if (this.parking) {

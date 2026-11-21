@@ -8,7 +8,7 @@ import {
   type AdminAction, type AdminInfo, type AdminReply, type ClientToServer, type ServerToClient, type Status, type PlayerState, type Room, type RoomView, type RoomInfo, type Look, type Strip,
 } from '@backrooms/shared';
 import { Match, type Player } from './match';
-import { ACHIEVEMENT_KEYS, WATER_HEAL, NOISE_SHOT, NOISE_DROP, NOISE_PHOTO, NOISE_PICK, levelCaps, solidAt, startOffset } from '@backrooms/shared';
+import { ACHIEVEMENT_KEYS, type DeathInfo, WATER_HEAL, NOISE_SHOT, NOISE_DROP, NOISE_PHOTO, NOISE_PICK, levelCaps, solidAt, startOffset } from '@backrooms/shared';
 import { LOCKERS, type Stashed, lockerContents, facelingStock, type LockerItem, ITEMS, PILLS, PARKING_ITEM_IDS, RARITIES, SCALE, UPGRADES, UP_IDS, boostOf, itemOpen, levelsOpen, cleanUps, hasRoom, lootPrice, rarity, rollRarity, sellPrice, spotRarity, statsOf, subOf, upCost, upLevel, wearInv, type Qual, type SaveInfo, type Ups } from '@backrooms/shared';
 import { allowedOrigins, handleApi, isAdminName, originOk, userFromCookie } from './auth';
 import { MONEY_LIMIT, parseAdmin } from './admin';
@@ -423,6 +423,8 @@ const rlog = (r: RoomState, msg: string) => {
   if (r.logs.length > 300) r.logs.splice(0, r.logs.length - 300);
   io.to(r.code).emit('rlog', msg);
 };
+/** Cómo murió alguien (causa y autor): lo usan las repeticiones. Va aparte de 'dead' para no romper a los clientes. */
+const deathInfo = (r: RoomState, id: string, by?: DeathInfo['by']) => io.to(r.code).emit('deathInfo', { id, by } satisfies DeathInfo);
 function complete(r: RoomState) {
   rlog(r, `mission complete: ${r.chosen?.text ?? '?'}`);
   r.cur = r.done = true;
@@ -805,6 +807,7 @@ io.on('connection', (sock) => {
       p.dead = true;
       r.deaths++;
       io.to(r.code).emit('dead', p.id);
+      deathInfo(r, p.id, { kind: 'env', why: 'admin' });
     };
     switch (a.a) {
       case 'map':
@@ -1046,6 +1049,7 @@ io.on('connection', (sock) => {
     q.dead = true;
     r.deaths++;
     io.to(r.code).emit('dead', q.id);
+    deathInfo(r, q.id, { kind: 'player', id: p.id });
     push(r);
     checkOver(r);
   });
@@ -1061,6 +1065,7 @@ io.on('connection', (sock) => {
       q.dead = true;
       r.deaths++;
       io.to(r.code).emit('dead', q.id);
+      deathInfo(r, q.id, { kind: 'player', id: p.id });
     };
     hurt(p, 1e9);
     io.to(r.code).emit('blastFx', { id: p.id, x: p.st.x, y: p.st.y, z: p.st.z });
@@ -1105,6 +1110,7 @@ io.on('connection', (sock) => {
     r.deaths++;
     if (p.uid) count(p.uid, 'falls');
     io.to(r.code).emit('dead', p.id);
+    deathInfo(r, p.id, { kind: 'env', why: 'fall' });
     push(r);
     checkOver(r);
   });
@@ -1149,6 +1155,7 @@ io.on('connection', (sock) => {
     p.dead = true;
     r.deaths++;
     io.to(r.code).emit('dead', p.id);
+    deathInfo(r, p.id, { kind: 'env', why: 'insane' });
     push(r);
     checkOver(r);
   });
@@ -1425,6 +1432,7 @@ io.on('connection', (sock) => {
       q.dead = true;
       r.deaths++;
       io.to(r.code).emit('dead', q.id);
+      deathInfo(r, q.id, { kind: 'player', id: p.id });
       push(r);
       checkOver(r);
     };
@@ -1537,6 +1545,7 @@ io.on('connection', (sock) => {
         // un compañero: queda caído hasta que alguien recupere la bola del suelo (o ésta desaparezca)
         (o.player.ball = id), (o.player.ballAt = o.at), (o.player.dead = true);
         io.to(r.code).emit('dead', o.player.id);
+        deathInfo(r, o.player.id, { kind: 'player', id: p.id });
         push(r);
       }
       bag(p);
@@ -1642,10 +1651,12 @@ const DT = 1 / 20;
 setInterval(() => {
   for (const r of rooms.values()) {
     if (r.phase !== 'playing' || !r.match || !r.players.size) continue; // (una planta sin nadie queda congelada)
-    r.match.tick(DT, [...r.players.values()], (p) => {
+    r.match.tick(DT, [...r.players.values()], (p, eid) => {
       r.deaths++;
       rlog(r, `${p.name} caught by an entity (hiding ${!!p.st.hiding} holding ${!!p.st.holding} air ${p.breath?.air.toFixed(2) ?? '-'} at ${p.st.x.toFixed(1)},${p.st.z.toFixed(1)})`);
       io.to(r.code).emit('dead', p.id);
+      const ek = eid >= 0 ? r.match?.kindOf(eid) : undefined;
+      deathInfo(r, p.id, ek ? { kind: 'entity', ent: ek } : { kind: 'env', why: 'gas' });
       // con un Tótem en la mochila, el que cae corre «Run for your life» por sí mismo (tras su muerte, 4,5 s): si llega, vuelve donde cayó
       if (p.cap.totem > 0 && !p.reviving) {
         p.cap.totem--;

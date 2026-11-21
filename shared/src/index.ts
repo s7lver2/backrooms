@@ -459,6 +459,8 @@ export interface ServerToClient {
   /** Señalización WebRTC de `from` (un compañero de la sala). */
   rtc: (from: string, data: unknown) => void;
   dead: (id: string) => void;
+  /** Causa y autor de una muerte (va justo después de `dead`). */
+  deathInfo: (info: DeathInfo) => void;
   /** El rifle de `id` ha explotado en (x, y, z): todos ven la explosión y a él salir volando. */
   blastFx: (m: { id: string; x: number; y: number; z: number }) => void;
   /** La puerta doble del vestíbulo ha desaparecido (Las Suites). */
@@ -499,3 +501,9 @@ export interface ServerToClient {
   /** Lo que hay soltado en el suelo de la sala de espera (la lista entera, cuando cambia). */
   ldrops: (list: Drop[]) => void;
 }
+
+/** Cómo murió un jugador: lo manda el servidor junto a `dead` y lo usan las repeticiones. */
+export type DeathInfo = {
+  id: string;
+  by?: { kind: 'player'; id: string } | { kind: 'entity'; ent: Kind } | { kind: 'env'; why: string };
+};
