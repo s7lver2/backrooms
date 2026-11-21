@@ -139,7 +139,9 @@ export default function GpuNotice({ children }: { children: ReactNode }) {
       /* da igual */
     }
     initTelemetry(true); // continuar = aceptar el envío de diagnóstico de esta versión
-    report('webgpu-session', `Phoenyx session on ${info.current || 'unknown GPU'}`, 'info', { gpu: info.current });
+    const c = info.current as { vendor?: string; architecture?: string; description?: string } | undefined;
+    const gpuName = [c?.vendor, c?.architecture, c?.description].filter(Boolean).join(' / ') || 'unknown GPU'; // (antes salia «[object Object]»)
+    report('webgpu-session', `Phoenyx session on ${gpuName}`, 'info', { gpu: gpuName });
     setState('leave');
   };
   return (

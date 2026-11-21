@@ -138,6 +138,7 @@ export function bugWatch(dt: number, paused: boolean, pos?: { x: number; y: numb
   if (!on || paused || document.hidden) return (slowT = slowN = slowSum = 0);
   if (pos && !(Number.isFinite(pos.x) && Number.isFinite(pos.y) && Number.isFinite(pos.z))) report('nan', 'player position is not finite', 'error');
   else if (pos && Math.abs(pos.x) + Math.abs(pos.z) > 1e5) report('oob', 'player far outside the map', 'error', { x: Math.round(pos.x), z: Math.round(pos.z) });
+  if (dt > 20) return; // (volver de una pestaña en segundo plano o de la suspension: no es un tiron del juego)
   if (dt > 1) return report('hitch', `frame stall of ${Math.round(dt * 1000)} ms`, 'warning', { ms: Math.round(dt * 1000) });
   slowT += dt;
   slowN++;

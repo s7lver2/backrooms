@@ -586,11 +586,11 @@ export default function AdminConsole({ game, sock, room, me, onVictory }: Props)
               {tab === 'HISTORY' && (
                 <Card title="LEVEL HISTORY" aside={info ? `NEXT SEED ${info.seedNext}` : undefined}>
                   {inRoom && info ? (
-                    info.hist.length ? (
+                    info.hist?.length ? (
                       <table className="hist">
                         <thead><tr><th>#</th><th>LEVEL</th><th>FLOOR</th><th>SEED</th><th>STARTED</th><th /></tr></thead>
                         <tbody>
-                          {[...info.hist].reverse().map((h, i) => (
+                          {[...(info.hist ?? [])].reverse().map((h, i) => (
                             <tr key={h.at} data-now={(i === 0 && info.phase !== 'lobby') || undefined}>
                               <td>{h.round}</td>
                               <td>{lvName(h.level)}</td>
