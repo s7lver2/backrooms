@@ -19,7 +19,8 @@ salvo donde se indica. Las marcas de `perf.ts` solo existen en desarrollo; en pr
 | Programas / pipelines tras el lobby | 163 (53 en la pasada del lobby, 406 ms bloqueando, 906 ms) | sin contador accesible |
 | Frames > 80 ms al pulsar NORMAL | 279–843 ms en ~2 s | frames de 300–600 ms continuos en 10 s |
 | FPS del lobby en el panel | ~30 (33 ms) | ~9 |
-| Despliegue (`public/` copiado) | 1,4 GB | 1,4 GB |
+| Despliegue (carpeta de salida) | 1,4 GB | 1,4 GB → **150 MB** tras la Tarea 9 (sin los 72 `.zip` fuente, 828 MB, ni los FBX de `animations/player`, 419 MB) |
+| Pipelines de Phoenyx | — | **6** en el menú, **7** en el lobby, **8** en Las Suites (`gl.pipeline_count()`); constantes al entrar en una sala, sin frames > 100 ms |
 
 ## Notas
 - **Corrección:** las medidas «tras ENTER» anteriores (~20 MB: objetos, cosméticos, animaciones…) eran el paquete `core` instalándose en segundo plano (`setTimeout(autoInstall, 20000)` en `main.tsx`), no la carga del menú. La carga real del menú es la fila de arriba y se mide antes de los 18 s de la página.
@@ -28,3 +29,6 @@ salvo donde se indica. Las marcas de `perf.ts` solo existen en desarrollo; en pr
 - Phoenyx se midió con el mismo preset POTATO del panel (`warmup: 0`); las cifras de three del lobby se tomaron con `warmup: 2`, así que FPS y frames largos no son del todo comparables.
 - Frames largos: umbral de 80 ms (no 100) al pulsar NORMAL. Los bytes «antes del menú» (hasta ENTER) son solo JS+CSS (741 KB + 146 KB en Phoenyx).
 - Sin medir: carga de un nivel (ronda) en Phoenyx, Firefox.
+
+## Decisión sobre shaders (Tareas 6 y 7)
+En Phoenyx hay 6–8 pipelines frente a los 163 programas de three, y entrar en una sala no crea ninguno. El problema de compilar shaders era de la ruta de three, que se elimina (Tarea 12): un `warm()` en el motor y unificar materiales para reducir variantes no aportarían nada medible. Se sustituyen por vigilar `pipeline_count` en cada nivel durante las Tareas 10–11.

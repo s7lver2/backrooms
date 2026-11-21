@@ -1,6 +1,6 @@
 import { defineConfig, type Plugin } from 'vite';
 import react from '@vitejs/plugin-react';
-import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, watch, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, watch, writeFileSync } from 'node:fs';
 import { dirname, join, relative } from 'node:path';
 import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
@@ -138,6 +138,24 @@ function packsManifest(dirs: string[]): string {
   }
   return JSON.stringify({ packs: PACKS.filter((p) => by[p.id] || p.soon).map((p) => ({ ...p, files: by[p.id]?.files ?? [], bytes: by[p.id]?.bytes ?? 0 })) });
 }
+// el despliegue no lleva los originales: los .zip de modelos fuente de public/ (tools/ los lee de aqui, el juego no) ni los FBX de animaciones sin empaquetar
+// (el juego usa animations/player.pack.*; ver animPack). Se quitan de la salida al compilar; public/ no se toca.
+const sourceless = (): Plugin => {
+  let out = '';
+  return {
+    name: 'sourceless-dist',
+    apply: 'build',
+    configResolved(c) {
+      out = c.build.outDir;
+      if (!out.includes(':') && !out.startsWith('/')) out = join(c.root, out);
+    },
+    closeBundle() {
+      if (!existsSync(join(out, 'index.html'))) return;
+      for (const e of readdirSync(out)) if (e.endsWith('.zip')) rmSync(join(out, e));
+      rmSync(join(out, 'animations/player'), { recursive: true, force: true });
+    },
+  };
+};
 const packs = (): Plugin => {
   let out = '';
   return {
@@ -183,7 +201,7 @@ const proxy = {
 
 // el juego pregunta por process.env.NODE_ENV (avisos y atajos de desarrollo): se define a mano
 export default defineConfig(({ mode }) => ({
-  plugins: [react(), gripsSaver(), animPack(), packs(), ...(PHOENYX ? [bakeLods()] : [])],
+  plugins: [react(), gripsSaver(), animPack(), packs(), sourceless(), ...(PHOENYX ? [bakeLods()] : [])],
   cacheDir: PHOENYX ? 'node_modules/.vite-phoenyx' : undefined, // (cada variante con su cache: si no, dos servidores a la vez se pisan las dependencias optimizadas)
   resolve: { alias: [{ find: /^@phoenyx\/voice$/, replacement: VOICE }, { find: /^three-real$/, replacement: REAL_THREE }, { find: /^@phoenyx\/collide$/, replacement: PHOENYX ? `${PHOENYX_DIR}/packages/phoenyx/src/collide.ts` : fileURLToPath(new URL('./src/game/collideStub.ts', import.meta.url)).replaceAll('\\', '/') }, ...phoenyxAlias] },
   define: { __PHOENYX__: JSON.stringify(PHOENYX), 'process.env.NODE_ENV': JSON.stringify(mode === 'production' ? 'production' : 'development') },
