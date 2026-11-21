@@ -27,6 +27,8 @@ for (let t = 0; t < ind.getCount(); t += 3) {
   const vs = [0, 1, 2].map((k) => V(ind.getScalar(t + k)));
   const cx = (vs[0].p[0] + vs[1].p[0] + vs[2].p[0]) / 3, cy = (vs[0].p[1] + vs[1].p[1] + vs[2].p[1]) / 3, cz = (vs[0].p[2] + vs[1].p[2] + vs[2].p[2]) / 3;
   const leaf = Math.abs(cz) < LEAF_Z && cy < LEAF_TOP && cy > 0.03 && cx > LEAF_X;
+  // los pestillos del suelo (quedaban sueltos con las hojas abiertas)
+  if (!leaf && cy < 0.12 && Math.abs(cz) < 0.6) { continue; }
   parts[leaf ? (cz < 0 ? 'leafL' : 'leafR') : 'frame'].push(...vs);
 }
 // el marco grande (malla 02): sus triángulos, con su matriz de mundo, en otro material
