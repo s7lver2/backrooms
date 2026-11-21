@@ -56,14 +56,21 @@ export async function deleteReplay(id: string): Promise<void> {
   }
 }
 
-export async function starReplay(id: string, on: boolean): Promise<void> {
+/** Cambia campos sueltos de la ficha de una repeticion (nombre, fijada...). */
+export async function patchReplay(id: string, patch: Partial<Pick<ReplayMeta, 'name' | 'starred'>>): Promise<void> {
   try {
     const t = await tx(['meta'], 'readwrite');
     const m = (await done(t.objectStore('meta').get(id))) as ReplayMeta | undefined;
-    if (m) await done(t.objectStore('meta').put({ ...m, starred: on }));
+    if (m) await done(t.objectStore('meta').put({ ...m, ...patch }));
   } catch {
     /* igual que arriba */
   }
+}
+
+export const starReplay = (id: string, on: boolean) => patchReplay(id, { starred: on });
+
+export async function deleteReplays(ids: string[]): Promise<void> {
+  for (const id of ids) await deleteReplay(id);
 }
 
 /** Deja las ultimas KEEP partidas sin estrella (las de la lista, la mas nueva primero); `keep` es la que se esta grabando. */

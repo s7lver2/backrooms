@@ -27,7 +27,14 @@ export type ReplayMeta = {
   players: ReplayPlayer[];
   /** Mi id de socket al grabar (quien grabo: su camara exacta va en los fotogramas `own`). */
   me?: string;
+  /** Fijada: va arriba en la lista y no se borra sola al rotar. */
   starred: boolean;
+  /** Nombre puesto a mano (vacio: el de siempre, nivel y fecha). */
+  name?: string;
+  /** El «fotograma especial» de la lista: el plano con el recorrido, un JPEG pequeño en data URL. */
+  thumb?: string;
+  /** Instante (ms) del momento que sale en la miniatura (la primera muerte, o el final). */
+  hl?: number;
   /** Bytes comprimidos guardados. */
   size: number;
   /** Se paso del tope y la grabacion quedo cortada. */
@@ -37,7 +44,8 @@ export type ReplayMeta = {
 export type ReplayEvent = {
   /** ms desde el inicio de la grabacion. */
   t: number;
-  k: 'death' | 'hit' | 'hurt' | 'elevator' | 'fx';
+  /** `inv`: mi inventario (solo el de quien grabo); `stat`: [aguante, cordura, bateria] 0-1 de quien grabo, cada medio segundo. */
+  k: 'death' | 'hit' | 'hurt' | 'elevator' | 'fx' | 'inv' | 'stat';
   id?: string;
   data?: unknown;
 };

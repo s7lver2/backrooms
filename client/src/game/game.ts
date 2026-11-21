@@ -3044,7 +3044,7 @@ export class BackroomsGame {
     const at = pl ? pl.state : { x: this.caps.hotel ? wrapX(p.pos.x) : p.pos.x, y: p.pos.y, z: p.pos.z, yaw: p.yaw, pitch: p.pitch };
     if (Math.abs(at.x - this.sentX) > 10) this.tp++; // (un teletransporte —Uno Reverse, admin, bucle de Las Suites— se cuenta aparte: el servidor no lo recorta)
     this.sentX = at.x;
-    this.rec?.own(at.x, at.y, at.z, at.yaw, at.pitch);
+    this.rec?.own(at.x, at.y, at.z, at.yaw, at.pitch, [p.stamina, p.sanity, p.charge]);
     const socket = reliable ? this.mp.sock : this.mp.sock.volatile;
     socket.emit('state', { victory: emoteGate.victory, x: at.x, tp: this.tp, y: at.y, z: at.z, yaw: at.yaw, pitch: at.pitch, anim: 'Neutral Idle', dance: p.dancing || undefined, variant: p.variant || undefined, light: p.lightOn, duck: p.duck, tank: pl ? p.tankWorn : undefined, held: p.concealed || p.hand === 'watergun' ? 'none' : p.hand, jam: pl ? Math.round(pl.jam) : undefined, hiding: p.concealed, holding: this.holding, t: performance.now() });
   }
@@ -3308,7 +3308,7 @@ export class BackroomsGame {
       watching: this.specView === 'free' ? '' : this.watching,
       free: this.specView === 'free',
       cam: { x: this.cam.position.x, z: this.cam.position.z },
-      players: [...this.remotes.values()].map((r) => ({ id: r.id, x: r.pos.x, y: r.pos.y, z: r.pos.z, yaw: r.yaw, dead: r.dead })),
+      players: [...this.remotes.values()].map((r) => ({ id: r.id, x: r.pos.x, y: r.pos.y, z: r.pos.z, yaw: r.yaw, dead: r.dead, hp: this.hps[r.id], held: r.held, light: r.light })),
       ents: this.entities.map((e) => ({ x: e.pos.x, y: e.pos.y, z: e.pos.z })),
     };
   }
