@@ -27,6 +27,11 @@ export class Camp {
   private doors: { leaf: THREE.Object3D; cur: number; body?: THREE.Mesh; shell: THREE.Group }[] = [];
   private doorsOpen = false;
   private mine = 0;
+  private alarm = false;
+  /** La alarma de la entrada: las alarmas rotativas destellan en rojo y las luces del campamento pulsan rojas. */
+  setAlarm(on: boolean) {
+    this.alarm = on;
+  }
   private labels: { cv: HTMLCanvasElement; tx: THREE.CanvasTexture; mesh: THREE.Mesh; img?: HTMLImageElement; name: string }[] = [];
   private filled = false;
   private owners: { name: string; avatar?: string }[] = [];
@@ -611,8 +616,17 @@ export class Camp {
     for (const b of this.blink) b.mat.color.setHex(Math.sin(t * b.rate * 2 + b.phase) > -0.2 ? b.on : b.off);
     for (const s of this.screens) if (t > s.next) (s.draw(t), (s.next = t + 0.12));
     for (const m of this.glows) m.quaternion.copy(cam.quaternion);
-    for (const l of this.lamps) l.intensity = l.userData.base * (Math.sin(t * 37 + l.position.x * 3) > 0.985 ? 0.7 : 1);
-    for (const b of this.beacons) (b.gl.material as THREE.MeshBasicMaterial).opacity = 0.05 + 0.5 * Math.max(0, Math.sin(t * 3 + b.ph)) ** 3;
+    const pulse = Math.max(0, Math.sin(t * 7)) ** 2;
+    for (const l of this.lamps) {
+      l.userData.col ??= l.color.getHex();
+      if (this.alarm) (l.color.setHex(0xff3018), (l.intensity = l.userData.base * (0.25 + 1.1 * pulse)));
+      else (l.color.setHex(l.userData.col), (l.intensity = l.userData.base * (Math.sin(t * 37 + l.position.x * 3) > 0.985 ? 0.7 : 1)));
+    }
+    for (const b of this.beacons) {
+      const m = b.gl.material as THREE.MeshBasicMaterial;
+      m.color.setHex(this.alarm ? 0xff2010 : 0xff4a20);
+      m.opacity = this.alarm ? 0.15 + 0.85 * Math.max(0, Math.sin(t * 7 + b.ph)) ** 2 : 0.05 + 0.5 * Math.max(0, Math.sin(t * 3 + b.ph)) ** 3;
+    }
     this.doors.forEach((d, i) => {
       d.cur += ((this.doorsOpen && i === this.mine ? 1 : 0) - d.cur) * Math.min(1, dt * 6);
       d.leaf.rotation.y = -d.cur * 1.6;

@@ -938,8 +938,10 @@ export class WaitingRoom {
   private sequence(dt: number) {
     const s = this.seq!, D = this.reduced ? SHORT : FULL, t = (s.t += dt), cam = this.camera, c = this.cue;
     // los avisos de sonido, una sola vez cada uno: la alarma, el golpe de la cerradura, el chirrido de los goznes
-    if (D.alarmB > 0 && !c.alarm && t > D.alarmA) (c.alarm = true), this.sfx?.('alarm');
-    if (D.alarmB > 0 && !c.alarmOff && t > D.alarmB) (c.alarmOff = true), this.sfx?.('alarmoff');
+    if (D.alarmB > 0 && !c.alarm && t > D.alarmA) (c.alarm = true), this.sfx?.('alarm'), this.camp.setAlarm(true);
+    if (D.alarmB > 0 && !c.alarmOff && t > D.alarmB) (c.alarmOff = true), this.sfx?.('alarmoff'), this.camp.setAlarm(false);
+    // la cúpula se apaga con la alarma (el cielo se queda sin luz) y vuelve con la puerta abierta
+    this.dome.power = 1 - 0.8 * smooth((t - D.off1 * 0.5) / 0.6) * (1 - smooth((t - D.doorB) / 1.2));
     if (!c.boom && t > D.boom) (c.boom = true), this.sfx?.('boom');
     const d = smooth((t - D.doorA) / (D.doorB - D.doorA));
     if (!c.creak && d > 0) (c.creak = true), this.sfx?.('creak');
@@ -955,7 +957,10 @@ export class WaitingRoom {
       _q.setFromRotationMatrix(_m);
       cam.quaternion.copy(s.fromQ).slerp(_q, smooth(t / 1.6));
       cam.rotateZ((Math.sin(t * 1.7) * 0.012 + Math.sin(t * 5.3) * 0.006 + Math.sin(t * 9) * 0.01 * run) * ramp);
-      const fov = 70 + 20 * run;
+      // un pequeño «vértigo» mientras suena la alarma (la lente se cierra), una mirada a las alarmas y, al correr, la lente se abre
+      const pre = smooth((t - 1.0) / 1.3) * (1 - smooth((t - D.doorA) / 1.4)), glance = Math.sin(Math.PI * clamp((t - 1.1) / 1.7, 0, 1)) * (D.alarmB > 0 ? 1 : 0);
+      cam.rotateY(0.22 * glance);
+      const fov = 70 - 8 * pre + 28 * run;
       if (cam.fov !== fov) (cam.fov = fov), cam.updateProjectionMatrix();
     }
     this.black = smooth((t - D.fadeA) / (D.fadeB - D.fadeA));

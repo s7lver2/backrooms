@@ -30,6 +30,8 @@ export class Dome {
   private shaft: THREE.Mesh;
   private pool: THREE.Mesh;
   private light: THREE.PointLight;
+  /** 0–1: la luz de la cúpula (baja en la alarma de la entrada). */
+  power = 1;
   private rays: THREE.Mesh[] = [];
   private dust!: THREE.Points;
   private dustSeed: number[] = [];
@@ -175,7 +177,7 @@ export class Dome {
   }
 
   update(t: number) {
-    for (const m of this.rays) (m.material as THREE.MeshBasicMaterial).opacity = 0.07 + 0.1 * (0.5 + 0.5 * Math.sin(t * 0.5 + m.userData.ph)), (m.rotation.z = 0.05 * Math.sin(t * 0.3 + m.userData.ph));
+    for (const m of this.rays) (m.material as THREE.MeshBasicMaterial).opacity = (0.07 + 0.1 * (0.5 + 0.5 * Math.sin(t * 0.5 + m.userData.ph))) * this.power, (m.rotation.z = 0.05 * Math.sin(t * 0.3 + m.userData.ph));
     const dp = this.dust.geometry.getAttribute('position') as THREE.BufferAttribute;
     for (let i = 0; i < dp.count; i++) {
       let y = dp.getY(i) + 0.05 * (0.4 + (i % 5) * 0.15) * 0.016 * 60 * 0.016;
@@ -185,8 +187,8 @@ export class Dome {
     }
     dp.needsUpdate = true;
     this.sky.rotation.y = t * 0.02;
-    (this.shaft.material as THREE.MeshBasicMaterial).opacity = 0.3 + Math.sin(t * 0.6) * 0.05;
+    (this.shaft.material as THREE.MeshBasicMaterial).opacity = (0.3 + Math.sin(t * 0.6) * 0.05) * this.power;
     this.pool.scale.setScalar(1 + Math.sin(t * 0.6) * 0.02);
-    this.light.intensity = (this.light.userData.base ??= this.light.intensity) * (0.95 + Math.sin(t * 0.9) * 0.03 + (Math.sin(t * 41) > 0.995 ? -0.25 : 0));
+    this.light.intensity = (this.light.userData.base ??= this.light.intensity) * this.power * (0.95 + Math.sin(t * 0.9) * 0.03 + (Math.sin(t * 41) > 0.995 ? -0.25 : 0));
   }
 }
