@@ -1,0 +1,7 @@
+/* El casillero reutiliza la tienda (shopgrid.css); aquí solo lo que cambia */
+.lk { top: 50%; }
+.lk .sg__grid { margin-bottom: 8px; }
+.lk__sub { margin: 10px 0 8px; font-size: 0.9em; }
+.lk .sg__cell[data-empty] { opacity: 0.55; }
+.lk__txt { position: absolute; inset: 6px; display: flex; align-items: center; justify-content: center; text-align: center; font-size: 0.7em; line-height: 1.1; word-break: break-word; }
+.lk button.sg__cell::before { display: none; }

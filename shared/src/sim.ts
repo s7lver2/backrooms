@@ -575,7 +575,12 @@ export class EntitySim {
       if ((this.stuckT += dt) > 0.8) {
         if (Math.hypot(this.x - this.stuckAt.x, this.z - this.stuckAt.z) < 0.25) {
           (this.path = []), (this.repath = 0), (this.rest = 0);
-          if (++this.stuckN >= 3) (this.stuckN = 0), this.unstick(); // tres atascos seguidos: a la celda pisable más cercana
+          if (++this.stuckN >= 3) {
+            // tres atascos seguidos: a la celda pisable más cercana, pero nunca a la vista de alguien (se vería aparecer en otro sitio): se espera hasta 3 intentos más
+            const watched = s.targets.some((t) => Math.hypot(t.x - this.x, t.z - this.z) < 30 && seesXZ(this.solid, this.x, this.z, t.ex, t.ez));
+            if (!watched || ++this.unstickWait > 3) (this.stuckN = 0), (this.unstickWait = 0), this.unstick();
+            else this.stuckN = 2;
+          }
         } else this.stuckN = 0;
         (this.stuckAt = { x: this.x, z: this.z }), (this.stuckT = 0);
       }
@@ -583,6 +588,7 @@ export class EntitySim {
     return s.caught;
   }
 
+  private unstickWait = 0;
   unstick() {
     const m = this.maze, me = this.cellOf(this.x, this.z);
     let best: Cell | undefined, bd = Infinity;
@@ -627,7 +633,14 @@ export class EntitySim {
       return undefined;
     }
     const d = Math.hypot(h.fx - this.x, h.fz - this.z);
-    if (d > 0.3 && s.walk < 1.5) {
+    if (d > 0.35 && s.walk >= 3) {
+      // no ha podido llegar a la boca del nicho (bloqueado, empujado...): no inspecciona desde lejos
+      h.cd = COOL / 2;
+      stop();
+      (this.state = 'wander'), (this.alert = 0), (this.rest = 1), (this.path = []);
+      return undefined;
+    }
+    if (d > 0.35) {
       // a la boca, andando
       s.walk += dt;
       const k = Math.min(d, 1.8 * dt) / d;
@@ -638,6 +651,9 @@ export class EntitySim {
       return undefined;
     }
     this.turn(h.x - this.x, h.z - this.z, dt);
+    // solo cuenta cuando está delante del nicho y de cara a él (no se mata desde lejos ni de lado)
+    const face = Math.abs(mod(Math.atan2(h.x - this.x, h.z - this.z) - this.facing + Math.PI, TAU) - Math.PI);
+    if (face > 0.3) return undefined;
     if ((s.t += dt) > REACT) s.bad = h.occ.holding ? Math.max(0, s.bad - dt) : s.bad + dt;
     if (s.bad > BAD_T && !god) {
       const id = h.occ.id;

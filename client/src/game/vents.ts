@@ -172,6 +172,16 @@ export class Vents {
     for (const o of this.deep) o.visible = on;
   }
 
+  /** Precarga: con `on`, lo de abajo se dibuja entero y sin recorte de cámara (así sus shaders y texturas se suben a la GPU antes de empezar, no con un tirón al entrar al conducto). */
+  warm(on: boolean) {
+    for (const o of this.deep) o.traverse((c) => (c.frustumCulled = !on));
+    if (on) {
+      this.deepOn = true;
+      for (const o of this.deep) o.visible = true;
+      for (const h of this.heads) h.visible = true;
+    }
+  }
+
   /** ¿Es una celda de los conductos? */
   inDuct(x: number, y: number) {
     const d = this.maze.duct;
@@ -252,7 +262,7 @@ export class Vents {
       gr.addColorStop(0, 'rgba(255,255,255,0.32)'), gr.addColorStop(1, 'rgba(255,255,255,0)');
       pg.fillStyle = gr, pg.fillRect(0, 0, 128, 128);
     }
-    const N = 46, pos = new Float32Array(cells.length * N * 3), seed = new Float32Array(cells.length * N);
+    const N = 26, pos = new Float32Array(cells.length * N * 3), seed = new Float32Array(cells.length * N);
     cells.forEach((c, k) => {
       for (let i = 0; i < N; i++) {
         const j = k * N + i;
@@ -278,7 +288,7 @@ export class Vents {
           vec4 mv = modelViewMatrix * vec4(p, 1.0);
           float d = max(-mv.z, 0.4);
           vA = sin(h * 3.14159) * smoothstep(0.35, 1.2, d); vS = s; vR = uT * (0.15 + s * 0.2) * (s > 0.5 ? 1.0 : -1.0) + s * 6.0;
-          gl_PointSize = min((0.9 + s * 0.9) * 640.0 / d, 420.0);
+          gl_PointSize = min((0.9 + s * 0.9) * 640.0 / d, 260.0);
           gl_Position = projectionMatrix * mv;
         }`,
       fragmentShader: `

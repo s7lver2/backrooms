@@ -4,6 +4,65 @@
  * y posición (Game.crashContext). El SDK se carga en diferido: sin DSN o sin permiso no pesa nada.
  */
 import { getConsent } from './consent';
+import { dlogLines } from './dlog';
+
+/** Solo se recoge en las dos versiones publicadas (la clásica y la nueva): ni localhost, ni previews, ni copias en otros dominios. */
+const HOSTS = ['legacybackrooms.s7lver.xyz', 'backrooms.s7lver.xyz'];
+export const telemetryHost = () => HOSTS.includes(location.hostname);
+
+/** Qué significa cada tipo de informe y por dónde empezar a mirar (va en cada informe). */
+const KINDS: Record<string, string> = {
+  nan: 'La posición del jugador dejó de ser un número finito: física, colisión o un teletransporte corrupto.',
+  oob: 'El jugador está muy lejos del mapa: se salió de la colisión o una posición se corrompió.',
+  hitch: 'Un fotograma tardó más de 1 s (carga de un nivel o modelo, GC, shader que compila, GPU bloqueada o pestaña en segundo plano).',
+  slow: 'Ritmo sostenido por debajo de 20 fps durante 12 s: mira gpu, quality, res y renderMs del contexto.',
+  level: 'Un nivel no pudo cargarse; el jugador se queda sin mapa.',
+  'console.error': 'El juego escribió un console.error (los errores de shader de three salen aquí).',
+  'console.warn': 'Aviso de render (three/WebGL/texturas/glb) escrito en consola.',
+  webgl: 'Se perdió o recuperó el contexto WebGL: el driver de la GPU lo tiró (memoria, reinicio del driver, otra pestaña).',
+  engine: 'Error o aviso del motor Phoenyx (WebGPU, renderer en Rust/wasm): shader, pipeline, textura o panic.',
+  'engine-device': 'WebGPU: el dispositivo GPU se perdió o la validación falló (device lost / uncaptured error).',
+  'webgpu-session': 'Inicio de una sesión Phoenyx/WebGPU (informativo): en qué GPU y navegador corre el motor.',
+};
+
+/** El entorno de la sesión: navegador, pantalla, memoria y GPU (adaptador WebGPU si lo hay). Sin nada personal. */
+const env: Record<string, unknown> = {};
+type Adapter = { info?: Record<string, string>; features?: Set<string>; limits?: Record<string, number> } | null;
+function gather() {
+  try {
+    const n = navigator as Navigator & { deviceMemory?: number; connection?: { effectiveType?: string; downlink?: number; rtt?: number; saveData?: boolean } };
+    Object.assign(env, {
+      engine: __PHOENYX__ ? 'phoenyx (WebGPU)' : 'three.js (WebGL)',
+      host: location.hostname,
+      ua: n.userAgent,
+      platform: (n as unknown as { userAgentData?: { platform?: string } }).userAgentData?.platform ?? n.platform,
+      lang: n.language,
+      cores: n.hardwareConcurrency,
+      memGB: n.deviceMemory,
+      screen: `${screen.width}x${screen.height}@${devicePixelRatio}`,
+      zoom: Math.round((outerWidth / innerWidth) * 100) / 100,
+      net: n.connection ? `${n.connection.effectiveType} ${n.connection.downlink}Mb/s rtt${n.connection.rtt}${n.connection.saveData ? ' saveData' : ''}` : undefined,
+      secure: isSecureContext,
+      webgpu: !!(n as unknown as { gpu?: unknown }).gpu,
+      sw: !!n.serviceWorker?.controller,
+      standalone: matchMedia('(display-mode: standalone)').matches,
+    });
+    const gpu = (n as unknown as { gpu?: { requestAdapter(): Promise<Adapter> } }).gpu;
+    void gpu
+      ?.requestAdapter()
+      .then((a) => {
+        if (!a) return void (env.adapter = 'none');
+        const i = a.info ?? {};
+        env.adapter = [i.vendor, i.architecture, i.device, i.description].filter(Boolean).join(' / ') || 'unknown';
+        env.gpuFeatures = a.features?.size;
+        env.maxTexture2D = a.limits?.maxTextureDimension2D;
+        env.maxBuffer = a.limits?.maxBufferSize;
+      })
+      .catch(() => (env.adapter = 'error'));
+  } catch {
+    /* sin entorno */
+  }
+}
 
 const DSN = import.meta.env.VITE_SENTRY_DSN as string | undefined;
 let ctx: (() => unknown) | undefined;
@@ -22,19 +81,23 @@ export function setCrashContext(f: () => unknown) {
 
 /** `force`: el jugador aceptó el envío de diagnóstico por otra vía (el aviso de la versión WebGPU, GpuNotice.tsx). */
 export function initTelemetry(force = false) {
-  if (!DSN || on || !(force || getConsent()?.reports)) return;
+  if (!DSN || on || !telemetryHost() || !(force || getConsent()?.reports)) return;
   on = true;
+  gather();
   void import('@sentry/browser').then((S) => {
     sdk = S;
     S.init({
       dsn: DSN,
       tracesSampleRate: 0,
       release: import.meta.env.VITE_RELEASE as string | undefined,
-      environment: import.meta.env.MODE,
+      environment: location.hostname === 'backrooms.s7lver.xyz' ? 'phoenyx' : 'legacy',
+      initialScope: { tags: { engine: __PHOENYX__ ? 'phoenyx' : 'three' } },
       integrations: (d) => d.filter((i) => i.name !== 'Breadcrumbs'), // (sin migas de pan: llevan URLs y entradas del jugador)
       beforeSend(e) {
         try {
-          e.contexts = { ...e.contexts, game: ctx?.() as Record<string, unknown> };
+          const g = ctx?.() as { level?: string; quality?: string } | undefined;
+          e.contexts = { ...e.contexts, game: g as Record<string, unknown>, env: { ...env, visible: document.visibilityState, online: navigator.onLine, uptimeS: Math.round(performance.now() / 1000), viewport: `${innerWidth}x${innerHeight}` } };
+          e.tags = { ...e.tags, level: String(g?.level ?? '-'), quality: String(g?.quality ?? '-'), adapter: String(env.adapter ?? '-').slice(0, 60) };
         } catch {
           /* sin contexto */
         }
@@ -56,7 +119,15 @@ export function report(kind: string, msg: string, level: 'info' | 'warning' | 'e
   if (seen.has(key)) return;
   seen.add(key);
   sent++;
-  const send = () => sdk?.withScope((sc) => (sc.setLevel(level), sc.setTag('kind', kind), sc.setFingerprint([key]), sc.setExtras({ ...extra, ...(ctx?.() as Record<string, unknown> | undefined) }), sdk?.captureMessage(`[${kind}] ${msg.slice(0, 500)}`)));
+  const recent = dlogLines().slice(-12); // (las últimas acciones del juego: recogidas, ascensor, misión...)
+  const send = () =>
+    sdk?.withScope((sc) => {
+      sc.setLevel(level);
+      sc.setTag('kind', kind);
+      sc.setFingerprint([key]);
+      sc.setExtras({ what: KINDS[kind] ?? kind, detail: msg.slice(0, 4000), ...extra, ...(ctx?.() as Record<string, unknown> | undefined), recentEvents: recent });
+      sdk?.captureMessage(`[${kind}] ${msg.split('\n')[0].slice(0, 200)}`);
+    });
   if (sdk) send();
   else queue.push(send);
 }

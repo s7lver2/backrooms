@@ -1767,6 +1767,8 @@ export class World implements Terrain {
   viewer?: THREE.Vector3;
   private cullable?: THREE.InstancedMesh[];
   private doorGroups: THREE.Object3D[] = [];
+  /** Durante la carga: todo lo de las habitaciones se dibuja una vez (se sube a la GPU antes de que se abra la primera puerta; si no, se congelaba al abrirla). */
+  warmAll = false;
   private roomDoor?: Map<number, (typeof this.doors)[number]>;
   /** Objetos sueltos de una habitación (el botín): se ocultan con su puerta cerrada, como las mallas instanciadas de la habitación. */
   private roomObjs: { o: THREE.Object3D; r: number[]; x: number; z: number }[] = [];
@@ -1796,14 +1798,17 @@ export class World implements Terrain {
         if (show && r && this.roomDoor) {
           // una habitación solo se dibuja si estás dentro o su puerta está abierta (y no a más de 14 m)
           const inside = v.x > r[0] * 6 + 1.3 && v.x < r[0] * 6 + 6.2 && (r[1] ? v.z < 12.2 : v.z > 14.8);
-          show = inside || ((this.roomDoor.get((r[1] ? 7 : 10) * this.maze.w + r[0] * 4 + 2)?.cur ?? 0) > 0.02 && Math.hypot(b.center.x - v.x, b.center.z - v.z) - b.radius < 14);
+          show = this.warmAll || inside || ((this.roomDoor.get((r[1] ? 7 : 10) * this.maze.w + r[0] * 4 + 2)?.cur ?? 0) > 0.02 && Math.hypot(b.center.x - v.x, b.center.z - v.z) - b.radius < 14);
         }
         im.visible = show;
       }
       for (const g of this.doorGroups) g.visible = Math.hypot(g.position.x - v.x, g.position.z - v.z) < 32;
+      const span = SUITE_L * CELL;
       for (const q of this.roomObjs) {
-        const d = Math.hypot(q.x - v.x, q.z - v.z), inside = v.x > q.r[0] * 6 + 1.3 && v.x < q.r[0] * 6 + 6.2 && (q.r[1] ? v.z < 12.2 : v.z > 14.8);
-        q.o.visible = d < PROP_FAR && (inside || ((this.roomDoor?.get((q.r[1] ? 7 : 10) * this.maze.w + q.r[0] * 4 + 2)?.cur ?? 0) > 0.02 && d < 14));
+        // (el pasillo se repite cada `span`: el objeto de la copia en la que estás se ve igual que el original; sin esto, se veía solo su destello)
+        const vx = this.hotel ? v.x - Math.round((v.x - q.x) / span) * span : v.x;
+        const d = Math.hypot(q.x - vx, q.z - v.z), inside = vx > q.r[0] * 6 + 1.3 && vx < q.r[0] * 6 + 6.2 && (q.r[1] ? v.z < 12.2 : v.z > 14.8);
+        q.o.visible = this.warmAll || (d < PROP_FAR && (inside || ((this.roomDoor?.get((q.r[1] ? 7 : 10) * this.maze.w + q.r[0] * 4 + 2)?.cur ?? 0) > 0.02 && d < 14)));
       }
       for (const q of this.farObjs) q.o.visible = Math.hypot(q.x - v.x, q.z - v.z) < 50;
       for (const q of this.levelObjs) q.o.visible = Math.abs(v.y - q.y) < 4.6 && Math.hypot(q.x - v.x, q.z - v.z) < 44;

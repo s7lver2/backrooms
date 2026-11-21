@@ -32,3 +32,27 @@ This work is based on "Vending machine" (https://sketchfab.com/3d-models/vending
 
 
 This work is based on "Product scales" (https://sketchfab.com/3d-models/product-scales-46db668923514ebc91febfef0f4dc9d0) by Virtual Museums of Malopolska (https://sketchfab.com/WirtualneMuzeaMalopolski) licensed under CC-BY-4.0 (http://creativecommons.org/licenses/by/4.0/). Reducido con gltf-transform (texturas a 1024 px en WebP, malla simplificada).
+
+
+Campamento (reducidos con tools/pack_glb.py: texturas a 512-1024 px, sin mapas de normales). Todos CC-BY-4.0 (http://creativecommons.org/licenses/by/4.0/):
+- "Tent_Military" (https://sketchfab.com/3d-models/tent-military-e06d68ead08a4c44bfd5f826ecca4987) by Mehdi Shahsavan (https://sketchfab.com/ahmagh2e) -> tent.glb
+- "Lab bench 2" (https://sketchfab.com/3d-models/lab-bench-2-7d76b55e0ff84c14873c240937c2f16a) by gzezel (https://sketchfab.com/gzezel) -> labbench.glb
+- "Soviet jerrycan" (https://sketchfab.com/3d-models/soviet-jerrycan-9d9b227e536f49119c4f510179c6b8c4) by Turbo (https://sketchfab.com/-turbo-) -> jerrycan.glb
+- "Alarm Light" (https://sketchfab.com/3d-models/alarm-light-6984a32666b3463fa1482f730a393745) by TacoProductions (https://sketchfab.com/Fnaf_Games_Production) -> beacon.glb
+
+Más modelos del campamento:
+- "Fire Extinguisher" (https://sketchfab.com/3d-models/fire-extinguisher-5676b179b3b744c0aaae53a3dcea2300) by Loïc (https://sketchfab.com/loichuet1) — CC-BY-4.0 (http://creativecommons.org/licenses/by/4.0/) -> extinguisher.glb
+- "Server Rack" (https://sketchfab.com/3d-models/server-rack-62f6779cb7e448b19aaf58544c3c7218) by Spellkaze (https://sketchfab.com/Spellkaze) — CC-BY-4.0 (http://creativecommons.org/licenses/by/4.0/) -> rack.glb
+- "First Aid Kit Box first aid" (https://sketchfab.com/3d-models/first-aid-kit-box-first-aid-9be7228c7dfa4ec08e8dbfea5cbd5b39) by meipal (https://sketchfab.com/ashabbugaev12) — CC-BY-4.0 (http://creativecommons.org/licenses/by/4.0/) -> firstaid.glb
+- "C64 Monitor" (https://sketchfab.com/3d-models/c64-monitor-b005d2125a1545ad9e0994e0deb5e82e) by hoschu (https://sketchfab.com/hoschu) — CC-BY-4.0 (http://creativecommons.org/licenses/by/4.0/) -> c64.glb
+- "Military Radio" (https://sketchfab.com/3d-models/military-radio-f5c8f0420f054b32a2e977fbcd248d84) by curichenkow (https://sketchfab.com/curichenkow) — CC-BY-4.0 (http://creativecommons.org/licenses/by/4.0/) -> radio.glb
+- "Dirty Locker (256x256 Retro)" (https://sketchfab.com/3d-models/dirty-locker-256x256-retro-1a7f6eb46ebc452a9b6d33ffc05f5bca) by xylvnking (https://sketchfab.com/xylvnking) — CC-BY-4.0 (http://creativecommons.org/licenses/by/4.0/) -> locker.glb
+- "Warehouse Crates" (https://sketchfab.com/3d-models/warehouse-crates-afdc5b74ec474eefaf4a6ca50007bfa7) by Silver Phoenix (https://sketchfab.com/UniBlend) — CC-BY-4.0 (http://creativecommons.org/licenses/by/4.0/) -> crates.glb
+- "GTA V - Conquistador Skeleton" (https://sketchfab.com/3d-models/gta-v-conquistador-skeleton-515837755b2a4224a6e94afdf4e71a67) by Zorg_Sinister (https://sketchfab.com/4130ff15fe394c239cc064b5286c43) - CC-BY-4.0 -> skeleton.glb
+- "Crates And Barrels" (https://sketchfab.com/3d-models/crates-and-barrels-5ae3c72285474862a89d69c2f2ad2246) by Mateusz Woliński (https://sketchfab.com/jeandiz) - CC-BY-4.0 -> barrels.glb
+- "Dead Body" (https://sketchfab.com/3d-models/dead-body-fdfca2c19a784789804f39d24f25bd8c) by Lukas Bobor (https://sketchfab.com/LukasBobor) - CC-BY-4.0 -> body.glb
+- "GTA V - Conquistador Skeleton" (https://sketchfab.com/3d-models/gta-v-conquistador-skeleton-515837755b2a4224a6e94afdf4e71a67) by Zorg_Sinister (https://sketchfab.com/4130ff15fe394c239cc064b5286c43) - CC-BY-4.0 -> skeleton.glb
+- "Crates And Barrels" (https://sketchfab.com/3d-models/crates-and-barrels-5ae3c72285474862a89d69c2f2ad2246) by Mateusz Woliński (https://sketchfab.com/jeandiz) - CC-BY-4.0 -> barrels.glb
+- "Dead Body" (https://sketchfab.com/3d-models/dead-body-fdfca2c19a784789804f39d24f25bd8c) by Lukas Bobor (https://sketchfab.com/LukasBobor) - CC-BY-4.0 -> body.glb
+
+lockerd.glb - "Dirty Locker (256x256 Retro)" by xylvnking (https://sketchfab.com/3d-models/dirty-locker-256x256-retro-1a7f6eb46ebc452a9b6d33ffc05f5bca), CC-BY-4.0

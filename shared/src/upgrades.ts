@@ -4,7 +4,7 @@
  * entrada más en UPGRADES (y un campo en Stats si da algo distinto): el terminal, el servidor y la consola de admin salen de esta tabla.
  */
 
-export type UpId = 'pack' | 'belt' | 'back' | 'hp' | 'lungs' | 'legs' | 'pool' | 'light' | 'rest' | 'heal' | 'sneak' | 'suites' | 'parking' | 'reach';
+export type UpId = 'pack' | 'belt' | 'back' | 'hp' | 'lungs' | 'legs' | 'pool' | 'light' | 'rest' | 'heal' | 'sneak' | 'suites' | 'parking' | 'reach' | 'locker';
 export interface UpDef {
   name: string;
   info: string;
@@ -47,6 +47,7 @@ export const UPGRADES: Record<UpId, UpDef> = {
   sneak: { name: 'SOFT STEPS', info: 'Crouching is faster: sneak past what hunts you.', cost: [180, 320], val: [0.5, 0.65, 0.8], fmt: pct, stages: [st(2, 6, ['parking', 1])], col: 3 },
   suites: { name: 'LEVEL -20', info: 'Unlocks the Suites: a hotel with its own staff, and four new items in the shop.', cost: [1500], val: [0, 1], fmt: (v) => (v ? 'UNLOCKED' : 'LOCKED'), stages: [gate(7, 28, ['parking', 1])], col: 2, level: 'suites' },
   parking: { name: 'LEVEL 1', info: 'Unlocks the Habitable Zone: a concrete parking garage with its own enemies, and four new items in the shop.', cost: [1000], val: [0, 1], fmt: (v) => (v ? 'UNLOCKED' : 'LOCKED'), stages: [gate(5, 20, ['pool', 1])], col: 0, level: 'parking' },
+  locker: { name: 'LOCKER', info: 'More slots in your locker in the waiting room.', cost: [150, 300, 500, 800], val: [2, 3, 4, 5, 6], fmt: (v) => `${v} SLOTS`, stages: [st(2, 3), st(2, 6)], col: 0 },
   reach: { name: 'THROWING ARM', info: 'Thrown items fly further and the bat hits harder.', cost: [300, 500, 800], val: [1, 1.15, 1.3, 1.5], fmt: mul, stages: [st(3, 8, ['suites', 1])], col: 3 },
 };
 export const UP_IDS = Object.keys(UPGRADES) as UpId[];
@@ -66,10 +67,12 @@ export interface Stats {
   heal: number;
   sneak: number;
   reach: number;
+  /** Ranuras de tu casillero de la sala de espera. */
+  locker: number;
 }
 export const upLevel = (u: Ups | undefined, id: UpId) => Math.max(0, Math.min(UPGRADES[id].cost.length, Math.floor(Number(u?.[id]) || 0)));
 const v = (u: Ups | undefined, id: UpId) => UPGRADES[id].val[upLevel(u, id)];
-export const statsOf = (u?: Ups): Stats => ({ cells: v(u, 'pack'), hot: v(u, 'belt'), back: !!v(u, 'back'), hp: v(u, 'hp'), stamina: v(u, 'lungs'), speed: v(u, 'legs'), light: v(u, 'light'), rest: v(u, 'rest'), heal: v(u, 'heal'), sneak: v(u, 'sneak'), reach: v(u, 'reach') });
+export const statsOf = (u?: Ups): Stats => ({ cells: v(u, 'pack'), hot: v(u, 'belt'), back: !!v(u, 'back'), hp: v(u, 'hp'), stamina: v(u, 'lungs'), speed: v(u, 'legs'), light: v(u, 'light'), rest: v(u, 'rest'), heal: v(u, 'heal'), sneak: v(u, 'sneak'), reach: v(u, 'reach'), locker: v(u, 'locker') });
 /** Todo al máximo: jugando solo (sin sala) no hay árbol. */
 export const FULL_UPS: Ups = Object.fromEntries(UP_IDS.map((id) => [id, UPGRADES[id].cost.length]));
 export const FULL_STATS = statsOf(FULL_UPS);

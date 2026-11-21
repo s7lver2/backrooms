@@ -159,6 +159,9 @@ class Dashboard:
         self.vgit = ""  # what `vercel deploy` would upload: "master @ c3b9940 · 3 uncommitted"
         self.vdomain = ""  # the production custom domain, for the confirmation texts
         self.vloading = False
+        self.gt = None  # a GlitchTip client (build.py) for the issues tab
+        self.irows: list[dict] = []
+        self.isel, self.iloading, self.idetail, self.iscroll = 0, False, None, 0
         self.flash, self.flash_at = "", 0.0
         self.pending: tuple[str, float] | None = None  # a destructive vercel action waiting for its second key press
         self.t0 = time.time()
@@ -236,6 +239,28 @@ class Dashboard:
         finally:
             self.vloading = False
 
+    def refresh_issues(self) -> None:
+        if self.iloading or self.gt is None:
+            return
+        self.iloading = True
+        threading.Thread(target=self._refresh_issues, daemon=True).start()
+
+    def _refresh_issues(self) -> None:
+        try:
+            self.irows = self.gt.issues(40)
+        except Exception as e:
+            self.say(f"glitchtip: {e}")
+        self.iloading = False
+
+    def open_issue(self, issue_id: str) -> None:
+        self.idetail, self.iscroll = ["loading…"], 0
+        def work() -> None:
+            try:
+                self.idetail = self.gt.detail(issue_id)
+            except Exception as e:
+                self.idetail = [f"glitchtip: {e}"]
+        threading.Thread(target=work, daemon=True).start()
+
     def say(self, msg: str) -> None:
         self.flash, self.flash_at = msg, time.time()
 
@@ -259,7 +284,7 @@ class Dashboard:
     def nav(self) -> list[tuple[str, str, int]]:
         items = [("1", "all", 0)]
         for i, p in enumerate(self.procs, 1):
-            items.append(("v" if p.tag == "vercel" else str(i + 1), p.tag, i))
+            items.append(({"vercel": "v", "issues": "g"}.get(p.tag, str(i + 1)), p.tag, i))
         return items
 
     def hero(self, cv: Cv, y0: int, rows: int, t: float) -> None:
@@ -330,10 +355,13 @@ class Dashboard:
             cv.hline(y)
             y += 1
         vtab = bool(self.tab and self.procs[self.tab - 1].tag == "vercel")
+        itab = bool(self.tab and self.procs[self.tab - 1].tag == "issues")
         # bottom blocks first so the pane knows its room: 2 service rows + rule + status
         pane_end = h - 5
         if vtab:
             y = self.draw_vercel(cv, y, pane_end, w)
+        elif itab:
+            self.draw_issues(cv, y, pane_end, w)
         else:
             self.draw_logs(cv, y, pane_end, w)
         cv.hline(pane_end)
@@ -434,9 +462,45 @@ class Dashboard:
             cv.text(2, y + i, fit(text, w - 4), FG[{"err": "err", "warn": "warn", "sys": "mute"}.get(level, "dim")])
         return end
 
+    def draw_issues(self, cv: Cv, y: int, end: int, w: int) -> None:
+        """GlitchTip issues as a table; enter opens the latest event of the selected one as text."""
+        if self.idetail is not None:
+            cv.text(2, y, "issue", FG["ink"], None, True)
+            cv.text(8, y, "j k scroll · esc back · o open in browser", FG["mute"])
+            cv.hline(y + 1)
+            lines = [c for t in self.idetail for c in ([t[i: i + w - 4] for i in range(0, max(len(t), 1), w - 4)] or [""])]
+            self.iscroll = max(0, min(self.iscroll, max(len(lines) - (end - y - 2), 0)))
+            for i, t in enumerate(lines[self.iscroll: self.iscroll + end - y - 2]):
+                cv.text(2, y + 2 + i, t, FG["ink"] if i + self.iscroll < 2 else FG["dim"])
+            return
+        cv.text(2, y, "issues", FG["ink"], None, True)
+        cv.text(9, y, "loading…" if self.iloading else f"{len(self.irows)} · j k select · enter detail · l refresh · o open", FG["mute"])
+        cv.hline(y + 1)
+        y += 2
+        if not self.irows:
+            cv.text(2, y, "loading issues…" if self.iloading else "press l to load the issues (needs GLITCHTIP_TOKEN)", FG["mute"])
+            return
+        table = end - y
+        self.isel = max(0, min(self.isel, len(self.irows) - 1))
+        first = max(0, min(self.isel - table + 1, len(self.irows) - table)) if len(self.irows) > table else 0
+        for i, r in enumerate(self.irows[first: first + table]):
+            on = first + i == self.isel
+            bgr = FAINT if on else BG
+            ry = y + i
+            for c in range(w):
+                cv.put(c, ry, " ", None, bgr)
+            cv.text(1, ry, "▸" if on else " ", FG["accent"], bgr, True)
+            col = {"error": "err", "fatal": "err", "warning": "warn"}.get(r.get("level", ""), "mute")
+            cv.text(3, ry, fit(r.get("level", ""), 7).ljust(8), FG[col], bgr)
+            cv.text(12, ry, f"x{r.get('count', '?')}".ljust(7), FG["warn"], bgr)
+            cv.text(20, ry, str(r.get("lastSeen", ""))[5:16].replace("T", " "), FG["dim"], bgr)
+            cv.text(33, ry, fit(r.get("title", ""), w - 35), FG["ink"] if on else FG["mute"], bgr, on)
+
     def draw_services(self, cv: Cv, y: int, w: int, f: int) -> None:
         x = 1
         for p in self.procs:
+            if p.tag == "issues":
+                continue
             if p.p is None:
                 dot, dc, state = "○", "mute", "off"
             elif p.alive and p.oneshot:
@@ -499,9 +563,11 @@ class Dashboard:
         cv.right(w - 1, y, right, FG[rc])
 
     def hints(self) -> list[tuple[str, str]]:
+        if self.tab and self.procs[self.tab - 1].tag == "issues":
+            return [("jk", "select"), ("enter", "detail"), ("esc", "back"), ("l", "refresh"), ("o", "open"), ("q", "quit")]
         if self.tab and self.procs[self.tab - 1].tag == "vercel":
             return [("jk", "select"), ("enter", "inspect"), ("d", "preview"), ("P", "prod"), ("R", "redeploy"), ("p", "promote"), ("b", "rollback"), ("l", "refresh"), ("o", "open"), ("q", "quit")]
-        return [("/", "filter"), ("e", "errors"), ("space", "freeze"), ("t", "tunnel"), ("v", "vercel"), ("r", "restart"), ("o", "open"), ("c", "clear"), ("q", "quit")]
+        return [("/", "filter"), ("e", "errors"), ("space", "freeze"), ("t", "tunnel"), ("v", "vercel"), ("g", "issues"), ("r", "restart"), ("o", "open"), ("c", "clear"), ("q", "quit")]
 
     # ----------------------------------------------------------------- input ----
     def key_thread(self) -> None:
@@ -572,6 +638,28 @@ class Dashboard:
         page = max(h - 12, 3)
         n = len(self.procs)
         vtab = bool(self.tab and self.procs[self.tab - 1].tag == "vercel")
+        itab = bool(self.tab and self.procs[self.tab - 1].tag == "issues")
+        if itab:
+            det = self.idetail is not None
+            if k in ("j", "down"):
+                self.iscroll += 1 if det else 0
+                self.isel += 0 if det else 1
+                return
+            if k in ("k", "up"):
+                self.iscroll = max(self.iscroll - 1, 0) if det else self.iscroll
+                self.isel = self.isel if det else max(self.isel - 1, 0)
+                return
+            if k == "esc" and det:
+                self.idetail = None
+                return
+            if k == "l":
+                return self.refresh_issues()
+            if self.irows and k in ("enter", "i") and not det:
+                return self.open_issue(str(self.irows[self.isel]["id"]))
+            if self.irows and k in ("o", "O"):
+                iid = str(self.irows[self.isel]["id"])
+                webbrowser.open(self.gt.url(iid))
+                return self.say(f"opened issue #{iid}")
         if vtab:
             if k in ("j", "down"):
                 self.vsel += 1
@@ -626,10 +714,13 @@ class Dashboard:
                 self.frozen = None if self.frozen is None else []
             self.scroll = 0
         elif k in ("v", "V"):
-            self.tab, self.scroll = n, 0  # the vercel tab is always the last process
-            vp = self.find("vercel")
+            self.tab, self.scroll = self.procs.index(self.find("vercel")) + 1, 0
             if not self.vrows:
                 self.refresh_vercel()
+        elif k in ("g", "G") and self.find("issues"):
+            self.tab, self.scroll = self.procs.index(self.find("issues")) + 1, 0
+            if not self.irows:
+                self.refresh_issues()
         elif k in ("t", "T"):
             tp = self.find("tunnel")
             if tp is None:

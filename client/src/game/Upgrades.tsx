@@ -26,6 +26,7 @@ const ICON: Partial<Record<UpId, string>> = {
   suites: 'M6 21V4h12v17M4 21h16M14 12h.01',
   parking: 'M3 17v-4l2-5h14l2 5v4zM3 17v2h3v-2M18 17v2h3v-2M7 13h.01M17 13h.01',
   reach: 'M4 20L20 4M14 4h6v6',
+  locker: 'M6 3h12v18H6zM12 3v18M9.5 11v2M14.5 11v2',
 };
 const STAR = 'M12 3l2.7 5.6 6.1.8-4.5 4.2 1.1 6-5.4-3-5.4 3 1.1-6L3.2 9.4l6.1-.8z';
 const YOU = 'M12 4a3 3 0 1 0 0 6 3 3 0 0 0 0-6zM5 21v-3a5 5 0 0 1 5-5h4a5 5 0 0 1 5 5v3';

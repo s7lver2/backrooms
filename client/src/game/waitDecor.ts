@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import type { GLTF } from 'three/examples/jsm/loaders/GLTFLoader.js';
-import { LEVELS, WAIT_HALF } from '@backrooms/shared';
+import { LEVELS, WAIT_H, WAIT_HALF } from '@backrooms/shared';
 import { fit } from './hospital';
 import { Dust, MONO, bagTex, clamp, decal, hash, softTex, type Bag, type Box } from './waitKit';
 
@@ -63,8 +63,10 @@ function paintBoard(x: CanvasRenderingContext2D, round: number, levelId: string)
   x.font = `bold 18px ${MONO}`;
   x.fillText('MISSION IS VOTED AT THE DOOR', 36, BH - 28);
 }
-const HEIGHT = 2.6;
+const HEIGHT = WAIT_H;
 export const TUBE_Z = [-0.7, 1.25] as const;
+/** Los fluorescentes van a los lados: el centro del techo es el hueco de la cúpula. */
+export const TUBE_X = [-5, 5] as const;
 
 type Mat = THREE.Material;
 
@@ -478,8 +480,11 @@ export class Decor {
     const V = (x: number, y: number, z: number) => new THREE.Vector3(x, y, z);
     const cables = [
       // a lo largo del techo, con su comba, y bajando por la pared
-      [V(-H.x, HEIGHT - 0.04, -2.66), V(-2.2, HEIGHT - 0.1, -2.6), V(0, HEIGHT - 0.12, -2.64), V(2.2, HEIGHT - 0.1, -2.6), V(H.x, HEIGHT - 0.04, -2.7)],
-      [V(-H.x, HEIGHT - 0.03, -2.38), V(-2.0, HEIGHT - 0.08, -2.3), V(0.2, HEIGHT - 0.1, -2.34), V(2.4, HEIGHT - 0.08, -2.4), V(H.x, HEIGHT - 0.03, -2.46)],
+      // (a cada lado de la cúpula: por el hueco no pasa nada)
+      [V(-H.x, HEIGHT - 0.04, -2.66), V(-6.2, HEIGHT - 0.1, -2.6), V(-4.8, HEIGHT - 0.12, -2.64), V(-3.7, HEIGHT - 0.06, -2.66)],
+      [V(H.x, HEIGHT - 0.04, -2.7), V(6.2, HEIGHT - 0.1, -2.6), V(4.8, HEIGHT - 0.12, -2.64), V(3.7, HEIGHT - 0.06, -2.66)],
+      [V(-H.x, HEIGHT - 0.03, -2.38), V(-6.0, HEIGHT - 0.08, -2.3), V(-4.6, HEIGHT - 0.1, -2.34), V(-3.8, HEIGHT - 0.04, -2.4)],
+      [V(H.x, HEIGHT - 0.03, -2.46), V(6.2, HEIGHT - 0.08, -2.4), V(4.6, HEIGHT - 0.1, -2.34), V(3.8, HEIGHT - 0.04, -2.4)],
       // del techo al botón
       [V(1.62, HEIGHT, -H.z + 0.04), V(1.66, 2.1, -H.z + 0.05), V(1.58, 1.4, -H.z + 0.06), V(1.55, 1.15, -H.z + 0.18)],
       // del ordenador al enchufe
@@ -509,7 +514,7 @@ export class Decor {
     add(wheel);
 
     // ── luz: haces bajo los tubos, polvo, baliza del botón ────────────────────────
-    for (const z of TUBE_Z) {
+    for (const [i, z] of TUBE_Z.entries()) {
       const cone = new THREE.ConeGeometry(1.15, 2.3, 20, 1, true);
       const pos = cone.getAttribute('position'), col = new Float32Array(pos.count * 3);
       for (let i = 0; i < pos.count; i++) {
@@ -520,7 +525,7 @@ export class Decor {
       const bm = new THREE.MeshBasicMaterial({ vertexColors: true, color: 0xffe9b0, transparent: true, opacity: 0.07, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide, fog: false });
       bag.own.push(bm, cone);
       const c = new THREE.Mesh(cone, bm);
-      c.position.set(0, HEIGHT - 0.06 - 1.15, z);
+      c.position.set(TUBE_X[i], HEIGHT - 0.06 - 1.15, z);
       c.renderOrder = 2;
       this.beams.push(bm);
       add(c);

@@ -1,6 +1,7 @@
 import { useEffect, useState, type ReactNode } from 'react';
 import Frame from './Frame';
 import { Crosshair } from './Crosshair';
+import { benchState, lastBench, startBench } from '../bench';
 import { DEFAULTS, FPS_CAPS, PRESETS, applyPreset, presetOf, setSetting, useSettings, type Settings } from '../settings';
 import { Circle } from 'lucide-react';
 import { ic } from './ic';
@@ -23,8 +24,9 @@ interface Row {
   label: string;
   desc: string; // una línea, bajo el nombre
   long: string; // el panel de la derecha
-  num?: { k: NumKey; min: number; max: number; step: number; unit: string; scale: number; labels?: string[] };
+  num?: { k: NumKey; min: number; max: number; step: number; unit: string; scale: number; labels?: string[]; drop?: true };
   flag?: BoolKey | 'mute' | 'fullscreen';
+  act?: 'bench'; // un botón en vez de un ajuste
   preset?: true; // la barra de perfiles: no es un ajuste, fija los demás (ver PRESETS)
 }
 
@@ -51,7 +53,7 @@ const SECTIONS = {
     { id: 'voiceVol', label: 'VOICE VOLUME', desc: 'How loud your mates are', long: 'The level of the other players voices. Above 100% they are boosted (with a limiter so they do not distort).', num: { k: 'voiceVol', min: 0, max: 3, step: 0.05, unit: '%', scale: 100 } },
     { id: 'voiceLock', label: 'ENCRYPTED VOICE', desc: 'Only your room can listen', long: 'Encrypts the voice from your microphone to the other players, so nobody in between (not even the server) can listen. ON: encrypts with everyone who can and talks in the clear with the rest. STRICT: you only talk to and hear players whose voice is encrypted. Hover ENCRYPTED in the room to see a security code per player: if you both read the same number, nobody is listening in the middle. Takes effect when you enter a room.', num: { k: 'voiceLock', min: 0, max: 2, step: 1, unit: '', scale: 1, labels: ['OFF', 'ON', 'STRICT'] } },
     { id: 'voice3d', label: 'VOICE 3D', desc: 'Voices placed in the space', long: 'How the other players voices sound in the world. FLAT: everyone the same, centred. LOW: quieter with distance and panned left or right. MEDIUM: also real 3D positioning (headphones help) and echo. HIGH: walls muffle and quiet voices and the echo follows the size of the room you are in.', num: { k: 'voice3d', min: 0, max: 3, step: 1, unit: '', scale: 1, labels: ['FLAT', 'LOW', 'MEDIUM', 'HIGH'] } },
-    { id: 'micDev', label: 'MICROPHONE', desc: 'Which one you talk into', long: 'Choose the microphone here, in the game, instead of in the browser. The browser asks for permission once (ALLOW below); after that everything is set here. The list shows after you allow it.', num: { k: 'micDev', min: 0, max: 0, step: 1, unit: '', scale: 1, labels: ['DEFAULT'] } },
+    { id: 'micDev', label: 'MICROPHONE', desc: 'Which one you talk into', long: 'Choose the microphone here, in the game, instead of in the browser. The browser asks for permission once (ALLOW below); after that everything is set here. The list shows after you allow it.', num: { k: 'micDev', min: 0, max: 0, step: 1, unit: '', scale: 1, labels: ['DEFAULT'], drop: true } },
     { id: 'micGain', label: 'MIC GAIN', desc: 'How strong your voice goes out', long: 'Boosts or lowers what your microphone picks up before it is sent. Watch the meter while you talk: it should reach about three quarters on a normal sentence.', num: { k: 'micGain', min: 0, max: 3, step: 0.05, unit: '%', scale: 100 } },
     { id: 'micGate', label: 'NOISE GATE', desc: 'Cuts the room noise when you are quiet', long: 'The microphone only opens when your voice passes this level, so keyboard, fans and breathing do not go out. 0 is off. Set it just above the meter while you stay silent.', num: { k: 'micGate', min: 0, max: 0.15, step: 0.005, unit: '%', scale: 667 } },
     { id: 'micFx', label: 'VOICE EFFECT', desc: 'Change how you sound', long: 'The others hear your voice with this effect. DEEP and DEMON lower it, CHIPMUNK raises it, ROBOT and RADIO colour it. Use TEST and HEAR YOURSELF to try them.', num: { k: 'micFx', min: 0, max: FX_PRESETS.length - 1, step: 1, unit: '', scale: 1, labels: FX_PRESETS.map((n) => n.toUpperCase()) } },
@@ -63,6 +65,7 @@ const SECTIONS = {
   ],
   VIDEO: [
     { id: 'preset', label: 'PRESET', desc: 'One switch for the graphics', long: 'Sets every graphics option at once, from POTATO (anything to make it run) to HIGH, including the overall profile that drops shadows and glow on weak machines. Touch one by hand and it reads CUSTOM.', preset: true },
+    { id: 'bench', label: 'BENCHMARK', desc: 'Find the best settings for this computer', long: 'Plays a short fixed route on a real level with each preset, from HIGH down, and keeps the first one that runs smoothly (about 55 fps or more). The page reloads for each test, so it takes about a minute. ESC cancels and brings your settings back.', act: 'bench' },
     { id: 'fullscreen', label: 'FULLSCREEN', desc: 'Fill the whole screen', long: 'Esc leaves fullscreen and pauses the game.', flag: 'fullscreen' },
     { id: 'brightness', label: 'BRIGHTNESS', desc: 'Lift or darken the picture', long: 'The Backrooms are meant to be dim: raise it only if you cannot see.', num: { k: 'brightness', min: 0.6, max: 1.6, step: 0.05, unit: '%', scale: 100 } },
     { id: 'ui', label: 'UI SIZE', desc: 'Size of menus and HUD', long: 'Scales the whole interface, independent of the browser zoom.', num: { k: 'ui', min: 0.7, max: 1.5, step: 0.05, unit: '%', scale: 100 } },
@@ -159,7 +162,7 @@ function Meter({ v }: { v: number }) {
 }
 
 /** Los ajustes que se ven: su vista previa es el monitor de la camcorder, con la imagen tal como la dejan los ajustes de ahora. */
-const VISUAL = new Set([...SECTIONS.VIDEO.map((r) => r.id), 'sens', 'invertY', 'reduceMotion']);
+const VISUAL = new Set([...SECTIONS.VIDEO.map((r) => r.id).filter((id) => id !== 'bench'), 'sens', 'invertY', 'reduceMotion']);
 
 /**
  * El monitor: un pasillo dibujado en perspectiva (o un pasillo de las Poolrooms, en sus dos ajustes) al que se le aplican en vivo el campo de
@@ -296,6 +299,15 @@ function Caption({ row, s, muted }: { row: Row; s: Settings; muted: boolean }): 
         </p>
       );
     }
+    case 'bench': {
+      const l = lastBench();
+      return (
+        <p className="br-big">
+          {l ? PRESETS[l.preset]?.[0] ?? 'CUSTOM' : 'NOT RUN YET'}
+          <span className="br-lobby__dim br-big__s"> · {l ? `${l.fps} FPS ON ${new Date(l.at).toLocaleDateString()}` : 'FINDS THE BEST PRESET FOR THIS COMPUTER'}</span>
+        </p>
+      );
+    }
     case 'preset': {
       const c = PRESETS[presetOf(s)] ?? ['CUSTOM', 'SET BY HAND'];
       return (
@@ -333,7 +345,12 @@ function Caption({ row, s, muted }: { row: Row; s: Settings; muted: boolean }): 
 }
 
 export default function SettingsPane({ muted, toggleSound, onBack }: { muted: boolean; toggleSound: () => void; onBack: () => void }) {
-  const [tab, setTab] = useState<Section>('AUDIO');
+  const [tab, setTab] = useState<Section>(() => {
+    try {
+      if (sessionStorage.getItem('br-bench-open')) return (sessionStorage.removeItem('br-bench-open'), 'VIDEO'); // (acaba de terminar el benchmark: el resultado está en VIDEO)
+    } catch {}
+    return 'AUDIO';
+  });
   const [pick, setPick] = useState<Record<string, string>>({});
   const s = useSettings();
   const [full, setFull] = useState(!!document.fullscreenElement);
@@ -343,7 +360,7 @@ export default function SettingsPane({ muted, toggleSound, onBack }: { muted: bo
     return () => document.removeEventListener('fullscreenchange', f);
   }, []);
   const devs = useMicDevices();
-  const rows: Row[] = tab === 'STORAGE' ? [] : (SECTIONS[tab] as Row[]).map((r) => (r.id === 'micDev' && r.num ? { ...r, num: { ...r.num, max: devs.length, labels: ['DEFAULT', ...devs.map((d) => d.label.replace(/\s*\(.*$/, '').slice(0, 18).toUpperCase() || 'MIC')] } } : r));
+  const rows: Row[] = tab === 'STORAGE' ? [] : (SECTIONS[tab] as Row[]).map((r) => (r.id === 'micDev' && r.num ? { ...r, num: { ...r.num, max: devs.length, labels: ['DEFAULT', ...devs.map((d) => d.label.toUpperCase() || 'MIC')] } } : r));
   const row = rows.find((r) => r.id === pick[tab]) ?? rows[0];
   const pi = presetOf(s), pv = pi < 0 ? PRESETS.length : pi; // (el último paso de la barra es CUSTOM)
   const keys = (tab === 'VIDEO' ? ['quality' as keyof Settings] : []).concat(rows.flatMap((r) => (r.num ? [r.num.k] : r.flag && r.flag !== 'mute' && r.flag !== 'fullscreen' ? [r.flag] : [])));
@@ -378,10 +395,26 @@ export default function SettingsPane({ muted, toggleSound, onBack }: { muted: bo
                   </span>
                   <span className="br-row__d">{r.desc}</span>
                 </span>
-                {r.preset ? (
+                {r.act === 'bench' ? (
+                  <span className="br-row__c">
+                    <button type="button" className="br-opt" disabled={!!benchState()} onClick={startBench}>
+                      RUN
+                    </button>
+                  </span>
+                ) : r.preset ? (
                   <span className="br-row__c">
                     <input type="range" className="br-range" aria-label={r.label} min={0} max={PRESETS.length} step={1} value={pv} onChange={(e) => applyPreset(Number(e.target.value))} />
                     <output className="br-row__v">{PRESETS[pv]?.[0] ?? 'CUSTOM'}</output>
+                  </span>
+                ) : r.num?.drop ? (
+                  <span className="br-row__c">
+                    <select className="br-sel" aria-label={r.label} value={Math.min(Math.round(s[r.num.k]), r.num.labels!.length - 1)} onChange={(e) => setSetting(r.num!.k, Number(e.target.value))}>
+                      {r.num.labels!.map((l, i) => (
+                        <option key={i} value={i}>
+                          {l}
+                        </option>
+                      ))}
+                    </select>
                   </span>
                 ) : r.num?.labels ? (
                   <span className="br-row__c br-row__c--seg" role="radiogroup" aria-label={r.label}>

@@ -10,6 +10,9 @@ Run with no arguments for the interactive menu, or pass flags to skip the questi
   --renderer three|phoenyx                       graphics engine (default: phoenyx)
   --phoenyx-dir PATH                             Phoenyx repo (default: E:/phoenix)
   --tunnel cloudflared|ngrok|localtunnel         expose the client publicly
+  --issues [N]                                   list the latest N (default 20) GlitchTip issues
+  --issue ID                                     show one issue with its latest event
+  (needs GLITCHTIP_TOKEN in the environment or in a git-ignored .env at the repo root; project found from VITE_SENTRY_DSN)
   --plain                                        stream raw logs instead of the control panel
   --yes                                          never ask, use defaults for anything not given
 """
@@ -273,6 +276,88 @@ def available_tunnels() -> list[str]:
     return [k for k, (exe, _) in TUNNELS.items() if shutil.which(exe)]
 
 
+def _env_file(name: str) -> str | None:
+    """Variable from the environment, else from .env / client/.env (both git-ignored)."""
+    if os.environ.get(name):
+        return os.environ[name]
+    for f in (ROOT / ".env", ROOT / "client" / ".env", ROOT / "client" / ".env.local"):
+        if f.exists():
+            for line in f.read_text(encoding="utf8").splitlines():
+                k, _, v = line.partition("=")
+                if k.strip() == name and v.strip():
+                    return v.strip().strip("\"'")
+    return None
+
+
+class GlitchTip:
+    """Reads GlitchTip (Sentry-compatible API): the issue list and one issue with its latest event, as text lines."""
+
+    def __init__(self) -> None:
+        self.token = _env_file("GLITCHTIP_TOKEN")
+        self.base = (_env_file("GLITCHTIP_URL") or "https://app.glitchtip.com").rstrip("/")
+        self.org = ""
+        self.proj: dict | None = None
+
+    def get(self, path: str):
+        import json
+        import urllib.request
+
+        if not self.token:
+            raise RuntimeError("set GLITCHTIP_TOKEN (GlitchTip > Profile > Auth Tokens) in the environment or in .env at the repo root")
+        req = urllib.request.Request(f"{self.base}/api/0/{path}", headers={"Authorization": f"Bearer {self.token}"})
+        with urllib.request.urlopen(req, timeout=20) as r:
+            return json.load(r)
+
+    def project(self) -> dict:
+        import re
+
+        if not self.proj:
+            m = re.search(r"/(\d+)$", _env_file("VITE_SENTRY_DSN") or "")
+            projs = self.get("projects/")
+            self.proj = next((x for x in projs if m and str(x.get("id")) == m.group(1)), projs[0] if projs else None)
+            if not self.proj:
+                raise RuntimeError("the token sees no projects")
+            self.org = self.proj.get("organization", {}).get("slug") or str(self.proj.get("organization"))
+        return self.proj
+
+    def issues(self, limit: int = 30) -> list[dict]:
+        pr = self.project()
+        return self.get(f"projects/{self.org}/{pr['slug']}/issues/")[:limit]
+
+    def url(self, issue_id: str) -> str:
+        self.project()
+        return f"{self.base}/{self.org}/issues/{issue_id}"
+
+    def detail(self, issue_id: str) -> list[str]:
+        import json
+
+        i = self.get(f"issues/{issue_id}/")
+        out = [f"#{i['id']} {i['title']}", f"{i.get('level')} · {i.get('count')} events · first {i.get('firstSeen')} · last {i.get('lastSeen')}", ""]
+        e = self.get(f"issues/{issue_id}/events/latest/")
+        out += [f"tag {t.get('key')}: {t.get('value')}" for t in e.get("tags", [])]
+        for en in e.get("entries", []):
+            out.append(f"[{en.get('type')}] {json.dumps(en.get('data'), ensure_ascii=False)[:3000]}")
+        for k, v in (e.get("contexts") or {}).items():
+            out.append(f"ctx {k}: {json.dumps(v, ensure_ascii=False)}")
+        for k, v in (e.get("context") or {}).items():
+            out.append(f"extra {k}: {json.dumps(v, ensure_ascii=False)[:1500]}")
+        return out
+
+
+def glitchtip(issue: str | None, limit: int) -> int:
+    gt = GlitchTip()
+    try:
+        if issue:
+            print("\n".join(gt.detail(issue)))
+        else:
+            for i in gt.issues(limit):
+                print(f"#{i['id']:<7} {i.get('level', ''):<8} x{i.get('count', '?'):<5} {i.get('lastSeen', '')[:16]}  {i['title'][:110]}")
+        return 0
+    except Exception as ex:
+        print(f"{paint('err', '✗')} GlitchTip: {ex}")
+        return 1
+
+
 def parse() -> argparse.Namespace:
     p = argparse.ArgumentParser(description="Backrooms launcher")
     p.add_argument("mode", nargs="?", choices=["dev", "release"])
@@ -284,6 +369,8 @@ def parse() -> argparse.Namespace:
     p.add_argument("--tunnel", choices=list(TUNNELS))
     p.add_argument("--yes", action="store_true")
     p.add_argument("--plain", action="store_true")
+    p.add_argument("--issues", nargs="?", const=20, type=int, metavar="N")
+    p.add_argument("--issue", metavar="ID")
     return p.parse_args()
 
 
@@ -309,6 +396,8 @@ def serve(procs: list[subprocess.Popen], task: str, engine: str, tunnel: str | N
 
 def main() -> int:
     a = parse()
+    if a.issue or a.issues:
+        return glitchtip(a.issue, a.issues or 20)
     if a.release:
         a.mode = "release"
     interactive = not a.yes and sys.stdin.isatty()
@@ -356,9 +445,12 @@ def main() -> int:
         procs = [Proc(t, c, env, ROOT, TAGCOL[i % len(TAGCOL)]) for i, (t, c) in enumerate(specs)]
         procs.append(Proc("tunnel", TUNNELS[tunnel][1] if tunnel else "", env, ROOT, TAGCOL[2], auto=bool(tunnel)))  # idle until key t
         procs.append(Proc("vercel", "", env, ROOT, TAGCOL[3], auto=False, oneshot=True))  # one-shot `vercel` commands, driven from the panel
+        procs.append(Proc("issues", "", env, ROOT, TAGCOL[1], auto=False, oneshot=True))  # GlitchTip issues tab (no process: Dashboard.gt reads the API)
         urls = [("client", f"http://localhost:{CLIENT_PORT}"), ("server", f"http://localhost:{SERVER_PORT}")]
         branch = subprocess.run("git rev-parse --abbrev-ref HEAD", shell=True, cwd=ROOT, capture_output=True, text=True).stdout.strip()
-        return Dashboard("backrooms", f"{task} · {env.get('RENDERER', 'three')}", procs, urls, branch, [(k, TUNNELS[k][1]) for k in available_tunnels()]).run()
+        dash = Dashboard("backrooms", f"{task} · {env.get('RENDERER', 'three')}", procs, urls, branch, [(k, TUNNELS[k][1]) for k in available_tunnels()])
+        dash.gt = GlitchTip()
+        return dash.run()
     if tunnel:
         specs.append(("tunnel", TUNNELS[tunnel][1]))
     popens = [subprocess.Popen(c, shell=True, cwd=ROOT, env=env) for _, c in specs]

@@ -549,9 +549,9 @@ export class Player {
     const f = new THREE.Vector3(-Math.sin(this.yaw), 0, -Math.cos(this.yaw)), r = new THREE.Vector3(-f.z, 0, f.x);
     const v = f.multiplyScalar(c.move.y).add(r.multiplyScalar(c.move.x));
     if (v.lengthSq() > 0) v.normalize().multiplyScalar(speed * dt);
-    // el borde de un pozo es un muro mientras se pisa suelo (se desliza por él, como por las paredes): sin ese colisionador, una pasarela de 0,75 m
+    // el borde de un pozo es un muro solo al ir agachado (con cuidado); de pie se cae. Antes era un muro siempre: el borde de un pozo es un muro mientras se pisa suelo (se desliza por él, como por las paredes): sin ese colisionador, una pasarela de 0,75 m
     // se pierde con cualquier giro de ratón. Ya no se cae saltando (saltar y agacharse sin parar acababa en el pozo); quien ya está dentro del borde no se frena. Los mundos falsos no tienen pitAt.
-    const edge = (x: number, z: number) => !this.falling && !!this.world.pitAt?.(x, z) && !this.world.pitAt(this.pos.x, this.pos.z);
+    const edge = (x: number, z: number) => this.duck && !this.falling && !!this.world.pitAt?.(x, z) && !this.world.pitAt(this.pos.x, this.pos.z);
     let tb: ReturnType<NonNullable<Player['terrain']>['drive']> | undefined;
     if (this.poolMode && this.terrain) {
       // Poolrooms: el mundo mueve el cuerpo (con las constantes de locomotion.ts) y el Player toma el resultado
@@ -859,6 +859,7 @@ export class Player {
     const first = this.deadT === 0;
     this.deadT += dt;
     this.rig.root.visible = true;
+    this.cos.root.visible = true;
     if (first) for (const it of Object.values(this.items)) it.visible = false;
     const body = this.rig.root, back = new THREE.Vector3(Math.sin(this.yaw), 0, Math.cos(this.yaw)).multiplyScalar(0.16);
     body.position.copy(this.pos).add(back);
@@ -876,6 +877,7 @@ export class Player {
    * dura el emote (el `update` colocaría la cámara en los ojos y se perdería la vista de frente).
    */
   showEmote(clip: string, feet: THREE.Vector3, yaw: number, dt: number, first?: THREE.Vector3) {
+    this.cos.root.visible = true;
     const A = this.rig.animator;
     if (clip !== this.emoteClip) {
       this.emoteClip = clip;
@@ -897,6 +899,12 @@ export class Player {
       for (const s of ['Head', 'Neck']) this.bones[s]?.scale.setScalar(0.001);
       body.updateMatrixWorld(true);
     }
+  }
+
+  /** Esconde el cuerpo y sus accesorios (la mochila cuelga aparte del esqueleto: sin esto se queda en el aire). */
+  hideBody() {
+    this.rig.root.visible = false;
+    this.cos.root.visible = false;
   }
 
   /** Espectador: nada de lo que llevaba en las manos (ni el cuerpo caído) va con la cámara de quien se mira. Se llama cada fotograma, después de todo lo que los muestra. */

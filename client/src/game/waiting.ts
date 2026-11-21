@@ -4,11 +4,13 @@ import { MeshoptDecoder } from 'three/examples/jsm/libs/meshopt_decoder.module.j
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { emoteGate } from './emotes';
 import { settings } from '../settings';
-import { EMOTE_DEFS, EMOTE_GAP, emoteOpen, INV_MAX, SCALE, WAIT_HALF, WAIT_SPAWNS, canHold, rarity, shopItem, type Inventory, type Sold } from '@backrooms/shared';
+import { EMOTE_DEFS, EMOTE_GAP, emoteOpen, INV_MAX, ITEMS, LOCKERS, SCALE, WAIT_H, WAIT_HALF, WAIT_SPAWNS, canHold, rarity, shopItem, type Inventory, type Sold } from '@backrooms/shared';
 import type { Assets } from './game';
 import type { Controls } from './input';
 import { Corridor } from './waitCorridor';
-import { Decor, TUBE_Z } from './waitDecor';
+import { Decor, TUBE_X, TUBE_Z } from './waitDecor';
+import { Camp } from './waitCamp';
+import { Dome, ceilingWithHole } from './waitDome';
 import { addProps, type Extra } from './waitProps';
 import { canvasTex, clamp, hash, plane, smooth, type Box } from './waitKit';
 
@@ -31,7 +33,7 @@ const EYE = 1.62;
 const WALK = 1.6, RUN = 3.6;
 const H = WAIT_HALF;
 const SCALE_H = 1.1; // altura de la báscula (m)
-const HEIGHT = 2.6;
+const HEIGHT = WAIT_H;
 const DOOR_W = 1.1, DOOR_H = 2.1;
 const HINGE_X = -DOOR_W / 2;
 const TUBE = [12, 8]; // lo que alumbra cada fluorescente (cd)
@@ -50,7 +52,7 @@ const SHORT = { off1: 0.4, off2: 0.2, alarmA: 0, alarmB: 0, boom: 0.15, doorA: 0
 export interface WaitSfx {
   (name: 'click' | 'thunk' | 'creak' | 'boom' | 'alarm' | 'alarmoff' | 'vend'): void;
 }
-export type Hint = 'computer' | 'board' | 'button' | 'vending' | 'chair' | 'lamp' | 'stand';
+export type Hint = 'computer' | 'board' | 'button' | 'vending' | 'chair' | 'lamp' | 'stand' | 'locker';
 
 export class WaitingRoom {
   readonly scene = new THREE.Scene();
@@ -67,9 +69,13 @@ export class WaitingRoom {
   /** Un aviso corto (p. ej. «SOLO EL PROPIETARIO») y hasta cuándo (age). */
   notice = '';
   private noticeUntil = 0;
-  mode: 'free' | 'computer' | 'board' | 'starting' = 'free';
+  mode: 'free' | 'computer' | 'board' | 'locker' | 'starting' = 'free';
   /** Qué vista toma la cámara al acercarse: la pantalla del ordenador o la pizarra. */
-  private view: 'pc' | 'board' = 'pc';
+  private view: 'pc' | 'board' | 'locker' = 'pc';
+  /** La vista de los casilleros: de frente, a un par de metros. */
+  private lockPos = new THREE.Vector3(-5.6, 1.15, LOCKERS[0].z - 0.2);
+  private lockQuat = new THREE.Quaternion().setFromEuler(new THREE.Euler(-0.1, Math.PI / 2, 0, 'YXZ'));
+  onLockers?: (open: boolean) => void;
   private boardPos = new THREE.Vector3(-1.73, 1.5, 0.97);
   private boardQuat = new THREE.Quaternion().setFromEuler(new THREE.Euler(0, Math.PI, 0, 'YXZ'));
   private blend = 0; // 0 → 1: la cámara de pie → ante la pantalla
@@ -102,6 +108,8 @@ export class WaitingRoom {
   private boxes: Box[] = [];
   private hinge = new THREE.Group();
   private tubeMats = [new THREE.MeshBasicMaterial({ color: 0x14120c }), new THREE.MeshBasicMaterial({ color: 0x14120c })];
+  private camp!: Camp;
+  private dome!: Dome;
   private tubes = [new THREE.PointLight(0xffecc0, TUBE[0], 14, 1.2), new THREE.PointLight(0xffe2a8, TUBE[1], 12, 1.3)];
   private doorLight = new THREE.PointLight(0xffd37a, 3, 10, 1.3);
   private alarmLight = new THREE.PointLight(0xff2a18, 0, 9, 1.4);
@@ -116,7 +124,26 @@ export class WaitingRoom {
   private sink = 0;
   private pressed = false;
   private pressedAt = 0;
-  private targets: { kind: Hint; p: THREE.Vector3; reach: number }[] = [];
+  private targets: { kind: Hint; p: THREE.Vector3; reach: number; slot?: number }[] = [];
+  /** El casillero al que se apunta, y lo que guardan los míos. */
+  private hintSlot = -1;
+  stash: ({ kind: string; q?: { r: number } } | null)[] = [];
+  onStash?: (slot: number) => void;
+  /** Mi casillero (mi puesto en la sala) y su objetivo para la E. */
+  private mine = 0;
+  private lockTarget?: { p: THREE.Vector3 };
+  /** Los dueños de los casilleros (nombre y foto de perfil, por puesto en la sala). */
+  setOwners(list: { name: string; avatar?: string }[]) {
+    this.camp.setOwners(list);
+  }
+  setStash(list: ({ kind: string; q?: { r: number } } | null)[], mine = this.mine) {
+    this.stash = list;
+    this.mine = Math.min(LOCKERS.length - 1, Math.max(0, mine));
+    const L = LOCKERS[this.mine];
+    this.lockPos.z = L.z - 0.2; // (el casillero queda a la izquierda: el panel va a la derecha)
+    this.lockTarget?.p.set(L.x + 0.5, 1.1, L.z);
+    this.camp.setStash(list, this.mine);
+  }
   private compPos = new THREE.Vector3();
   private compQuat = new THREE.Quaternion();
   private compYaw = 0;
@@ -140,8 +167,8 @@ export class WaitingRoom {
   static async load(assets: Assets, reduced: boolean) {
     const gl = new GLTFLoader().setMeshoptDecoder(MeshoptDecoder);
     const get = (n: string) => gl.loadAsync(`/models/waiting/${n}.glb`).catch((e) => (console.warn('waiting model', n, e), undefined));
-    const [pc, btn, chair, vend, wb, scale] = await Promise.all([get('computer'), get('button'), get('chair50'), get('vending'), get('whiteboard'), get('scale')]);
-    return new WaitingRoom(assets, reduced, pc, btn, { chair }, vend, wb, scale);
+    const [pc, btn, chair, vend, wb, scale, tent, bench, jerry, beacon, firstaid, radio, extinguisher, rack, c64, lockerx, crates, skeleton, barrels, generator, body] = await Promise.all([get('computer'), get('button'), get('chair50'), get('vending'), get('whiteboard'), get('scale'), get('tent'), get('labbench'), get('jerrycan'), get('beacon'), get('firstaid'), get('radio'), get('extinguisher'), get('rack'), get('c64'), get('lockerd'), get('crate2'), get('skeleton'), get('barrel'), get('generator'), get('body')]);
+    return new WaitingRoom(assets, reduced, pc, btn, { chair, tent, bench, jerry, beacon, firstaid, radio, extinguisher, rack, c64, lockerx, crates, skeleton, barrels, generator, body }, vend, wb, scale);
   }
 
   private constructor(assets: Assets, private reduced: boolean, pc?: GLTF, btn?: GLTF, extra: Extra = {}, vend?: GLTF, wb?: GLTF, scaleGltf?: GLTF) {
@@ -189,7 +216,7 @@ export class WaitingRoom {
     // el cuarto: suelo, techo y cuatro paredes (la del norte con el hueco de la puerta)
     add(
       plane(H.x * 2, H.z * 2, floorMat, 1, [0, 0, 0], -Math.PI / 2, 0),
-      plane(H.x * 2, H.z * 2, ceilMat, 1.5, [0, HEIGHT, 0], Math.PI / 2, 0),
+      ceilingWithHole(ceilMat, 1.5),
       plane(H.z * 2, HEIGHT, wallMat, 1.5, [-H.x, HEIGHT / 2, 0], 0, Math.PI / 2),
       plane(H.z * 2, HEIGHT, wallMat, 1.5, [H.x, HEIGHT / 2, 0], 0, -Math.PI / 2),
       plane(H.x * 2, HEIGHT, wallMat, 1.5, [0, HEIGHT / 2, H.z], 0, Math.PI),
@@ -224,9 +251,16 @@ export class WaitingRoom {
     TUBE_Z.forEach((z, i) => {
       const fixture = new THREE.Mesh(frame, fixMat);
       const panel = new THREE.Mesh(new THREE.BoxGeometry(1.2, 0.05, 0.6), this.tubeMats[i]);
-      fixture.position.set(0, HEIGHT - 0.035, z);
-      panel.position.set(0, HEIGHT - 0.03, z);
-      this.tubes[i].position.set(0, HEIGHT - 0.5, z);
+      fixture.position.set(TUBE_X[i], HEIGHT - 0.035, z);
+      panel.position.set(TUBE_X[i], HEIGHT - 0.03, z);
+      this.tubes[i].position.set(TUBE_X[i], HEIGHT - 0.5, z);
+      if (__PHOENYX__) {
+        // Lux: el fluorescente es un tubo de luz de verdad (RectAreaLight → tubo) mirando al suelo, y no solo un panel brillante
+        const rect = new THREE.RectAreaLight(0xfff1c4, 6, 1.2, 0.6);
+        rect.position.set(TUBE_X[i], HEIGHT - 0.07, z);
+        rect.lookAt(TUBE_X[i], 0, z);
+        add(rect);
+      }
       add(fixture, panel, this.tubes[i]);
     });
     this.own.push(frame, ...this.tubeMats);
@@ -333,16 +367,17 @@ export class WaitingRoom {
     this.placeButton(btn, new THREE.Vector3(1.5, 1.0, -H.z + 0.26));
 
     // la báscula: una plataforma en el suelo (sin colisión: se pisa) con su visor; lo que se suelta encima se vende (lo decide el servidor)
-    const plat = new THREE.Mesh(new THREE.BoxGeometry(0.9, 0.05, 0.9), new THREE.MeshStandardMaterial({ color: 0x4a4d46, roughness: 0.45, metalness: 0.7 }));
-    plat.position.set(SCALE.x, 0.025, SCALE.z);
-    const rim = new THREE.Mesh(new THREE.BoxGeometry(1.0, 0.03, 1.0), new THREE.MeshStandardMaterial({ color: 0xc9a227, roughness: 0.6 }));
-    rim.position.set(SCALE.x, 0.015, SCALE.z);
+    const plat = new THREE.Mesh(new THREE.BoxGeometry(2.0, 0.07, 2.0), new THREE.MeshStandardMaterial({ color: 0x4a4d46, roughness: 0.45, metalness: 0.7 }));
+    plat.position.set(SCALE.x, 0.035, SCALE.z);
+    const rim = new THREE.Mesh(new THREE.BoxGeometry(2.2, 0.04, 2.2), new THREE.MeshStandardMaterial({ color: 0xc9a227, roughness: 0.6 }));
+    rim.position.set(SCALE.x, 0.02, SCALE.z);
     const post = new THREE.Mesh(new THREE.BoxGeometry(0.06, 1.25, 0.06), dark);
-    post.position.set(-H.x + 0.1, 0.625, SCALE.z - 0.2);
+    post.position.set(SCALE.x + 1.25, 0.625, SCALE.z + 0.9);
     this.scaleTex.colorSpace = THREE.SRGBColorSpace;
     const read = new THREE.Mesh(new THREE.PlaneGeometry(0.62, 0.31), new THREE.MeshBasicMaterial({ map: this.scaleTex }));
-    read.position.set(-H.x + 0.14, 1.1, SCALE.z - 0.2);
-    read.rotation.y = Math.PI / 2;
+    read.position.set(SCALE.x + 1.25, 1.15, SCALE.z + 0.94);
+    read.rotation.y = 0;
+    add(rim, plat, post);
     if (scaleGltf) {
       // el modelo de la báscula (CC-BY, ver LICENSES.txt): se centra sobre su sitio, apoyado en el suelo y a la altura de una báscula de tienda
       const m = scaleGltf.scene.clone(true);
@@ -362,11 +397,11 @@ export class WaitingRoom {
       m.position.set(-c.x, -bx.min.y, -c.z);
       holder.add(m);
       holder.scale.setScalar(k);
-      holder.position.set(SCALE.x, 0, SCALE.z);
-      holder.rotation.y = Math.PI / 2;
+      holder.position.set(SCALE.x, 0.07, SCALE.z - 0.55);
+      holder.rotation.y = 0;
       add(holder);
       add(read);
-    } else add(rim, plat, post, read);
+    } else add(read);
     this.own.push(plat.geometry, plat.material as THREE.Material, rim.geometry, rim.material as THREE.Material, post.geometry, read.geometry, read.material as THREE.Material);
     this.tex.push(this.scaleTex);
     this.sold();
@@ -397,9 +432,13 @@ export class WaitingRoom {
       { kind: 'vending', p: this.decor.vendAt.clone(), reach: 2.2 },
       { kind: 'lamp', p: this.decor.lampAt.clone(), reach: 2.6 },
     );
+    this.targets.push({ kind: 'locker', p: new THREE.Vector3(LOCKERS[0].x + 0.5, 1.1, LOCKERS[0].z), reach: 2.6, slot: 0 });
+    this.lockTarget = this.targets[this.targets.length - 1];
 
     // sillones, tele y ventana (waitProps.ts)
     this.props = addProps(S, assets, extra, bag, this.boxes, (b) => this.decor.shadowUnder(b));
+    this.dome = new Dome(S, bag, reduced); // la cúpula de cristal del centro
+    this.camp = new Camp(S, bag, this.boxes, (b) => this.decor.shadowUnder(b), reduced, extra); // el campamento de investigadores: tiendas, laboratorios, cajas
 
     // mi sombra falsa
     this.me = new THREE.Mesh(new THREE.PlaneGeometry(0.9, 0.9).rotateX(-Math.PI / 2), this.decor.blobMaterial);
@@ -504,9 +543,9 @@ export class WaitingRoom {
 
   /** Lo que se manda a los demás (a 15 Hz): de pie donde estoy; ante el ordenador, mirándolo. */
   get state() {
-    const pc = this.mode === 'computer' || this.mode === 'board' || (this.mode === 'free' && this.blend > 0.5);
+    const pc = this.mode === 'computer' || this.mode === 'board' || this.mode === 'locker' || (this.mode === 'free' && this.blend > 0.5);
     const anim = 'Neutral Idle'; // (el campo se conserva en el protocolo; el cuerpo lo lleva el Animator por movimiento)
-    const t = this.targets[this.view === 'board' ? 1 : 0].p, yaw = pc ? Math.atan2(this.pos.x - t.x, this.pos.z - t.z) : this.yaw;
+    const t = (this.view === 'locker' ? this.lockTarget! : this.targets[this.view === 'board' ? 1 : 0]).p, yaw = pc ? Math.atan2(this.pos.x - t.x, this.pos.z - t.z) : this.yaw;
     return { x: this.pos.x, y: this.py, z: this.pos.z, yaw, pitch: pc ? 0 : this.pitch, anim, light: this.lit, duck: this.duckK > 0.5, held: this.held, emote: this.emote };
   }
   /** Salto y agachado (el Player de la sala de espera lo copia), y lo que se lleva (linterna encendida, objeto en la mano: lo pone game.ts). */
@@ -544,6 +583,7 @@ export class WaitingRoom {
       case 'chair': return 'SIT DOWN';
       case 'lamp': return this.decor.lampOn ? 'LAMP OFF' : 'LAMP ON';
       case 'stand': return 'STAND UP';
+      case 'locker': return 'LOCKERS';
       default: return '';
     }
   }
@@ -596,6 +636,8 @@ export class WaitingRoom {
     this.lights(dt);
     this.corridor.update(dt, this.seq?.t ?? 0, this.hinge.rotation.y / 1.75, !!this.seq, this.reduced);
     this.props(this.age);
+    this.camp.update(dt, this.age, this.camera);
+    this.dome.update(this.age);
     this.decor.update(dt, this.age, this.p, this.pressed, this.seq && this.p[0] + this.p[1] < 0.2 ? 1 : 0);
     this.me.visible = this.mode !== 'computer' && this.mode !== 'board' && this.blend < 0.2 && this.seat !== 'chair';
     this.me.position.set(this.pos.x, 0.01, this.pos.z);
@@ -609,7 +651,7 @@ export class WaitingRoom {
   }
 
   private free(dt: number, c: Controls) {
-    const want = this.mode === 'computer' || this.mode === 'board' ? 1 : 0;
+    const want = this.mode === 'computer' || this.mode === 'board' || this.mode === 'locker' ? 1 : 0;
     this.blend = clamp(this.blend + (want ? dt : -dt) / 0.7, 0, 1);
     if (this.mode === 'free' && this.blend === 0) {
       this.yaw -= c.look.x;
@@ -644,14 +686,14 @@ export class WaitingRoom {
     } else {
       this.speed = 0;
       this.hint = null;
-      if ((this.mode === 'computer' || this.mode === 'board') && c.bag) this.closeComputer();
+      if ((this.mode === 'computer' || this.mode === 'board' || this.mode === 'locker') && c.bag) this.closeComputer();
     }
     // la cámara: de pie (con el paso), sentada o, ante el ordenador, la vista de la pantalla
     this.sit += ((this.seat === 'none' ? 0 : 1) - this.sit) * Math.min(1, dt * 7);
     const e = smooth(this.blend), cam = this.camera;
     const eye = EYE + (this.seat === 'chair' ? 1.1 - EYE : 0.85 - EYE) * this.sit;
     const y = eye + this.py - 0.6 * this.duckK + (this.reduced || this.py > 0 ? 0 : Math.sin(this.bob) * 0.012 * Math.min(1, this.speed));
-    const vp = this.view === 'board' ? this.boardPos : this.compPos, vq = this.view === 'board' ? this.boardQuat : this.compQuat;
+    const vp = this.view === 'board' ? this.boardPos : this.view === 'locker' ? this.lockPos : this.compPos, vq = this.view === 'board' ? this.boardQuat : this.view === 'locker' ? this.lockQuat : this.compQuat;
     cam.position.set(this.pos.x, y, this.pos.z).lerp(vp, e);
     _q.setFromEuler(_e.set(this.pitch, this.yaw, 0, 'YXZ'));
     cam.quaternion.copy(_q).slerp(vq, e);
@@ -683,7 +725,7 @@ export class WaitingRoom {
       const d = _d.copy(t.p).sub(eye), dist = d.length();
       if (dist > t.reach) continue;
       const cos = d.divideScalar(dist).dot(fwd);
-      if (cos > best) (best = cos), (this.hint = t.kind);
+      if (cos > best) (best = cos), (this.hint = t.kind), (this.hintSlot = t.slot ?? -1);
     }
   }
 
@@ -725,6 +767,14 @@ export class WaitingRoom {
         this.say(`BOUGHT ALMOND WATER · $${w.price}`);
       });
       setTimeout(() => (this.vendBusy = false), 2000);
+    } else if (what === 'locker') {
+      this.endEmote();
+      this.mode = 'locker';
+      this.view = 'locker';
+      this.hint = null;
+      this.camp.openLockers(true);
+      this.sfx?.('click');
+      this.onLockers?.(true);
     } else if (what === 'lamp') {
       this.decor.toggleLamp();
       this.sfx?.('click');
@@ -733,10 +783,11 @@ export class WaitingRoom {
 
   /** Cierra el ordenador o la pizarra, el que esté abierto. */
   closeComputer() {
-    if (this.mode !== 'computer' && this.mode !== 'board') return;
+    if (this.mode !== 'computer' && this.mode !== 'board' && this.mode !== 'locker') return;
     const was = this.mode;
     this.mode = 'free';
-    (was === 'board' ? this.onBoard : this.onComputer)?.(false);
+    if (was === 'locker') this.camp.openLockers(false);
+    (was === 'board' ? this.onBoard : was === 'locker' ? this.onLockers : this.onComputer)?.(false);
   }
 
   /** El nivel al que lleva la puerta, en la pizarra de la pared. */

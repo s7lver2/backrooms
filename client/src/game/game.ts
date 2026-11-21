@@ -900,6 +900,13 @@ export class BackroomsGame {
   onWaitBoard?: (open: boolean) => void;
   /** El inventario (E) abierto en la sala de espera. */
   onWaitBag?: (open: boolean) => void;
+  onWaitLockers?: (open: boolean) => void;
+  /** Nombre y foto de cada jugador de la sala (por puesto): van a las etiquetas de los casilleros. */
+  lockerOwners: { name: string; avatar?: string }[] = [];
+  setLockerOwners(list: { name: string; avatar?: string }[]) {
+    this.lockerOwners = list;
+    this.waiting?.setOwners(list);
+  }
   waitBag = false;
   closeWaitBag() {
     if (!this.waitBag) return;
@@ -1178,7 +1185,7 @@ export class BackroomsGame {
     if (mp?.level === 'parking') {
       void this.startParking(seed, mp).catch(error => {
         console.error('Habitable Zone failed to load', error);
-        report('level', 'level failed to load', 'error');
+        report('level', `level "${this.mp?.level ?? (this.parking ? 'parking' : 'level0')}" failed to load (floor ${this.floorNo}, seed ${this.seed0})`, 'error');
         this.onLevelError?.();
       });
       return;
@@ -1305,6 +1312,18 @@ export class BackroomsGame {
       it.onShot = () => mp.sock.emit('bang');
       it.onMisfire = () => (mp.sock.emit('blast'), this.misfire());
     } else (it.onShot = () => this.noises.push({ x: p.pos.x, z: p.pos.z, r: NOISE_SHOT })), (it.onSnap = () => this.noises.push({ x: p.pos.x, z: p.pos.z, r: NOISE_PHOTO })), (it.onMisfire = () => this.misfire());
+    if (this.caps.hotel) {
+      // las habitaciones cerradas se dibujan una vez antes de empezar: sus mallas y texturas se suben a la GPU ahora, no (con un tirón de segundos) al abrir la primera puerta
+      this.camera.position.set(p.pos.x, p.pos.y + 1.6, p.pos.z);
+      w.viewer = this.camera.position;
+      w.warmAll = true;
+      w.update(0, 0);
+      w.vents?.warm(true);
+      this.composer.render(0);
+      w.vents?.warm(false);
+      w.warmAll = false;
+      w.update(0, 0);
+    }
     this.input.begin();
     this.audio.start();
     this.t = 0;
@@ -1320,6 +1339,7 @@ export class BackroomsGame {
     const realDt = this.clock.getDelta();
     this.adapt(realDt);
     bugWatch(realDt, this.paused, this.player?.pos);
+    if (this.bench) this.benchTick(realDt);
     const dt = Math.min(realDt, 0.05) * (this.mp ? 1 : this.cheats.slow); // (cámara lenta: solo en solitario)
     this.lastFrame = performance.now();
     if (this.epi) return this.epiFrame(dt);
@@ -2183,6 +2203,18 @@ export class BackroomsGame {
         this.onWaitComputer?.(open);
       };
       wr.onVend = (done) => mp.sock.emit('buy', 'water', done);
+      wr.onLockers = (open) => {
+        this.input.clear();
+        this.input.suspend = open;
+        if (open) this.input.unlock();
+        else this.input.lock();
+        this.onWaitLockers?.(open);
+      };
+      const onStashList = (l: Parameters<typeof wr.setStash>[0], mine: number) => wr.setStash(l, mine);
+      mp.sock.on('stash', onStashList);
+      this.offWait.push(() => mp.sock.off('stash', onStashList));
+      mp.sock.emit('stashTake', -1); // (pide lo que guardan mis casilleros)
+      wr.setOwners(this.lockerOwners);
       wr.onBag = () => {
         this.waitBag = true;
         this.input.clear();
@@ -2321,7 +2353,7 @@ export class BackroomsGame {
     const items = Object.values(me.items);
     const emo = wr.emoteClip; // (con un emote, el cuerpo entero a la vista de la cámara que lo mira; sentado en el suelo ya no se esconde todo)
     if (!wr.driving && !emo) {
-      if (!this.lobbyHid) (this.lobbyVis = items.map((i) => i.visible)), items.forEach((i) => (i.visible = false)), (me.rig.root.visible = false), (this.lobbyHid = true);
+      if (!this.lobbyHid) (this.lobbyVis = items.map((i) => i.visible)), items.forEach((i) => (i.visible = false)), me.hideBody(), (this.lobbyHid = true);
       this.flash.intensity = 0;
       return;
     }
@@ -2440,6 +2472,7 @@ export class BackroomsGame {
     this.t += dt;
     const c = this.input.read();
     if (this.waitBag && (c.bag || c.pause)) (c.bag = c.pause = false), this.closeWaitBag(); // E o Esc cierran el inventario
+    if (this.waiting?.mode === 'locker' && c.pause) (c.pause = false), this.closeComputer(); // Esc cierra los casilleros
     // pausa (Esc, el puntero soltado): la sala sigue y los demás se ven; solo se sueltan los mandos
     if (c.pause && wr.mode === 'free' && !this.paused) this.pause();
     wr.update(dt, this.paused || wr.mode === 'starting' ? { ...c, move: _none.clone(), look: _none.clone(), bag: false, run: false } : c);
@@ -3882,6 +3915,51 @@ server-synced inv ${JSON.stringify(this.mp.inv)}` : ''}`);
 
   /** Desarrollo: el nivel de una partida en solitario (?suites). */
   private devLevel?: string;
+  /** Benchmark (bench.ts): una partida en solitario con las entidades quietas y el jugador llevado por un recorrido fijo; al acabar da los FPS medios y el p95 de los fotogramas. */
+  bench?: { t: number; dts: number[]; path: THREE.Vector3[]; len: number; done: (fps: number, p95: number) => void };
+  static readonly BENCH_WARM = 3;
+  static readonly BENCH_RUN = 8;
+  runBench(done: (fps: number, p95: number) => void) {
+    this.start(1);
+    this.entFrozen = true;
+    const m = this.world!.maze, rnd = ((a) => () => ((a = (a * 1664525 + 1013904223) >>> 0), a / 2 ** 32))(7);
+    const free = (x: number, y: number) => x >= 0 && y >= 0 && x < m.w && y < m.h && !!m.open[y * m.w + x] && !m.voids.some((v) => v.x === x && v.y === y);
+    let c = { x: m.start.x, y: m.start.y }, prev = { x: -1, y: -1 };
+    const cells = [c];
+    for (let i = 0; i < 80; i++) {
+      const opts = ([[1, 0], [-1, 0], [0, 1], [0, -1]] as const).map(([dx, dy]) => ({ x: c.x + dx, y: c.y + dy })).filter((n) => free(n.x, n.y));
+      const fwd = opts.filter((n) => !(n.x === prev.x && n.y === prev.y));
+      const pick = (fwd.length ? fwd : opts)[(rnd() * (fwd.length || opts.length)) | 0];
+      if (!pick) break;
+      (prev = c), (c = pick), cells.push(c);
+    }
+    const path = cells.map((q) => center(q));
+    this.bench = { t: 0, dts: [], path, len: 0, done };
+  }
+  /** 0 a 1: cuánto lleva el recorrido (para la barra). */
+  get benchProgress() {
+    return this.bench ? Math.min(1, this.bench.t / (BackroomsGame.BENCH_WARM + BackroomsGame.BENCH_RUN)) : 0;
+  }
+  private benchTick(dt: number) {
+    const b = this.bench, p = this.player;
+    if (!b || !p || this.dying >= 0) return;
+    this.paused = false;
+    if (dt > 0.5) return; // (la carga del principio no es del recorrido)
+    b.t += dt;
+    p.frozen = true;
+    // por la ruta a 3,2 m/s (de ida y vuelta si se acaba), mirando hacia donde va y barriendo de lado a lado
+    const total = b.path.length - 1, s = (b.t * 3.2) / CELL, f = s % (2 * total), at = f > total ? 2 * total - f : f, i = Math.min(Math.floor(at), total - 1), k = at - i;
+    const a = b.path[i], n = b.path[i + 1] ?? a, dir = f > total ? -1 : 1, tx = (n.x - a.x) * dir, tz = (n.z - a.z) * dir;
+    p.pos.set(a.x + (n.x - a.x) * k, 0, a.z + (n.z - a.z) * k);
+    if (tx || tz) p.yaw = Math.atan2(-tx, -tz) + Math.sin(b.t * 1.4) * 0.7;
+    if (b.t > BackroomsGame.BENCH_WARM) b.dts.push(dt);
+    if (b.t >= BackroomsGame.BENCH_WARM + BackroomsGame.BENCH_RUN) {
+      const sorted = [...b.dts].sort((x, y) => x - y), sum = b.dts.reduce((x, y) => x + y, 0);
+      this.bench = undefined;
+      b.done(b.dts.length / Math.max(sum, 1e-6), (sorted[Math.floor(sorted.length * 0.95)] ?? 1) * 1000);
+    }
+  }
+
   devSuites() {
     this.devLevel = 'suites';
     this.start(1);

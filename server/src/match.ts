@@ -3,7 +3,7 @@ import {
   type Difficulty, type Inventory, type Ups, type Look, type Mission, type HideState, type EntState, type ItemSpot, type Kind, type Maze, type Noise, type PlayerState, type SimTarget, type WorldSnapshot,
 } from '@backrooms/shared';
 import { ParkingMatch } from './parking-match';
-import { isEeh, POOL_CELL, poolFloorY, parkingSurface, type PoolMap } from '@backrooms/shared';
+import { type Stashed, isEeh, POOL_CELL, poolFloorY, parkingSurface, type PoolMap } from '@backrooms/shared';
 
 /*
  * Lo que el servidor sabe de una partida en marcha: el mapa de la semilla, los objetos que quedan, las
@@ -50,6 +50,8 @@ export interface Player {
   boarded?: boolean;
   /** Cuándo soltó (o compró) algo por última vez (anti-spam). */
   lastDrop?: number;
+  /** Lo que guarda en los casilleros de la sala de espera (por ranura). */
+  stash?: (Stashed | null)[];
   lastBuy?: number;
   /** Fotos de esta partida (ids de entidad ya contados), la última y si lo están inspeccionando ahora. */
   shot?: Set<number>;
@@ -259,7 +261,7 @@ export class Match {
   /** Se cumplió el fallo del evaporador: el personal vuelve a estar en paz (salvo que lo enfurecieran matando a uno). */
   calmStaff() {
     if (this.vengeance) return;
-    for (const q of this.ents) if (q.sim.kind === 'faceling') (q.sim.enraged = q.sim.roused = false), (q.sim.passive = true), (q.sim.path = []), (q.sim.state = 'wander');
+    for (const q of this.ents) if (q.sim.kind === 'faceling') (q.sim.insp && ((q.sim.insp.h.by = null), (q.sim.insp = undefined)), (q.sim.enraged = q.sim.roused = false)), (q.sim.passive = true), (q.sim.path = []), (q.sim.state = 'wander');
   }
   private vengeance = false;
   /** Las nubes de humo de las granadas. */

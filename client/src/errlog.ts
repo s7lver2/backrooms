@@ -18,7 +18,7 @@ export interface ErrEntry {
 
 const MAX = 40; // mensajes distintos que se guardan (el más viejo se descarta)
 const MAXLEN = 4000; // un error de shader lleva el código de alrededor: se recorta
-const WARN = /three|webgl|shader|glsl|texture|gltf|glb|geometry|material|framebuffer|render|pool kit/i;
+const WARN = /phoenyx|three|webgl|shader|glsl|texture|gltf|glb|geometry|material|framebuffer|render|pool kit/i;
 
 // avisos de three que no son un fallo: la GPU no tiene la extensión (solo se compila en serie) y el dev server de Vite carga three dos veces (HMR)
 const BENIGN = /KHR_parallel_shader_compile|Multiple instances of Three\.js/i;
@@ -57,7 +57,9 @@ function note(kind: string, msg: string) {
   else {
     list.push({ kind, msg: msg.length > MAXLEN ? `${msg.slice(0, MAXLEN)}\n… (${msg.length - MAXLEN} more chars)` : msg, n: 1, first: now, last: now });
     if (list.length > MAX) list.shift();
-    if (kind.startsWith('console.') || kind === 'webgl') report(kind, msg, kind === 'console.warn' ? 'warning' : 'error'); // (los errores sin capturar y las promesas ya los coge el SDK)
+    // (los errores sin capturar y las promesas ya los coge el SDK; lo del motor Phoenyx va con su propio tipo)
+    if (/\[phoenyx\]/i.test(msg)) report(/dispositivo|device|lost|perdido/i.test(msg) ? 'engine-device' : 'engine', msg, kind === 'console.warn' ? 'warning' : 'error', { from: kind });
+    else if (kind.startsWith('console.') || kind === 'webgl') report(kind, msg, kind === 'console.warn' ? 'warning' : 'error');
   }
   changed();
 }

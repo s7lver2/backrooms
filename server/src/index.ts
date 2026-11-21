@@ -9,7 +9,7 @@ import {
 } from '@backrooms/shared';
 import { Match, type Player } from './match';
 import { ACHIEVEMENT_KEYS, WATER_HEAL, NOISE_SHOT, NOISE_DROP, NOISE_PHOTO, NOISE_PICK, levelCaps, solidAt, startOffset } from '@backrooms/shared';
-import { lockerContents, facelingStock, type LockerItem, ITEMS, PILLS, PARKING_ITEM_IDS, RARITIES, SCALE, UPGRADES, UP_IDS, boostOf, itemOpen, levelsOpen, cleanUps, hasRoom, lootPrice, rarity, rollRarity, sellPrice, spotRarity, statsOf, subOf, upCost, upLevel, wearInv, type Qual, type SaveInfo, type Ups } from '@backrooms/shared';
+import { LOCKERS, type Stashed, lockerContents, facelingStock, type LockerItem, ITEMS, PILLS, PARKING_ITEM_IDS, RARITIES, SCALE, UPGRADES, UP_IDS, boostOf, itemOpen, levelsOpen, cleanUps, hasRoom, lootPrice, rarity, rollRarity, sellPrice, spotRarity, statsOf, subOf, upCost, upLevel, wearInv, type Qual, type SaveInfo, type Ups } from '@backrooms/shared';
 import { allowedOrigins, handleApi, isAdminName, originOk, userFromCookie } from './auth';
 import { MONEY_LIMIT, parseAdmin } from './admin';
 import { achievementsOf, statsOf as dbStats, avatarRef, deleteSave, loadoutOf, saveOf, savesOf, writeSave } from './db';
@@ -1278,6 +1278,47 @@ io.on('connection', (sock) => {
       if (!pk) r!.match!.noise(x, z, NOISE_DROP);
       bag(p!);
       ok = true;
+    }
+    if (typeof cb === 'function') cb(ok);
+  });
+
+  // mi casillero: el índice es mi puesto en la sala; las ranuras, 2 + la mejora LOCKER
+  const lockerOf = (r: RoomState, p: Player) => {
+    const cap = statsOf(p.ups).locker;
+    p.stash ??= [];
+    while (p.stash.length < cap) p.stash.push(null);
+    return { cap, mine: Math.max(0, [...r.players.keys()].indexOf(p.id)) };
+  };
+  const stashSend = (r: RoomState, p: Player) => {
+    const { cap, mine } = lockerOf(r, p);
+    sock.emit('stash', p.stash!.slice(0, cap), mine);
+  };
+
+  // guardar algo en el primer casillero libre (desde la interfaz de los casilleros)
+  sock.on('stashPut', (kind, index, cb) => {
+    const r = roomOf(sock.id), p = r?.players.get(sock.id);
+    let ok = false;
+    if (r && p && r.phase === 'lobby' && (kind === 'loot' || (ITEM_IDS as string[]).includes(kind)) && kind !== 'pills') {
+      const { cap } = lockerOf(r, p);
+      const slot = p.stash!.slice(0, cap).findIndex((x) => !x), out = slot >= 0 ? without(p.inv, kind, Number(index) || 0) : undefined;
+      if (out) (p.stash![slot] = { kind, q: out.q } as Stashed), (p.inv = out.inv), sock.emit('inv', p.inv), save(r), (ok = true);
+      stashSend(r, p);
+    }
+    if (typeof cb === 'function') cb(ok);
+  });
+
+  // sacar lo guardado en mi casillero (-1: solo pedir el estado)
+  sock.on('stashTake', (slot, cb) => {
+    const r = roomOf(sock.id), p = r?.players.get(sock.id);
+    let ok = false;
+    if (r && p && r.phase === 'lobby') {
+      const { cap, mine } = lockerOf(r, p);
+      const it = Number.isInteger(slot) && slot < cap ? p.stash![slot] : undefined, L = LOCKERS[mine];
+      if (it && L && Math.hypot(p.st.x - L.x, p.st.z - L.z) < 3.5) {
+        const d = { id: '', kind: it.kind, x: 0, z: 0, by: p.id, q: it.q } as Drop;
+        if (fitsDrop(p.inv, d, p)) (p.inv = withDrop(p.inv, d)), (p.stash![slot] = null), sock.emit('inv', p.inv), save(r), (ok = true);
+      }
+      stashSend(r, p);
     }
     if (typeof cb === 'function') cb(ok);
   });

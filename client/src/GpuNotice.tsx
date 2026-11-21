@@ -139,7 +139,7 @@ export default function GpuNotice({ children }: { children: ReactNode }) {
       /* da igual */
     }
     initTelemetry(true); // continuar = aceptar el envío de diagnóstico de esta versión
-    report('webgpu-session', 'inicio', 'info', { gpu: info.current, ua: navigator.userAgent });
+    report('webgpu-session', `Phoenyx session on ${info.current || 'unknown GPU'}`, 'info', { gpu: info.current });
     setState('leave');
   };
   return (

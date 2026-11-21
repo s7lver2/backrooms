@@ -292,7 +292,7 @@ export function suitesMaze(seed: number, floor = 1): Maze {
       return undefined;
     };
     const back: [number, number] = [Math.round(Math.sin(c.yaw)), Math.round(Math.cos(c.yaw))], dirs: [number, number][] = [back, [0, -1], [0, 1], [1, 0], [-1, 0]];
-    for (const d of Math.abs(c.z - 9 * CELL) < 1e-6 ? (cams.indexOf(c) % 2 ? [[0, 1], [0, -1]] as [number, number][] : dirs.slice(1)) : dirs) {
+    for (const d of /^(HALL|AUX)/.test(c.name) && Math.abs(c.z - 9 * CELL) < 1e-6 ? (cams.indexOf(c) % 2 ? [[0, 1], [0, -1]] as [number, number][] : dirs.slice(1)) : dirs) {
       const e = hit(d);
       if (e === undefined) continue;
       if (d[0]) c.x = e - d[0] * EDGE; else c.z = e - d[1] * EDGE;

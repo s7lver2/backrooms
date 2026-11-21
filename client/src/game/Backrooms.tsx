@@ -5,10 +5,12 @@ import DownloadToast from './DownloadToast';
 import { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import gsap from 'gsap';
 import { holdStill } from './still';
+import { benchState, benchDone, cancelBench } from '../bench';
 import { BackroomsGame, drawn, LOAD_PHASES, type Hud, type Inv, type LoadProgress } from './game';
 import { generateMaze } from './maze';
 import Touch from './Touch';
 import Inventory, { type Cell } from './Inventory';
+import LockersPanel from './LockersPanel';
 import Hotbar from './Hotbar';
 import TotemUi from './Totem';
 import Effects from './Effects';
@@ -22,7 +24,7 @@ import { Avatar, AuthScreen, DiscordButton, AccountBox, AccountMenu, Achievement
 import Frame from './Frame';
 const SettingsPane = lazy(() => import('./Settings')); // (los ajustes y la consola de admin se bajan al abrirlos)
 import { Crosshair } from './Crosshair';
-import { onSetting, settings, useSettings } from '../settings';
+import { PRESETS, onSetting, settings, useSettings } from '../settings';
 import Lobby, { ServerNotice } from './Lobby';
 import Computer, { guestLook } from './Computer';
 import ShopGrid from './ShopGrid';
@@ -318,6 +320,8 @@ export default function Backrooms({ onQuit, onWin }: { onQuit: () => void; onWin
   const [acctOpen, setAcctOpen] = useState(false); // el popup de la cuenta (SIGN IN / REGISTER / SIGN OUT)
   const [authMode, setAuthMode] = useState<AuthMode | null>(null); // el popup de inicio de sesión: abierto con su modo, o cerrado
   const [welcome, setWelcome] = useState(false); // el aviso de la primera vez sin sesión
+  const [benchP, setBenchP] = useState(0); // el benchmark de ajustes (bench.ts): cuánto lleva del recorrido
+  const benchOff = useRef<() => void>();
   const [slow, setSlow] = useState(0); // los fps a los que va cuando va tan mal que se avisa (game.onSlow)
   useEffect(() => {
     if (!slow) return;
@@ -340,6 +344,12 @@ export default function Backrooms({ onQuit, onWin }: { onQuit: () => void; onWin
   const [computer, setComputer] = useState(false);
   const [board, setBoard] = useState(false);
   const [waitBag, setWaitBag] = useState(false);
+  const [lockers, setLockers] = useState(false);
+  // las etiquetas de los casilleros: la foto y el nombre de cada jugador (por puesto en la sala)
+  const ownersKey = (net.room?.players ?? []).map((p) => `${p.name}|${p.avatar}`).join();
+  useEffect(() => {
+    game.current?.setLockerOwners((net.room?.players ?? []).map((p) => ({ name: p.name || 'ANON', avatar: avatarUrl(p.avatar) })));
+  }, [ownersKey, screen]); // eslint-disable-line react-hooks/exhaustive-deps
   const bag = useRef<(Cell | null)[]>([]); // disposición de la mochila: solo dura la sesión
   const [wh, setWh] = useState<WaitHud>(NO_WAIT);
   const roomRef = useRef(net.room);
@@ -449,8 +459,8 @@ export default function Backrooms({ onQuit, onWin }: { onQuit: () => void; onWin
     // desarrollo local (no por túnel ni en producción, ver devGate.ts): __game y __maze(semilla) en la consola
     if (dev) Object.assign(window, { __game: g, __maze: (seed: number) => console.info(asciiMaze(seed)) });
     if (dev?.has('debug')) void import('./debugPanel').then((m) => m.openDebugPanel(g));
-    g.onSlow = (fps) => alive && setSlow(fps);
-    g.onPause = () => alive && setScreen(g.waiting ? 'waitpause' : 'pause');
+    g.onSlow = (fps) => alive && !benchState() && setSlow(fps);
+    g.onPause = () => alive && !benchState() && setScreen(g.waiting ? 'waitpause' : 'pause');
     g.onDeath = () => alive && setScreen('crash');
     g.onLevelLoad = (f) => alive && setLvl(f);
     g.onLocker = (id) => (g.setLockerUi(true), setLocker(id));
@@ -463,7 +473,20 @@ export default function Backrooms({ onQuit, onWin }: { onQuit: () => void; onWin
       .then(async () => {
         if (!alive) return;
         await new Promise((r) => setTimeout(r, 400)); // un instante al 100 % antes de pasar al título
-        if (alive) setScreen('menu');
+        if (alive && benchState()) {
+          // benchmark de ajustes gráficos (bench.ts): una partida de prueba con recorrido fijo; al acabar recarga con el perfil siguiente o el elegido
+          setScreen('play');
+          started.current = true;
+          g.myLook = guestLook();
+          g.runBench(benchDone);
+          const poll = setInterval(() => alive && setBenchP(g.benchProgress), 150);
+          const esc = (e: KeyboardEvent) => e.code === 'Escape' && cancelBench();
+          addEventListener('keydown', esc);
+          benchOff.current = () => (clearInterval(poll), removeEventListener('keydown', esc));
+          return;
+        }
+        if (alive && sessionStorage.getItem('br-bench-open')) setScreen('settings'); // (acabó el benchmark: los ajustes de vídeo con el resultado)
+        else if (alive) setScreen('menu');
         if (alive && (dev?.has('pool') || dev?.has('poolmap'))) (setScreen('play'), g.devPool(dev.has('poolmap')));
         else if (alive && dev?.has('suites')) (setScreen('play'), g.devSuites());
         else if (alive && dev?.has('runlevel')) (setScreen('play'), g.devRun()); // desarrollo: ?runlevel arranca «Run for your life» sin sala
@@ -473,6 +496,7 @@ export default function Backrooms({ onQuit, onWin }: { onQuit: () => void; onWin
     return () => {
       alive = false;
       zoomOff.current?.();
+      benchOff.current?.();
       if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
       free();
       g.dispose();
@@ -719,6 +743,7 @@ export default function Backrooms({ onQuit, onWin }: { onQuit: () => void; onWin
     g.onWaitComputer = setComputer;
     g.onWaitBoard = setBoard;
     g.onWaitBag = setWaitBag;
+    g.onWaitLockers = setLockers;
     g.enterWaiting({ sock, id: sock.id! }, room)
       .then((ok) => alive && ok && setWaitReady(true))
       .catch((e) => {
@@ -733,6 +758,8 @@ export default function Backrooms({ onQuit, onWin }: { onQuit: () => void; onWin
       g.onWaitComputer = undefined;
       g.onWaitBoard = undefined;
       g.onWaitBag = undefined;
+      g.onWaitLockers = undefined;
+      setLockers(false);
       g.closeWaitBag();
       setWaitReady(false);
       setComputer(false);
@@ -947,6 +974,15 @@ export default function Backrooms({ onQuit, onWin }: { onQuit: () => void; onWin
           <AccountBox acct={acct} onClick={() => setAcctOpen(true)} />
         </nav>
       )}
+      {screen === 'play' && benchState() && (
+        <div className="br-bench" role="status">
+          <p className="br-bench__t">BENCHMARK · {PRESETS[benchState()!.step]?.[0]} ({PRESETS.length - benchState()!.step}/{PRESETS.length})</p>
+          <div className="br-breath__bar">
+            <i style={{ width: `${Math.round(benchP * 100)}%` }} />
+          </div>
+          <p className="br-lobby__dim">TESTING THIS SETTING ON A REAL LEVEL · ESC TO CANCEL</p>
+        </div>
+      )}
       {screen === 'achv' && <AchievementsScreen acct={acct} onSignIn={() => openAuth('signin')} onBack={() => setScreen('menu')} />}
       {screen === 'friends' && <FriendsScreen acct={acct} assets={game.current?.assets} onSignIn={() => openAuth('signin')} onBack={() => setScreen('menu')} />}
       {screen === 'settings' && (
@@ -1032,7 +1068,7 @@ export default function Backrooms({ onQuit, onWin }: { onQuit: () => void; onWin
         <>
           {!board && phase !== 'starting' && <WaitPanel room={net.room} me={net.me} sock={net.sock} />}
           <ServerNotice server={server} />
-          {!wh.computer && !wh.board && !waitBag && !wh.entering && (
+          {!wh.computer && !wh.board && !waitBag && !lockers && !wh.entering && (
             <p className="br-hint" data-bad={wh.notice ? '' : undefined}>
               {wh.notice
                 ? wh.notice
@@ -1044,7 +1080,7 @@ export default function Backrooms({ onQuit, onWin }: { onQuit: () => void; onWin
             </p>
           )}
           {!touch && !chat && !wh.computer && !wh.board && !wh.entering && <p className="br-wait__keys br-lobby__dim">WASD MOVE · SHIFT RUN · SPACE JUMP · C CROUCH · E USE/BAG · G PICK UP · Y DROP · R READY · 1-4 ITEMS · HOLD B EMOTES · V VOICE · ENTER CHAT · ESC PAUSE</p>}
-          {!waitBag && !wh.computer && !wh.board && !wh.entering && game.current?.player && game.current.assets && (
+          {!waitBag && !lockers && !wh.computer && !wh.board && !wh.entering && game.current?.player && game.current.assets && (
             <Hotbar inv={game.current.hud.inv} assets={game.current.assets} onUse={(i) => { const pl = game.current?.player; if (pl) (pl.hotSel = i), pl.useHot(i); }} />
           )}
         </>
@@ -1069,6 +1105,7 @@ export default function Backrooms({ onQuit, onWin }: { onQuit: () => void; onWin
           onClose={() => game.current?.closeWaitBag()}
         />
       )}
+      {screen === 'wait' && lockers && net.inv && net.sock && <LockersPanel sock={net.sock} inv={net.inv} assets={game.current?.assets} onClose={() => game.current?.closeComputer()} />}
       {screen === 'wait' && board && net.room?.phase === 'lobby' && <BoardHint onClose={() => game.current?.closeComputer()} />}
       {screen === 'wait' && doorDone && net.room?.phase === 'starting' && net.room.vote && <Board room={net.room} me={net.me} sock={net.sock} />}
       {screen === 'wait' && touch && game.current && !computer && !wh.entering && <Touch input={game.current.input} hand="none" aiming={false} />}
@@ -1202,6 +1239,7 @@ export default function Backrooms({ onQuit, onWin }: { onQuit: () => void; onWin
           </div>
         </div>
       )}
+      {screen === 'play' && hud?.breath && hud.spectating == null && net.room?.levelId === 'suites' && <div className="br-closet" aria-hidden />}
       {screen === 'play' && hud?.breath && !hud.bag && hud.spectating == null && (
         <div className="br-breath" data-warn={hud.breath.warn || undefined} role="status">
           <p className="br-breath__t">{hud.breath.warn ? 'HOLD [SPACE]' : hud.breath.held ? 'HOLDING BREATH' : 'HIDING'}</p>

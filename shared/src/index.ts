@@ -116,9 +116,11 @@ export const LOAD_GRACE = 12000;
  * La sala de espera 3D: 9 × 7 m centrada en el origen (x a lo ancho, z a lo largo; el suelo, en y = 0). En la
  * fase `lobby` y `starting`, las posiciones de los jugadores son de esta sala; el servidor las recorta a la caja.
  */
-export const WAIT_HALF = { x: 4.5, z: 3.5 };
+export const WAIT_HALF = { x: 8, z: 6 };
+/** El alto de la sala de espera (el campamento tiene el techo alto). */
+export const WAIT_H = 4;
 /** Dónde aparece cada jugador (por orden en la sala): en fila frente a la puerta, mirando a -z. */
-export const WAIT_SPAWNS = [-2.25, -0.75, 0.75, 2.25].flatMap((x) => [{ x, z: 0.2 }, { x, z: 1.4 }]); // hasta 8, en dos filas en medio de la sala, lejos de los muebles de las paredes
+export const WAIT_SPAWNS = [-1.9, -0.65, 0.65, 1.9].flatMap((x) => [{ x, z: 0.2 }, { x, z: 1.4 }]); // hasta 8, en dos filas en medio de la sala, lejos de los muebles de las paredes
 export type Difficulty = 'easy' | 'normal' | 'hard' | 'nightmare';
 /**
  * Lo que mueve cada dificultad: entidades más o menos rápidas, tiempo sin que ataquen al empezar (s), vida de la linterna (s; balance: un 40 % menos que antes, 140/90/60),
@@ -227,7 +229,14 @@ export interface Sold {
   r: number;
 }
 /** Dónde está la báscula en la sala de espera (m) y a qué distancia de su centro cuenta lo que se suelta. */
-export const SCALE = { x: -3.7, z: 1.6, r: 0.6 }; // (cerca de la pared oeste, entre la mesa del ordenador y los sillones)
+export const SCALE = { x: -4.6, z: 2.9, r: 0.95 }; // (la plataforma de la báscula, en el suroeste de la sala, lejos de las paredes)
+/** Los casilleros de la pared oeste (centro de cada uno, mirando a +x): se guardan y se sacan cosas desde su interfaz (E); cada jugador ve y usa los suyos. */
+export const LOCKERS = [0, 1, 2, 3, 4, 5, 6, 7].map((i) => ({ x: -WAIT_HALF.x + 0.25, z: 2.5 + i * 0.44 })); // (uno por jugador, juntos: 0,44 m cada uno)
+/** Lo que guarda un casillero. */
+export interface Stashed {
+  kind: ItemId | 'loot';
+  q?: Qual;
+}
 export type Joined = { id: string; room: RoomView } | { error: string };
 
 /** Un objeto de la partida: cinta, linterna, cámara o rifle. */
@@ -374,6 +383,10 @@ export interface ClientToServer {
   buy: (item: ItemId, cb?: (r: { ok: boolean; error?: string }) => void) => void;
   /** Partida: soltar una unidad del objeto delante de uno (el servidor comprueba que lo llevaba); se ve en `world.drops` y se recoge con `pickup`. */
   drop: (item: ItemId | 'loot', index: number, cb?: (ok: boolean) => void) => void; // (`index`: cuál de las piezas de botín; 0 para lo demás)
+  /** Lobby: guardar en el primer casillero libre una unidad de `item` (o la pieza `index` del botín, con 'loot'). */
+  stashPut: (item: ItemId | 'loot', index: number, cb?: (ok: boolean) => void) => void;
+  /** Lobby: sacar lo guardado en el casillero `slot` (-1 solo pide el estado: llega por `stash`). */
+  stashTake: (slot: number, cb?: (ok: boolean) => void) => void;
   /** Partida, misión de las televisiones: apagar la número `index` (de tvSites); el servidor mira la distancia. */
   tv: (index: number, cb?: (ok: boolean) => void) => void;
   /** Usar el Tótem de la vida con un compañero caído: el servidor comprueba que lo tenía y que el otro está muerto. */
@@ -464,6 +477,8 @@ export interface ServerToClient {
   toolFx: (m: ToolFx) => void;
   /** En partida: la calidad de lo que llevas y tu botín según el servidor (al recoger, soltar y cada pocos segundos por el desgaste). */
   bag: (b: { q: NonNullable<Inventory['q']>; loot: Qual[] }) => void;
+  /** Lo que guardan mis casilleros (por ranura; null = vacía). */
+  stash: (slots: (Stashed | null)[], mine: number) => void;
   /** Alguien ha vendido algo en la báscula. */
   sold: (s: Sold) => void;
   /** Lo que hay soltado en el suelo de la sala de espera (la lista entera, cuando cambia). */

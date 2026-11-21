@@ -14,6 +14,21 @@ import { canvasTex, type Bag, type Box } from './waitKit';
 const H = WAIT_HALF;
 export interface Extra {
   chair?: GLTF;
+  tent?: GLTF;
+  bench?: GLTF;
+  jerry?: GLTF;
+  beacon?: GLTF;
+  firstaid?: GLTF;
+  radio?: GLTF;
+  extinguisher?: GLTF;
+  rack?: GLTF;
+  c64?: GLTF;
+  lockerx?: GLTF;
+  generator?: GLTF;
+  crates?: GLTF;
+  skeleton?: GLTF;
+  barrels?: GLTF;
+  body?: GLTF;
 }
 
 /** Copia los materiales de un objeto (y los apunta para liberarlos al salir). */

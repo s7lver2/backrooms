@@ -20,6 +20,7 @@ interface Entry {
   own: THREE.Material[];
   phase: number;
   on: boolean; // su cajita está a la vista dentro del panel
+  hot?: boolean; // el puntero está encima: solo esa gira (las demás se pintan una vez, quietas)
 }
 
 /** El muñeco simple de un color: torso, cabeza y una visera, para que se note que gira. */
@@ -51,6 +52,7 @@ export class Thumbs {
   private cio?: IntersectionObserver; // por cajita: solo se pintan las que se ven
   private byCv = new Map<Element, Entry>();
   private last = 0;
+  private pending: Entry[] = []; // las primeras pinturas, de 3 en 3 por fotograma (todas de golpe congelaban al abrir el armario)
   private dead = false;
 
   constructor(private reduced: boolean, watch?: Element | null) {
@@ -67,6 +69,7 @@ export class Thumbs {
     if ('IntersectionObserver' in window)
       this.cio = new IntersectionObserver((es) => es.forEach((x) => { const e = this.byCv.get(x.target); if (e) e.on = x.isIntersecting; }), { root: watch ?? null });
     // estáticas: pintar todas cada frame con el renderer de Phoenyx era el lag del armario
+    this.raf = requestAnimationFrame(this.loop); // (pinta las pendientes de 3 en 3 y hace girar la que tiene el puntero encima)
   }
 
   /** Una cajita: se pinta con su especificación. Devuelve la función que la quita. `dark`: bloqueada, solo silueta. */
@@ -75,6 +78,11 @@ export class Thumbs {
     this.entries.set(cv, e);
     this.byCv.set(cv, e);
     this.cio?.observe(cv);
+    const over = () => (e.hot = true), out = () => ((e.hot = false), this.draw(e, 0.6));
+    cv.addEventListener('pointerenter', over);
+    cv.addEventListener('pointerleave', out);
+    cv.parentElement?.addEventListener('pointerenter', over);
+    cv.parentElement?.addEventListener('pointerleave', out);
     if (spec.kind === 'color') e.obj = dummy(dark ? null : spec.hex, e.own);
     else if (spec.kind === 'model') {
       void model(spec.id).then((src) => {
@@ -86,14 +94,18 @@ export class Thumbs {
           o.traverse((x) => void ((x as THREE.Mesh).isMesh && ((x as THREE.Mesh).material = m)));
         }
         e.obj = o;
-        this.draw(e, 0.6);
+        this.pending.push(e);
       });
     }
-    if (e.obj) this.draw(e, 0.6);
+    if (e.obj) this.pending.push(e);
     return () => {
       this.entries.delete(cv);
       this.byCv.delete(cv);
       this.cio?.unobserve(cv);
+      cv.removeEventListener('pointerenter', over);
+      cv.removeEventListener('pointerleave', out);
+      cv.parentElement?.removeEventListener('pointerenter', over);
+      cv.parentElement?.removeEventListener('pointerleave', out);
       e.own.forEach((m) => m.dispose());
       (e.obj?.userData.dispose as (() => void) | undefined)?.();
     };
@@ -121,9 +133,13 @@ export class Thumbs {
 
   private loop = (now: number) => {
     this.raf = requestAnimationFrame(this.loop);
+    for (let i = 0; i < 3 && this.pending.length; i++) {
+      const q = this.pending.shift()!;
+      if (this.entries.get(q.cv) === q) this.draw(q, 0.6);
+    }
     if (!this.visible || document.hidden || now - this.last < 66) return; // ~15 fps
     this.last = now;
-    for (const e of this.entries.values()) if (e.on && e.obj) this.draw(e, now / 1800 + e.phase);
+    for (const e of this.entries.values()) if (e.on && e.hot && e.obj && !this.reduced) this.draw(e, now / 1800 + e.phase); // (solo la que tiene el puntero encima: pintar todas, 15 veces por segundo, era el lag del armario)
   };
 
   dispose() {
