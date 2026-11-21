@@ -173,7 +173,7 @@ export class Input {
       if (this.locked && (!this.active || this.noLock || this.suspend)) return void document.exitPointerLock();
       if (this.locked) (this.lockedAt = performance.now()), (this.needClick = this.soft_ = false), this.grabKeyboard();
       else this.freeKeyboard();
-      if (this.wasLocked && !this.locked && this.active && !this.suspend) this.pulses.add('pause');
+      if (this.wasLocked && !this.locked && this.active && !this.suspend && !this.noPause) this.pulses.add('pause');
       this.wasLocked = this.locked;
     });
     // Ctrl+W (agacharse + avanzar), Ctrl+T, Ctrl+N...: el navegador se los queda aunque se juegue. Keyboard Lock los deja pasar al juego (Chrome/Edge:
