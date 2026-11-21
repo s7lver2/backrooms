@@ -3,6 +3,7 @@ import { CELL, HP_MAX } from '@backrooms/shared';
 import Frame from '../game/Frame';
 import type { BackroomsGame as Game } from '../game/game';
 import { REPLAY_BUILD, REPLAY_FORMAT, type ReplayMeta } from './format';
+import { MAX_GIF_MS, MAX_VIDEO_MS, exportGif, exportVideo } from './export';
 import { deleteReplay, exportReplay, importReplay, listReplays, starReplay } from './store';
 import './viewer.css';
 
@@ -81,6 +82,10 @@ export function ReplayBar({ game, onExit }: { game: Game; onExit: () => void }) 
   const bar = useRef<HTMLDivElement>(null);
   const cv = useRef<HTMLCanvasElement>(null);
   const last = useRef<View | null>(null);
+  // el tramo a exportar (entrada y salida, en ms) y la exportacion en curso (progreso 0-1)
+  const [range, setRange] = useState<[number, number] | null>(null);
+  const [job, setJob] = useState<{ f: number; ctl: AbortController } | null>(null);
+  const [err, setErr] = useState('');
 
   useEffect(() => {
     const iv = setInterval(() => ((last.current = game.replayView()), setView(last.current), tick((n) => n + 1)), 100);
@@ -158,6 +163,27 @@ export function ReplayBar({ game, onExit }: { game: Game; onExit: () => void }) 
   }, [view, layer, data]);
 
   if (!clock || !data) return null;
+  const save = async (kind: 'video' | 'gif') => {
+    const [a, b] = range ?? [Math.max(0, clock.t - 5000), Math.min(clock.end, clock.t + 5000)];
+    const ctl = new AbortController();
+    setErr('');
+    setJob({ f: 0, ctl });
+    const was = clock.playing;
+    try {
+      const o = { canvas: game.canvas, clock, from: a, to: b, signal: ctl.signal, onProgress: (f: number) => setJob({ f, ctl }) };
+      const blob = await (kind === 'video' ? exportVideo(o) : exportGif(o));
+      if (blob) {
+        const ext = kind === 'gif' ? 'gif' : blob.type.includes('mp4') ? 'mp4' : 'webm';
+        const el = Object.assign(document.createElement('a'), { href: URL.createObjectURL(blob), download: `backrooms-${data.meta.seed}-${mmss(a).replace(':', 'm')}.${ext}` });
+        el.click();
+        setTimeout(() => URL.revokeObjectURL(el.href), 4000);
+      }
+    } catch (e) {
+      setErr(e instanceof Error ? e.message.toUpperCase() : 'EXPORT FAILED');
+    }
+    clock.playing = was;
+    setJob(null);
+  };
   const bands = [...new Set((view?.players ?? []).map((p) => band(p.y)))].sort((a, b) => b - a);
   const seek = (e: React.PointerEvent) => {
     const r = bar.current!.getBoundingClientRect();
@@ -190,12 +216,30 @@ export function ReplayBar({ game, onExit }: { game: Game; onExit: () => void }) 
         <button type="button" className="rp-ico" aria-label="Forward 5 seconds" onClick={() => clock.seek(clock.t + 5000)}>+5</button>
         <div className="rp-tl" ref={bar} onPointerDown={(e) => (e.currentTarget.setPointerCapture(e.pointerId), seek(e))} onPointerMove={(e) => e.buttons && seek(e)}>
           <div className="rp-tl__fill" style={{ width: `${(clock.t / clock.end) * 100}%` }} />
+          {range && <div className="rp-tl__range" style={{ left: `${(range[0] / clock.end) * 100}%`, width: `${((range[1] - range[0]) / clock.end) * 100}%` }} />}
           {marks.map((m, i) => <i key={i} className="rp-mk" data-k={m.k} title={`${mmss(m.t)} · ${m.text}`} style={{ left: `${(m.t / clock.end) * 100}%` }} />)}
         </div>
         <span className="rp-time">{mmss(clock.t)} / {mmss(clock.end)}</span>
         <select aria-label="Speed" value={clock.speed} onChange={(e) => (clock.speed = Number(e.target.value))}>
           {[0.25, 0.5, 1, 2, 4].map((v) => <option key={v} value={v}>{v}×</option>)}
         </select>
+      </div>
+      <div className="rp-clip">
+        <button type="button" onClick={() => setRange((r) => [Math.min(clock.t, (r?.[1] ?? clock.end) - 500), Math.max(r?.[1] ?? clock.end, clock.t + 500)])}>IN {range ? mmss(range[0]) : ''}</button>
+        <button type="button" onClick={() => setRange((r) => [Math.min(r?.[0] ?? 0, clock.t - 500), Math.max(clock.t, (r?.[0] ?? 0) + 500)])}>OUT {range ? mmss(range[1]) : ''}</button>
+        {range && <button type="button" onClick={() => setRange(null)}>CLEAR</button>}
+        {job ? (
+          <>
+            <span>RECORDING {Math.round(job.f * 100)}%</span>
+            <button type="button" onClick={() => job.ctl.abort()}>CANCEL</button>
+          </>
+        ) : (
+          <>
+            <button type="button" onClick={() => void save('video')} title={`Up to ${MAX_VIDEO_MS / 1000} s, no sound`}>EXPORT VIDEO</button>
+            <button type="button" onClick={() => void save('gif')} title={`Up to ${MAX_GIF_MS / 1000} s`}>EXPORT GIF</button>
+          </>
+        )}
+        {err && <span className="rp-dim">{err}</span>}
       </div>
       <p className="rp-help">SPACE PAUSE · , . ±5 S · [ ] SPEED · TAB / ← → NEXT PLAYER · V EYES / BEHIND · C FREE CAM · CLICK THE PICTURE TO LOOK AROUND</p>
     </div>
