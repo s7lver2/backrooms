@@ -73,7 +73,7 @@ export default function Lobby({ net, onSolo, server, error, account, nightmare }
   useEffect(() => {
     if (account) getFriends().then((f) => setFriends(new Set(f.friends.map((x) => x.username)))).catch(() => {});
   }, [account]);
-  const withFriends = (r: RoomInfo) => r.players.filter((n) => friends.has(n));
+  const withFriends = (r: RoomInfo) => (r.players ?? []).filter((n) => friends.has(n));
   const [ping, setPing] = useState<number | null>(null);
   const ready = link === 'online' && !!sock && server.state !== 'maintenance';
 
