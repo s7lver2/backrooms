@@ -2192,6 +2192,9 @@ export class BackroomsGame {
         else if (n === 'boom') a?.boom();
         else if (n === 'alarm' || n === 'alarmoff') a?.alarm(n === 'alarm');
         else if (n === 'vend') a?.vend();
+        else if (n === 'beat') a?.heartbeat(5);
+        else if (n === 'steps') a?.farSteps(5);
+        else if (n === 'groan') a?.groan(3);
         else (a?.click(), n === 'thunk' && a?.clunk(true));
       };
       wr.onPress = () => mp.sock.emit('start');
@@ -2477,6 +2480,8 @@ export class BackroomsGame {
     if (c.pause && wr.mode === 'free' && !this.paused) this.pause();
     wr.update(dt, this.paused || wr.mode === 'starting' ? { ...c, move: _none.clone(), look: _none.clone(), bag: false, run: false } : c);
     this.lobbyHands(dt, c, wr);
+    // en la entrada los demás se quedan mirando la puerta
+    if (wr.entering) for (const r of this.remotes.values()) ((r.yaw = Math.atan2(r.pos.x, WAIT_HALF.z + r.pos.z)), (r.pitch = 0.05));
     for (const r of this.remotes.values()) r.update(dt);
     if (wr.speed > 0) {
       this.stepAcc += wr.speed * dt;

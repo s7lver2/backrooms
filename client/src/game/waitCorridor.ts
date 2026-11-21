@@ -82,40 +82,65 @@ export class Corridor {
     this.dust = new Dust(bag, 150, new THREE.Vector3(-1.1, 0.2, -12), new THREE.Vector3(1.1, 2.4, Z0), 0.05, 0, 0xfff0c0);
     g.add(this.dust.points);
 
-    // la silueta: alta y delgada, de más; negra (la niebla la tiñe de lejos)
-    const sil = new THREE.MeshBasicMaterial({ color: 0x050403 });
+    // la silueta: alta, delgada y de más, con los brazos hasta las rodillas, la cabeza ladeada y un andar lento; negra (la niebla la tiñe de lejos)
+    const sil = new THREE.MeshBasicMaterial({ color: 0x030302 });
     bag.own.push(sil);
     this.fig = new THREE.Group();
-    const part = (geo: THREE.BufferGeometry, x: number, y: number, rz = 0) => {
-      const m = new THREE.Mesh(geo, sil);
-      m.position.set(x, y, 0);
-      m.rotation.z = rz;
-      this.fig.add(m);
+    const limb = (len: number, r: number, x: number, y: number, hang: number) => {
+      const pivot = new THREE.Group(), geo = new THREE.CapsuleGeometry(r, len, 3, 6), m = new THREE.Mesh(geo, sil);
+      m.position.y = -len / 2 - r;
+      pivot.add(m);
+      pivot.position.set(x, y, 0);
+      pivot.rotation.z = hang;
       bag.own.push(geo);
+      this.fig.add(pivot);
+      return pivot;
     };
-    part(new THREE.CapsuleGeometry(0.13, 0.75, 3, 8), 0, 1.2);
-    part(new THREE.SphereGeometry(0.11, 8, 6), 0, 1.86);
-    part(new THREE.CapsuleGeometry(0.035, 0.85, 3, 5), -0.21, 1.1, 0.05);
-    part(new THREE.CapsuleGeometry(0.035, 0.85, 3, 5), 0.21, 1.1, -0.05);
-    part(new THREE.CapsuleGeometry(0.05, 0.75, 3, 5), -0.08, 0.45);
-    part(new THREE.CapsuleGeometry(0.05, 0.75, 3, 5), 0.08, 0.45);
-    this.fig.scale.set(1.15, 1.3, 1.15);
+    const torsoG = new THREE.CapsuleGeometry(0.12, 0.8, 3, 8), torso = new THREE.Mesh(torsoG, sil);
+    torso.position.y = 1.35;
+    torso.scale.set(1, 1, 0.7);
+    this.fig.add(torso);
+    this.head = new THREE.Mesh(new THREE.SphereGeometry(0.1, 8, 6), sil);
+    this.head.position.set(0.02, 2.05, 0.03);
+    this.head.scale.set(0.9, 1.25, 1);
+    this.fig.add(this.head);
+    bag.own.push(torsoG, this.head.geometry);
+    this.arms = [limb(1.15, 0.03, -0.2, 1.8, 0.06), limb(1.15, 0.03, 0.2, 1.8, -0.06)];
+    this.legs = [limb(0.9, 0.05, -0.08, 0.98, 0), limb(0.9, 0.05, 0.08, 0.98, 0)];
+    this.fig.scale.set(1.05, 1.22, 1.05);
     this.fig.visible = false;
     g.add(this.fig);
+    this.steady = steady;
   }
+  private head!: THREE.Mesh;
+  private arms: THREE.Group[] = [];
+  private legs: THREE.Group[] = [];
+  private steady!: THREE.MeshBasicMaterial;
+  /** Dónde y cuándo aparece (s de la secuencia, z, x): solo con las luces del pasillo apagadas entre un destello y otro; cada vez más cerca. */
+  static readonly WINDOWS: [number, number, number, number][] = [[7.0, 7.7, -23.5, 0.5], [8.2, 8.9, -20.5, -0.15], [9.3, 10.0, -18.2, 0.05], [10.15, 99, -16.2, 0]];
 
   /** `t`: segundos de la secuencia; `open`: lo abierta que está la puerta (0–1). */
   update(dt: number, t: number, open: number, seq: boolean, reduced: boolean) {
-    this.flick.color.setScalar(hash(Math.floor(t * 13)) < 0.18 ? 0.3 : 1).multiply(_c);
+    // con la puerta abierta las luces del pasillo se van en los huecos entre aparición y aparición (y vuelven a destellar cuando él está ahí)
+    const win = Corridor.WINDOWS.find(([a, b]) => t >= a && t < b);
+    const dark = seq && !reduced && t > 6.8 && t < 10.15 && !win ? 0.12 : 1;
+    this.steady.color.setScalar(dark).multiply(_c);
+    this.flick.color.setScalar((hash(Math.floor(t * 13)) < 0.18 ? 0.3 : 1) * dark).multiply(_c);
     this.dust.opacity(reduced ? 0 : open * 0.55);
     if (open > 0.02 && !reduced) this.dust.update(dt, t);
-    // la silueta cruza el fondo mientras la cámara avanza
-    const u = (t - 4.4) / 2.8;
-    this.fig.visible = seq && !reduced && u > 0 && u < 1;
-    if (this.fig.visible) {
-      const x = -4.3 + 8.6 * u;
-      this.fig.position.set(x, Math.abs(Math.sin(u * 22)) * 0.03, -21.5);
-      this.fig.rotation.y = Math.PI / 2 + Math.sin(u * 5) * 0.25;
+    this.fig.visible = seq && !reduced && !!win;
+    if (this.fig.visible && win) {
+      const [a, , z, x] = win, k = t - a;
+      this.fig.position.set(x + Math.sin(t * 0.9) * 0.03, 0, z);
+      this.fig.rotation.y = Math.sin(t * 0.6) * 0.12; // mira de frente, apenas se mece
+      // el andar torpe: las piernas y los brazos oscilan despacio, y la cabeza se ladea a golpes
+      const w = Math.sin(t * 3.2);
+      this.legs[0].rotation.x = w * 0.28;
+      this.legs[1].rotation.x = -w * 0.28;
+      this.arms[0].rotation.x = -w * 0.1;
+      this.arms[1].rotation.x = w * 0.1;
+      this.head.rotation.z = 0.35 + (hash(Math.floor(t * 6) + 7) - 0.5) * 0.5 * Math.min(1, k * 2);
+      this.fig.position.y = Math.abs(w) * 0.025;
     }
   }
 }

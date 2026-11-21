@@ -5,7 +5,7 @@ import { LOCKERS, WAIT_H, WAIT_HALF, rarity } from '@backrooms/shared';
 import type { Extra } from './waitProps';
 import { DOME_R } from './waitDome';
 import { fit } from './hospital';
-import { MONO, bagTex, hash, softTex, type Bag, type Box } from './waitKit';
+import { Dust, MONO, bagTex, hash, softTex, type Bag, type Box } from './waitKit';
 
 /*
  * El campamento de investigadores de la sala de espera: tiendas de campaña, mini laboratorios (bancos con monitores, centrífuga, microscopio,
@@ -107,7 +107,20 @@ export class Camp {
     this.doorsOpen = on;
   }
   private beacons: { gl: THREE.Mesh; ph: number }[] = [];
-  private screens: { tex: THREE.CanvasTexture; draw: (t: number) => void; next: number }[] = [];
+  private screens: { tex: THREE.CanvasTexture; draw: (t: number) => void; next: number; cx: CanvasRenderingContext2D }[] = [];
+  private glitch = 0;
+  private shake = 0;
+  private skel?: THREE.Object3D;
+  private dust?: Dust;
+  private dustAmt = 0;
+  /** Los monitores: 0 normales, 1 con interferencias, 2 apagados. */
+  setGlitch(v: number) {
+    this.glitch = v;
+  }
+  /** El temblor del campamento (0–1): los casilleros vibran, el esqueleto se balancea y cae polvo del techo. */
+  setShake(v: number) {
+    this.shake = v;
+  }
 
   constructor(S: THREE.Scene, bag: Bag, boxes: Box[], shadow: (b: Box) => void, reduced: boolean, mods: Extra = {}) {
     const g = this.group;
@@ -234,7 +247,7 @@ export class Camp {
         t.needsUpdate = true;
       };
       draw(0);
-      this.screens.push({ tex: t, draw, next: 0 });
+      this.screens.push({ tex: t, draw, next: 0, cx });
       const mat = own(new THREE.MeshBasicMaterial({ map: t, toneMapped: false }));
       const m = new THREE.Mesh(new THREE.PlaneGeometry(w, h), mat);
       m.position.set(x, y + h / 2 + 0.03, z);
@@ -467,7 +480,8 @@ export class Camp {
     // el esqueleto colgado de un soporte de laboratorio (poste, base con cinco patas con ruedas y un brazo con gancho), junto a la pared sur
     {
       const sx = -2.6, sz = H.z - 0.8;
-      model(mods.skeleton?.scene, 1.7, 'y', sx, 0.18, sz - 0.05, Math.PI);
+      const sk = model(mods.skeleton?.scene, 1.7, 'y', sx, 0.18, sz - 0.05, Math.PI);
+      if (sk) this.skel = g.children[g.children.length - 1];
       cyl(steel, 0.025, 0.025, 2.05, sx, 1.03, sz + 0.28, 8);
       for (let i = 0; i < 5; i++) {
         const a = (i / 5) * Math.PI * 2 + 0.3, lx = Math.cos(a) * 0.3, lz = Math.sin(a) * 0.3;
@@ -588,7 +602,8 @@ export class Camp {
       this.lamps.push(l);
       g.add(l);
     }
-    void reduced;
+    this.dust = new Dust(bag, reduced ? 50 : 120, new THREE.Vector3(-7, 0.3, -5.5), new THREE.Vector3(7, WAIT_H - 0.2, 5.5), 0.035, 0.004, 0xd8d2b0);
+    g.add(this.dust.points);
   }
 
   /** Lo que guarda cada casillero (mío): una luz verde en los ocupados. */
@@ -614,7 +629,20 @@ export class Camp {
 
   update(dt: number, t: number, cam: THREE.Camera) {
     for (const b of this.blink) b.mat.color.setHex(Math.sin(t * b.rate * 2 + b.phase) > -0.2 ? b.on : b.off);
-    for (const s of this.screens) if (t > s.next) (s.draw(t), (s.next = t + 0.12));
+    for (const s of this.screens)
+      if (t > s.next) {
+        s.next = t + (this.glitch ? 0.05 : 0.12);
+        if (this.glitch === 2) (s.cx.fillStyle = '#010201'), s.cx.fillRect(0, 0, 128, 96), (s.tex.needsUpdate = true);
+        else if (this.glitch === 1) {
+          // interferencias: nieve y franjas que saltan
+          s.cx.fillStyle = '#0a160c';
+          s.cx.fillRect(0, 0, 128, 96);
+          for (let k = 0; k < 160; k++) ((s.cx.fillStyle = `rgba(190,255,200,${Math.random() * 0.8})`), s.cx.fillRect(Math.random() * 128, Math.random() * 96, 1 + Math.random() * 14, 1));
+          s.cx.fillStyle = 'rgba(210,255,215,0.35)';
+          s.cx.fillRect(0, (t * 90) % 96, 128, 5 + Math.random() * 8);
+          s.tex.needsUpdate = true;
+        } else s.draw(t);
+      }
     for (const m of this.glows) m.quaternion.copy(cam.quaternion);
     const pulse = Math.max(0, Math.sin(t * 7)) ** 2;
     for (const l of this.lamps) {
@@ -627,7 +655,17 @@ export class Camp {
       m.color.setHex(this.alarm ? 0xff2010 : 0xff4a20);
       m.opacity = this.alarm ? 0.15 + 0.85 * Math.max(0, Math.sin(t * 7 + b.ph)) ** 2 : 0.05 + 0.5 * Math.max(0, Math.sin(t * 3 + b.ph)) ** 3;
     }
+    // temblor: polvo del techo, el esqueleto se balancea y los casilleros cerrados vibran
+    this.dustAmt += ((this.shake > 0 ? 1 : 0) - this.dustAmt) * Math.min(1, dt * 1.5);
+    this.dust?.opacity(Math.max(0.004, this.dustAmt * 0.65)); // (nunca invisible del todo: así se compila con la sala y no a mitad de la secuencia)
+    if (this.dustAmt > 0.02) this.dust?.update(dt * 3, t);
+    if (this.skel) this.skel.rotation.z = Math.sin(t * 7.3) * 0.045 * this.shake;
     this.doors.forEach((d, i) => {
+      const sh = d.body && !(d.cur > 0.02) ? this.shake : 0;
+      if (d.body) {
+        d.body.userData.px ??= d.body.position.x;
+        d.body.position.x = d.body.userData.px + Math.sin(t * 43 + i * 1.9) * 0.006 * sh;
+      }
       d.cur += ((this.doorsOpen && i === this.mine ? 1 : 0) - d.cur) * Math.min(1, dt * 6);
       d.leaf.rotation.y = -d.cur * 1.6;
       const open = d.cur > 0.02;

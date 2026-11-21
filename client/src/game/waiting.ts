@@ -46,11 +46,12 @@ const EMOTE_LEN = [0, ...EMOTE_DEFS.map((e) => e.len)];
  * Los tiempos de la entrada (s): los tubos, la alarma, el golpe de la cerradura, la puerta, la cámara, el negro y el
  * total (≤ START_DELAY). Con movimiento reducido, corta y sin cámara ni alarma.
  */
-const FULL = { off1: 1.8, off2: 0.9, alarmA: 1.0, alarmB: 4.8, boom: 2.3, doorA: 2.4, doorB: 4.0, camA: 0.5, camB: 6.5, fadeA: 6.1, fadeB: 7.0, total: 7.2 };
+// terror lento (~11,5 s): los tubos se van, silencio y latidos, la alarma, el golpe, la puerta cede despacio, una silueta se acerca por el pasillo a cada destello
+const FULL = { off1: 3.6, off2: 2.0, alarmA: 4.6, alarmB: 7.2, boom: 5.4, doorA: 5.6, doorB: 8.4, camA: 2.0, camB: 10.6, fadeA: 10.2, fadeB: 11.2, total: 11.5 };
 const SHORT = { off1: 0.4, off2: 0.2, alarmA: 0, alarmB: 0, boom: 0.15, doorA: 0.2, doorB: 0.8, camA: 0, camB: 0, fadeA: 0.9, fadeB: 1.6, total: 1.7 };
 
 export interface WaitSfx {
-  (name: 'click' | 'thunk' | 'creak' | 'boom' | 'alarm' | 'alarmoff' | 'vend'): void;
+  (name: 'click' | 'thunk' | 'creak' | 'boom' | 'alarm' | 'alarmoff' | 'vend' | 'beat' | 'steps' | 'groan'): void;
 }
 export type Hint = 'computer' | 'board' | 'button' | 'vending' | 'chair' | 'lamp' | 'stand' | 'locker';
 
@@ -155,7 +156,7 @@ export class WaitingRoom {
   // la entrada
   private seq?: { t: number; from: THREE.Vector3; fromQ: THREE.Quaternion; curve?: THREE.CatmullRomCurve3 };
   private waiters: (() => void)[] = [];
-  private cue = { boom: false, alarm: false, alarmOff: false, creak: false };
+  private cue: Record<string, boolean> = { boom: false, alarm: false, alarmOff: false, creak: false };
   /** 0–1: el corte a negro de la entrada. */
   black = 0;
   /** 0–1: lo encendido que está el fluorescente (el zumbido le sigue). */
@@ -921,7 +922,7 @@ export class WaitingRoom {
       const z0 = -H.z;
       const p2 = new THREE.Vector3(0, 1.58, z0 + 1.3);
       const p1 = from.clone().lerp(p2, 0.5).setY(1.6);
-      this.seq.curve = new THREE.CatmullRomCurve3([from, p1, p2, new THREE.Vector3(0, 1.58, z0 - 1.6), new THREE.Vector3(0, 1.56, -14.5)], false, 'centripetal');
+      this.seq.curve = new THREE.CatmullRomCurve3([from, p1, p2, new THREE.Vector3(0, 1.58, z0 - 1.6), new THREE.Vector3(0, 1.56, -13.2)], false, 'centripetal');
     }
   }
 
@@ -940,8 +941,18 @@ export class WaitingRoom {
     // los avisos de sonido, una sola vez cada uno: la alarma, el golpe de la cerradura, el chirrido de los goznes
     if (D.alarmB > 0 && !c.alarm && t > D.alarmA) (c.alarm = true), this.sfx?.('alarm'), this.camp.setAlarm(true);
     if (D.alarmB > 0 && !c.alarmOff && t > D.alarmB) (c.alarmOff = true), this.sfx?.('alarmoff'), this.camp.setAlarm(false);
-    // la cúpula se apaga con la alarma (el cielo se queda sin luz) y vuelve con la puerta abierta
-    this.dome.power = 1 - 0.8 * smooth((t - D.off1 * 0.5) / 0.6) * (1 - smooth((t - D.doorB) / 1.2));
+    // la cúpula se apaga con los tubos (el cielo se queda sin luz) y vuelve con la puerta abierta
+    this.dome.power = 1 - 0.85 * smooth((t - 1.0) / Math.max(0.2, D.off1 - 1.0)) * (1 - smooth((t - D.doorB) / 1.2));
+    if (!this.reduced) {
+      const once = (k: string, at: number, fn: () => void) => !c[k] && t > at && ((c[k] = true), fn());
+      once('groan', 0.9, () => this.sfx?.('groan'));
+      once('glitch1', 2.2, () => this.camp.setGlitch(1)); // los monitores se llenan de nieve
+      once('glitch2', D.off1, () => (this.camp.setGlitch(2), this.sfx?.('thunk'))); // y se apagan con el último tubo
+      once('beat', D.off1 + 0.1, () => this.sfx?.('beat'));
+      once('shake', D.off1 - 0.1, () => this.camp.setShake(1)); // el campamento tiembla: casilleros, esqueleto y polvo
+      once('steps', D.doorA + 0.8, () => this.sfx?.('steps'));
+      once('shakeOff', D.boom + 0.7, () => this.camp.setShake(0));
+    }
     if (!c.boom && t > D.boom) (c.boom = true), this.sfx?.('boom');
     const d = smooth((t - D.doorA) / (D.doorB - D.doorA));
     if (!c.creak && d > 0) (c.creak = true), this.sfx?.('creak');
@@ -950,7 +961,7 @@ export class WaitingRoom {
       // el travelling: despacio hacia la puerta, y al cruzar el umbral acelera por el pasillo con la lente abriéndose
       const x = clamp((t - D.camA) / (D.camB - D.camA), 0, 1), u = x * x * x;
       const p = s.curve.getPointAt(u), ahead = s.curve.getPointAt(Math.min(1, u + 0.06));
-      const ramp = smooth(t / 1.2), run = smooth((t - 3.8) / 2.5);
+      const ramp = smooth(t / 1.2), run = smooth((t - D.doorB) / 2.2);
       // cámara en mano: el paso, un balanceo lento y un temblor leve
       cam.position.set(p.x + Math.sin(t * 3.1) * 0.012 * ramp, p.y + (Math.sin(t * 7.4) * 0.016 + Math.sin(t * 11.3) * 0.03 * run) * ramp, p.z);
       _m.lookAt(p, _v.set(ahead.x, 1.45, ahead.z), _up);
@@ -958,7 +969,7 @@ export class WaitingRoom {
       cam.quaternion.copy(s.fromQ).slerp(_q, smooth(t / 1.6));
       cam.rotateZ((Math.sin(t * 1.7) * 0.012 + Math.sin(t * 5.3) * 0.006 + Math.sin(t * 9) * 0.01 * run) * ramp);
       // un pequeño «vértigo» mientras suena la alarma (la lente se cierra), una mirada a las alarmas y, al correr, la lente se abre
-      const pre = smooth((t - 1.0) / 1.3) * (1 - smooth((t - D.doorA) / 1.4)), glance = Math.sin(Math.PI * clamp((t - 1.1) / 1.7, 0, 1)) * (D.alarmB > 0 ? 1 : 0);
+      const pre = smooth((t - 4.4) / 1.5) * (1 - smooth((t - D.doorB) / 1.0)), glance = Math.sin(Math.PI * clamp((t - 4.4) / 1.8, 0, 1)) * (D.alarmB > 0 ? 1 : 0);
       cam.rotateY(0.22 * glance);
       const fov = 70 - 8 * pre + 28 * run;
       if (cam.fov !== fov) (cam.fov = fov), cam.updateProjectionMatrix();

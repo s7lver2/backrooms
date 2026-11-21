@@ -296,6 +296,29 @@ export class GameAudio {
     [a, b, lfo].forEach((o) => o.start());
     this.siren = { o: [a, b, lfo], g };
   }
+  /** Latidos del corazón (dos golpes sordos por latido), cada vez más rápidos. */
+  heartbeat(beats = 4) {
+    let at = 0;
+    for (let i = 0; i < beats; i++) {
+      this.tone(58, 0.2, 0.55, 'sine', at, 36);
+      this.tone(52, 0.18, 0.4, 'sine', at + 0.2, 32);
+      at += 0.95 - i * 0.12;
+    }
+  }
+  /** Pasos lejanos y arrastrados por el pasillo, cada vez más cerca. */
+  farSteps(n = 4) {
+    for (let i = 0; i < n; i++) {
+      const k = 0.25 + (0.6 * i) / Math.max(1, n - 1);
+      this.burst(0.09, 0.3 * k, 95 + i * 12, 0.8, 'lowpass', i * 0.66);
+      this.burst(0.05, 0.06 * k, 700, 1.2, 'bandpass', i * 0.66 + 0.02);
+    }
+  }
+  /** Un quejido grave y largo del edificio, como metal bajo carga. */
+  groan(dur = 2.6) {
+    this.tone(46, dur, 0.22, 'sawtooth', 0, 33);
+    this.tone(69, dur, 0.1, 'sawtooth', 0.1, 51);
+    this.burst(dur, 0.06, 140, 1.4, 'bandpass', 0.05);
+  }
   /** Un golpe grave (la cerradura, la puerta al llegar al tope). */
   boom() {
     this.burst(0.5, 0.7, 120, 0.7, 'lowpass');
