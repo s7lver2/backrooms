@@ -3813,10 +3813,15 @@ fps ${(1 / Math.max(dt, 1e-3)).toFixed(0)}`;
   private eehSnap = false;
   private eehFor = '';
   private eehRed = false;
+  private eehBeep = 0;
   private staffMad = false;
   private eehVeil?: HTMLElement;
   private eehCheck() {
     const m = this.mission, fail = isEeh(m?.kind) && m!.progress >= m.goal - EEH_HOLD;
+    // el aviso, unos segundos antes de que falle: un pitido por segundo que sube de tono
+    const left = isEeh(m?.kind) && !fail && !m!.done && this.dying < 0 && !this.run ? m!.goal - EEH_HOLD - m!.progress : Infinity, beep = left <= 8 ? Math.ceil(left) : 0;
+    if (beep && beep !== this.eehBeep) this.audio?.eehWarn(beep);
+    this.eehBeep = beep;
     const on = !(this.dying >= 0 || this.run || this.player?.dead) && (this.eehSnap || (fail && !m!.done)); // (muerto o en el nivel rojo, la sirena se calla)
     if (on !== this.eehRed) {
       (this.eehRed = on), this.audio?.alarm(on); // la sirena suena mientras dure el fallo

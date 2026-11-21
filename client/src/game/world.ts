@@ -1138,7 +1138,7 @@ export class World implements Terrain {
           }`,
       });
       this.skyMat = sky;
-      const dm = new THREE.Mesh(new THREE.SphereGeometry(48, 32, 20, 0, Math.PI * 2, 0, Math.PI / 2), sky);
+      const dm = new THREE.Mesh(new THREE.SphereGeometry(34, 32, 20, 0, Math.PI * 2, 0, Math.PI / 2), sky) // (el plano lejano de la cámara es de 48 m: con 48 de radio, lo que quedaba más lejos se recortaba y la esfera «cambiaba» al mover la cámara);
       dm.position.set(XM, HEIGHT, ZM);
       dm.renderOrder = -10;
       dm.frustumCulled = false;

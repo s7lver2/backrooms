@@ -296,6 +296,13 @@ export class GameAudio {
     [a, b, lfo].forEach((o) => o.start());
     this.siren = { o: [a, b, lfo], g };
   }
+  /** El aviso de que el Evaporador va a fallar: un pitido por segundo que sube de tono (`left`: segundos que quedan) y, al final, un zumbido que se hunde. */
+  eehWarn(left: number) {
+    const k = 1 - Math.min(left, 8) / 8;
+    this.tone(520 + 520 * k, 0.12, 0.2 + 0.1 * k, 'square');
+    if (left <= 3) this.tone(520 + 520 * k, 0.12, 0.2, 'square', 0.25);
+    if (left <= 1) this.tone(180, 1.2, 0.3, 'sawtooth', 0, 40);
+  }
   /** Latidos del corazón (dos golpes sordos por latido), cada vez más rápidos. */
   heartbeat(beats = 4) {
     let at = 0;
