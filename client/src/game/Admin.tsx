@@ -106,38 +106,47 @@ export default function AdminConsole({ game, sock, room, me, onVictory }: Props)
     if (h?.win && !h.win.closed) return void h.win.focus();
     if (h) return void close();
     const gm = game.current;
-    const w = window.open('', 'br-admin', 'popup=yes,width=1100,height=800');
-    let el: HTMLElement, win: Window | undefined;
-    if (w) {
-      win = w;
-      w.document.open();
-      w.document.write('<!doctype html><meta charset="utf-8"><title>Backrooms · Admin</title>'); // (un documento de verdad: el about:blank inicial a veces se recarga y se llevaba el panel)
-      w.document.close();
-      const st = w.document.createElement('style');
-      st.textContent = css;
-      w.document.head.append(st);
-      el = w.document.createElement('div');
-      el.id = 'adm-root';
-      w.document.body.append(el);
-      // se sabe que se cerró mirando `closed` (pagehide también salta al recargarse el documento y la cerraba sola)
-      const iv = setInterval(() => w.closed && (clearInterval(iv), gm && (gm.input.noPause = false), setHost(null)), 500);
-      w.addEventListener('keydown', (e) => !e.repeat && (e.code === 'F9' || e.code === 'Backquote') && !(e.target as HTMLElement | null)?.matches('input') && (e.preventDefault(), w.close()));
-      addEventListener('pagehide', () => w.close());
-      if (gm) gm.input.noPause = true;
-      w.focus();
-    } else {
-      // ventana bloqueada: panel flotante sobre el juego (el juego no recibe teclas mientras esté)
-      const st = document.createElement('style');
-      st.textContent = css + '#adm-root.inline{position:fixed;inset:16px;z-index:60;box-shadow:0 0 0 9999px #000a}';
-      el = document.createElement('div');
-      el.id = 'adm-root';
-      el.className = 'inline';
-      el.append(st);
-      document.body.append(el);
-      if (gm) gm.input.block('admin'), gm.input.unlock();
-    }
-    if (gm) setTog(gm.adminState());
-    setHost({ el, win });
+    const w = window.open(`${import.meta.env.BASE_URL}admin.html`, 'br-admin', 'popup=yes,width=1100,height=800'); // (una página real del mismo origen: un about:blank se recargaba o fallaba según el navegador)
+    const mount = (win?: Window) => {
+      let el: HTMLElement;
+      if (win) {
+        const st = win.document.createElement('style');
+        st.textContent = css;
+        win.document.head.append(st);
+        el = win.document.createElement('div');
+        el.id = 'adm-root';
+        win.document.body.append(el);
+        // se sabe que se cerró mirando `closed` (pagehide también salta al recargarse el documento y la cerraba sola)
+        const iv = setInterval(() => win.closed && (clearInterval(iv), gm && (gm.input.noPause = false), setHost(null)), 500);
+        win.addEventListener('keydown', (e) => !e.repeat && (e.code === 'F9' || e.code === 'Backquote') && !(e.target as HTMLElement | null)?.matches('input') && (e.preventDefault(), win.close()));
+        addEventListener('pagehide', () => win.close());
+        if (gm) gm.input.noPause = true;
+        win.focus();
+      } else {
+        // ventana bloqueada: panel flotante sobre el juego (el juego no recibe teclas mientras esté)
+        const st = document.createElement('style');
+        st.textContent = css + '#adm-root.inline{position:fixed;inset:16px;z-index:60;box-shadow:0 0 0 9999px #000a}';
+        el = document.createElement('div');
+        el.id = 'adm-root';
+        el.className = 'inline';
+        el.append(st);
+        document.body.append(el);
+        if (gm) gm.input.block('admin'), gm.input.unlock();
+      }
+      if (gm) setTog(gm.adminState());
+      setHost({ el, win });
+    };
+    if (!w) return mount();
+    // se espera a que la página de la ventana esté cargada (si no llega en 4 s, panel flotante)
+    let tries = 0;
+    const wait = setInterval(() => {
+      let ready = false;
+      try {
+        ready = w.location.pathname.endsWith('admin.html') && w.document.readyState === 'complete' && !!w.document.body;
+      } catch { /* aún no es del mismo origen */ }
+      if (ready) (clearInterval(wait), mount(w));
+      else if (w.closed || ++tries > 80) (clearInterval(wait), w.closed ? undefined : (w.close(), mount()));
+    }, 50);
   }, [game, close, setHost]);
 
   // la tecla: en el juego abre la ventana (o la trae al frente); con ella abierta, otra vez la cierra
