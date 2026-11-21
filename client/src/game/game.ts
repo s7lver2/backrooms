@@ -1865,6 +1865,7 @@ export class BackroomsGame {
     if (this.dying >= 0 || this.winning || (this.god && e)) return;
     this.dying = 0;
     this.killer = e;
+    if (!this.mp) dlog('death', `solo ${e ? e.kind : 'sin entidad'} hide ${this.player!.hideState} holding ${this.holding} air ${this.breath.air.toFixed(2)} sanity ${this.player!.sanity.toFixed(2)} hp ${Math.round(this.player!.hp)}`); // (F9 > DEBUG: por qué te han pillado)
     this.fly = undefined;
     if (this.hideIdx >= 0) (this.player!.cancelHide(this.hides[this.hideIdx]), (this.hides[this.hideIdx].occ = null), (this.hideIdx = -1)); // lo encuentran: fuera del nicho
     this.holding = false;
