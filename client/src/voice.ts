@@ -36,8 +36,8 @@ export const VOICE_3D: readonly SpatialQuality[] = ['off', 'low', 'medium', 'hig
 /** El sonido de la voz según dónde se esté (sin medida de la sala): brillo del eco, cantidad (wet) y lo que dura. */
 const ENV: Record<string, { lp: number; wet: number; decay: number }> = {
   wait: { lp: 16000, wet: 0.04, decay: 0.4 },
-  maze: { lp: 7500, wet: 0.3, decay: 1.1 }, // pasillos de moqueta y ladrillo: apagada y con cola
-  pool: { lp: 12000, wet: 0.5, decay: 2.4 }, // azulejo: brillante y con mucho eco
+  maze: { lp: 9000, wet: 0.14, decay: 0.9 }, // pasillos de moqueta y ladrillo: apagada y con cola
+  pool: { lp: 12000, wet: 0.3, decay: 2 }, // azulejo: brillante y con mucho eco
 };
 
 /** Dónde está alguien (m) para el sonido 3D. */
@@ -163,7 +163,7 @@ class Voice {
       lim.attack.value = 0.003;
       lim.release.value = 0.2;
       inp.connect(lim).connect(c.destination);
-      const spatial = new Spatial(c, inp, { quality: VOICE_3D[settings.voice3d] ?? 'high', reverb: ENV[this.envKind] });
+      const spatial = new Spatial(c, inp, { quality: VOICE_3D[settings.voice3d] ?? 'high', reverb: ENV[this.envKind], near: 5, far: 30, rolloff: 1.2, wallGain: 0.72, wallCutoff: 2600, maxWalls: 3 }); // (más cerca de oírse entero, con menos eco y menos castigo por pared: antes se entendía mal)
       spatial.world = this.world;
       this.bus = { inp, spatial };
     }
