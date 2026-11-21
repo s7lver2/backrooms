@@ -10,6 +10,7 @@ import { loadLods } from './lods';
 import { GLTFLoader, type GLTF } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { MeshoptDecoder } from 'three/examples/jsm/libs/meshopt_decoder.module.js';
 import { compileGently } from './compile';
+import { perf } from '../perf';
 import { emoteGate } from './emotes';
 import { CELL, SUITE_L, generateMaze, suitesMaze, wrapX } from './maze';
 import { mazeHash, stateHash } from '@backrooms/shared';
@@ -258,6 +259,7 @@ const paint = () =>
 
 /** Descarga todo, con el progreso en bytes (aproximado: lo que diga cada respuesta). */
 export async function loadAssets(progress: (f: number) => void): Promise<Assets> {
+  perf.mark('assets:start');
   const loader = new GLTFLoader().setMeshoptDecoder(MeshoptDecoder);
   const urls = [...MODELS.map((m) => DIR + m + '.glb'), ...TEXTURES.map((t) => DIR + 'tex/' + t + '.webp')];  const got = new Map<string, number>(), total = new Map<string, number>();
   const tick = () => {
@@ -298,6 +300,7 @@ export async function loadAssets(progress: (f: number) => void): Promise<Assets>
       const k = (o as THREE.Mesh).material as THREE.MeshStandardMaterial | undefined;
       if (k?.isMeshStandardMaterial) k.metalness = Math.min(k.metalness, 0.25);
     });
+  perf.mark('assets:end');
   return { gltf, tex };
 }
 
