@@ -1,6 +1,7 @@
 'use client';
 import { listReplays } from '../replay/store';
 import { ReplayBar, ReplayList } from '../replay/Viewer';
+import { Feed, type FeedUi } from '../replay/Feed';
 import { setCrashContext } from '../telemetry';
 import { DEV_LOCAL } from '../devGate';
 import DownloadToast from './DownloadToast';
@@ -319,6 +320,8 @@ export default function Backrooms({ onQuit, onWin }: { onQuit: () => void; onWin
   const [mp, setMp] = useState(false);
   // repeticiones: mirando una (el visor va encima del juego)
   const [replay, setReplay] = useState(false);
+  // la grabacion que suena dentro de la partida (repeticion de muerte, clips del final)
+  const [feed, setFeed] = useState<FeedUi | null>(null);
   const net = useNet(mp);
   const acct = useAccount();
   const [acctOpen, setAcctOpen] = useState(false); // el popup de la cuenta (SIGN IN / REGISTER / SIGN OUT)
@@ -422,6 +425,7 @@ export default function Backrooms({ onQuit, onWin }: { onQuit: () => void; onWin
     cv.setAttribute('aria-hidden', 'true');
     gl.current!.prepend(cv);
     const g = (game.current = new BackroomsGame(cv, { low, reduced: reduced.current }));
+    g.onFeed = setFeed;
     if (DEV_LOCAL && dev?.has('capture')) (window as unknown as { __game?: unknown }).__game = g; // (dev/capture.ts lo lee para colocar al jugador y contar dibujos)
     // el sonido quitado se recuerda (una comodidad de quien juega: si el navegador no deja guardar, no pasa nada)
     try {
@@ -625,6 +629,11 @@ export default function Backrooms({ onQuit, onWin }: { onQuit: () => void; onWin
 
   // el final de una partida de sala: se para el juego y sale la pantalla de siempre; INSERT TAPE vuelve al lobby de la sala
   endRef.current = (r: RoundResult) => {
+    // antes del podio (o de la pantalla de fin): los clips graciosos de la ronda, si los hay
+    if (!r.climb && game.current) return void game.current.reel().catch(() => undefined).then(() => endNow(r));
+    endNow(r);
+  };
+  const endNow = (r: RoundResult) => {
     // ronda ganada en el laberinto: volvemos a aparecer en el nivel con la pose de victoria; la pantalla de siempre queda para el resto
     if (r.climb) {
       // subiendo a la planta siguiente del hotel: la ronda no acaba, ni pantalla de fin ni final
@@ -1009,6 +1018,7 @@ export default function Backrooms({ onQuit, onWin }: { onQuit: () => void; onWin
           <p className="br-lobby__dim">TESTING THIS SETTING ON A REAL LEVEL · ESC TO CANCEL</p>
         </div>
       )}
+      {feed && <Feed ui={feed} onSkip={() => game.current?.skipFeed()} onSkipAll={() => game.current?.skipFeed(true)} />}
       {screen === 'replays' && <ReplayList onBack={() => setScreen('menu')} onOpen={(id) => void openReplay(id)} />}
       {replay && (screen === 'play' || screen === 'pause') && game.current && <ReplayBar game={game.current} onExit={leaveReplay} />}
       {screen === 'achv' && <AchievementsScreen acct={acct} onSignIn={() => openAuth('signin')} onBack={() => setScreen('menu')} />}

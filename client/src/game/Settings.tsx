@@ -89,6 +89,7 @@ const SECTIONS = {
   ],
   ACCESSIBILITY: [
     { id: 'reduceMotion', label: 'REDUCE MOTION', desc: 'No sway, shake or flicker', long: 'Stills the camera sway, the tape bands and the flicker. Also on if your system asks for it.', flag: 'reduceMotion' },
+    { id: 'deathReplay', label: 'DEATH REPLAY', desc: 'Replay how you died', long: 'When you die, a short slow-motion replay of how it happened plays before you start spectating. Space skips it. Needs SAVE REPLAYS.', flag: 'deathReplay' },
     { id: 'recordReplays', label: 'SAVE REPLAYS', desc: 'Keep a replay of every round', long: 'Records each round in this browser so you can watch it again. Replays never leave your device and only the last 10 are kept (starred ones stay).', flag: 'recordReplays' },
     { id: 'emoteCam', label: 'THIRD-PERSON EMOTES', desc: 'Camera swings round on emotes', long: 'OFF: you stay in first person while you emote and only the others see you. ON: the camera moves in front of you so you can watch yourself.', flag: 'emoteCam' },
     { id: 'toggleBreath', label: 'TOGGLE BREATH HOLD', desc: 'Press once, not hold', long: 'Hiding in a niche and an entity looks in: press SPACE once to hold your breath and again to let go, instead of keeping the key down.', flag: 'toggleBreath' },
@@ -337,6 +338,8 @@ function Caption({ row, s, muted }: { row: Row; s: Settings; muted: boolean }): 
       return <p className="br-big">{s.fps ? '60 FPS' : 'HIDDEN'}</p>;
     case 'reduceMotion':
       return <p className="br-big">{s.reduceMotion ? 'STILL' : 'FULL MOTION'}</p>;
+    case 'deathReplay':
+      return <p className="br-big">{s.deathReplay ? 'ON' : 'OFF'}</p>;
     case 'recordReplays':
       return <p className="br-big">{s.recordReplays ? 'RECORDING' : 'OFF'}</p>;
     case 'emoteCam':

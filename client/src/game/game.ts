@@ -13,7 +13,7 @@ import { compileGently } from './compile';
 import { perf } from '../perf';
 import { emoteGate } from './emotes';
 import { CELL, SUITE_L, generateMaze, suitesMaze, wrapX } from './maze';
-import { mazeHash, stateHash } from '@backrooms/shared';
+import { mazeHash, stateHash, type DeathInfo } from '@backrooms/shared';
 import { World, center, HEIGHT } from './world';
 import { FLASH } from './lightmap';
 import { Input, type Controls } from './input';
@@ -52,7 +52,11 @@ import { Recorder } from '../replay/recorder';
 import { ReplayClock } from '../replay/clock';
 import { ReplaySource } from '../replay/source';
 import { loadReplay } from '../replay/store';
-import type { ReplayEvent, ReplayMeta } from '../replay/format';
+import type { ReplayChunk, ReplayEvent, ReplayMeta } from '../replay/format';
+import { deathCaption } from '../replay/captions';
+import { pickClips } from '../replay/highlights';
+import { cardOf } from '../replay/profile';
+import type { FeedUi } from '../replay/Feed';
 import { loadTapes, saveTape } from './tapes';
 import { watchCanvas } from '../errlog';
 import { gearIcons } from './invIcons';
@@ -1279,6 +1283,8 @@ export class BackroomsGame {
     this.shatters.forEach((s) => s.dispose());
     this.shatters = [];
     this.spectating = false;
+    this.deathShown = false;
+    this.lastDeath = undefined;
     for (const r of this.remotes.values()) r.setFirstPerson(false);
     this.endRun();
     this.totemOpen = false;
@@ -2658,13 +2664,15 @@ export class BackroomsGame {
     }
     worldTl.reset(100); // snapshots del mundo cada 100 ms
     const onPlayers = (all: Record<string, PlayerState & { name: string; dead: boolean }>) => {
-      for (const id in all) this.hps[id] = all[id].hp ?? HP_MAX;
+      for (const id in all) (this.hps[id] = all[id].hp ?? HP_MAX), this.names.set(id, all[id].name);
       if (this.player && all[mp.id]?.hp !== undefined) {
         if (!this.parking && all[mp.id].hp! < this.player.hp) this.audio?.cue('hurt');
         this.player.hp = all[mp.id].hp!;
       }
       this.syncRemotes(all, mp.id, this.parking?.level.scene ?? (this.pool instanceof PoolLevel ? this.pool.scene : this.scene));
     };
+    const livePlayers = (all: Record<string, PlayerState & { name: string; dead: boolean }>) => !this.feed && onPlayers(all);
+    const onDeathInfo = (d: DeathInfo) => d.id === mp.id && (this.lastDeath = d);
     const onWorld = (w: WorldSnapshot) => this.applyWorld(w);
     const onBlast = (m: { id: string; x: number; y: number; z: number }) => this.blastFx(m);
     s.on('blastFx', onBlast);
@@ -2755,8 +2763,10 @@ export class BackroomsGame {
     };
     s.on('beerThrow', onBottle);
     this.offNet.push(() => s.off('beerThrow', onBottle));
-    s.on('players', onPlayers);
-    s.on('world', this.worldIn = (w: WorldSnapshot) => (document.hidden ? void (this.pendingWorld = w) : onWorld(w))); // (oculta: solo se guarda el último; al volver no hay ráfaga de cientos que procesar de golpe)
+    this.playersIn = onPlayers;
+    s.on('players', livePlayers);
+    s.on('deathInfo', onDeathInfo);
+    s.on('world', this.worldIn = (w: WorldSnapshot) => (this.feed ? undefined : document.hidden ? void (this.pendingWorld = w) : onWorld(w))); // (oculta: solo se guarda el último; al volver no hay ráfaga de cientos que procesar de golpe)
     s.on('dead', onDead);
     s.on('reviving', onReviving);
     s.on('revived', onRevived);
@@ -2774,7 +2784,7 @@ export class BackroomsGame {
     s.on('toolFx', onTool);
     voice.calls = this.callPeers;
     this.offNet.push(() => (s.off('toolFx', onTool), this.callPeers.clear()));
-    this.offNet.push(() => (s.off('room', onRoom), s.off('inv', onInv), s.off('players', onPlayers), s.off('world', this.worldIn!), s.off('dead', onDead), s.off('blastFx', onBlast), s.off('seal', onSeal),s.off('reviving', onReviving), s.off('revived', onRevived), s.off('runFailed', onRunFailed), removeEventListener('keydown', key)));
+    this.offNet.push(() => (s.off('room', onRoom), s.off('inv', onInv), s.off('players', livePlayers), s.off('deathInfo', onDeathInfo), s.off('world', this.worldIn!), s.off('dead', onDead), s.off('blastFx', onBlast), s.off('seal', onSeal),s.off('reviving', onReviving), s.off('revived', onRevived), s.off('runFailed', onRunFailed), removeEventListener('keydown', key)));
     if (items) {
       items.claim = (id, done) => {
         if (id.includes(':')) s.emit('lockerTake', id.split(':')[0], Number(id.split(':')[1]), done);
@@ -2939,11 +2949,12 @@ export class BackroomsGame {
   private specCam(dt: number, c: Controls) {
     this.player?.hideHeld(); // los objetos que llevaba (linterna, cámara, radar...) cuelgan de la cámara: sin esto salen en la vista de quien se mira
     const cam0 = this.cam;
-    if (cam0.fov !== settings.fov) (cam0.fov = settings.fov), cam0.updateProjectionMatrix(); // (morir mirando por la camcorder dejaba el zoom puesto)
+    const fov = this.specFov ?? settings.fov;
+    if (cam0.fov !== fov) (cam0.fov = fov), cam0.updateProjectionMatrix(); // (morir mirando por la camcorder dejaba el zoom puesto)
     if (this.specView === 'free') return this.freeFrame(dt, c);
     const live = [...this.remotes.values()].filter((r) => !r.dead);
     let t = this.remotes.get(this.watching);
-    if (!t || t.dead) t = live[0];
+    if (!t || (t.dead && !this.feed)) t = live[0];
     this.watching = t?.id ?? '';
     if (!t) return void (this.flash.intensity = 0);
     const cam = this.cam, eye = _spec.set(t.pos.x, t.pos.y + 1.62, t.pos.z);
@@ -3054,6 +3065,8 @@ export class BackroomsGame {
     for (const cam of [this.camera, this.cam]) (cam.fov = settings.fov), cam.updateProjectionMatrix();
     this.player?.hideHeld();
     this.watching = [...this.remotes.values()].find((r) => !r.dead)?.id ?? '';
+    // la primera vez que se pasa a espectar tras morir: la repeticion de como fue
+    if (this.mp && !this.mp.replay && !this.feed && !this.deathShown && settings.deathReplay && this.rec) ((this.deathShown = true), void this.deathCam());
   }
 
   /** Al siguiente (o anterior) compañero vivo. */
@@ -3177,6 +3190,99 @@ export class BackroomsGame {
   /** La repeticion que se esta viendo: su reloj (pausa, velocidad, saltos) y sus datos (metadatos y eventos para los marcadores). */
   replayClock?: ReplayClock;
   replayData?: { meta: ReplayMeta; events: ReplayEvent[] };
+
+  // ── grabaciones dentro de la partida en vivo (repeticion de muerte y clips del final) ──
+  /** Mientras vale, los `players` y `world` en vivo se descartan: lo que se ve sale de una grabacion. */
+  private feed?: ReplaySource;
+  private playersIn?: (all: Record<string, PlayerState & { name: string; dead: boolean }>) => void;
+  private specFov?: number;
+  private names = new Map<string, string>();
+  private lastDeath?: DeathInfo;
+  private deathShown = false;
+  private feedEnd?: () => void;
+  private feedAll = false;
+  /** La interfaz de la grabacion que suena (rotulo, fichas...); `null` al acabar. Lo pone Backrooms.tsx. */
+  onFeed?: (ui: FeedUi | null) => void;
+
+  /** Pasa a la siguiente cosa de la grabacion que suena (la repeticion de muerte acaba; un clip pasa al siguiente). */
+  skipFeed(all = false) {
+    this.feedAll = all;
+    this.feedEnd?.();
+  }
+
+  /** Reproduce un tramo de grabacion con el juego en vivo debajo: se miran los `players` y `world` grabados con la camara en `o.focus`. */
+  private runFeed(chunks: ReplayChunk[], from: number, to: number, o: { focus: string; speed: (left: number) => number; fov?: (left: number) => number }): Promise<void> {
+    const mp = this.mp;
+    if (!mp) return Promise.resolve();
+    const clock = new ReplayClock(to);
+    clock.t = from;
+    const src = new ReplaySource(chunks, clock);
+    const remap = (all: Record<string, unknown>) => Object.fromEntries(Object.entries(all).map(([id, v]) => [id === mp.id ? '__me__' : id, v]));
+    const prev = { spectating: this.spectating, view: this.specView, watching: this.watching };
+    return new Promise<void>((done) => {
+      let over = false;
+      const fin = () => {
+        if (over) return;
+        over = true;
+        src.end();
+        this.feed = undefined;
+        this.feedEnd = undefined;
+        this.specFov = undefined;
+        this.spectating = prev.spectating;
+        this.specView = prev.view;
+        this.watching = prev.watching;
+        this.resync = true;
+        done();
+      };
+      this.feedEnd = fin;
+      this.offNet.push(fin);
+      src.on('players', (a) => this.playersIn?.(remap(a as Record<string, unknown>) as never));
+      src.on('world', (w) => this.applyWorld(w as WorldSnapshot));
+      src.onSeek = () => (this.resync = true);
+      clock.onTick((t) => {
+        clock.speed = o.speed(to - t);
+        this.specFov = o.fov?.(to - t);
+        if (t >= to) fin();
+      });
+      this.feed = src;
+      this.spectating = true;
+      this.specView = 'chase';
+      this.watching = o.focus === mp.id ? '__me__' : o.focus;
+      src.begin();
+    });
+  }
+
+  /** La repeticion de como moriste: ~5 s antes de la muerte, cámara lenta al final y zoom hacia ti, con el rótulo y las fichas. */
+  private async deathCam() {
+    const rec = this.rec, mp = this.mp;
+    if (!rec || !mp) return;
+    const tail = rec.tail(14000), d = [...tail.events].reverse().find((e) => e.k === 'death' && e.id === mp.id);
+    if (!d || !tail.frames.length) return;
+    const to = d.t + 600, from = Math.max(tail.frames[0].t, to - 5000);
+    const info = this.lastDeath?.id === mp.id ? this.lastDeath : (d.data as DeathInfo | undefined);
+    const name = (id: string) => this.names.get(id) ?? (id === mp.id ? 'YOU' : '???');
+    const by = info?.by, killer = by?.kind === 'player' ? by.id : undefined;
+    this.onFeed?.({ kind: 'death', caption: deathCaption(info, name(mp.id), killer && name(killer)), left: cardOf(mp.id, name(mp.id)), right: killer ? cardOf(killer, name(killer)) : undefined });
+    await this.runFeed([{ from, to, key: true, frames: tail.frames, events: tail.events }], from, to, { focus: mp.id, speed: (left) => (left < 1800 ? 0.35 : 1), fov: (left) => (left < 1800 ? Math.min(settings.fov, 48) : settings.fov) });
+    this.onFeed?.(null);
+  }
+
+  /** La compilacion de fin de ronda: 1-2 clips graciosos de la grabacion, antes del podio. No hace nada si no hay grabacion o clips. */
+  async reel(): Promise<void> {
+    const rec = this.rec, mp = this.mp;
+    if (!rec || !mp || mp.replay || this.feed) return;
+    const id = await rec.stop();
+    const r = id ? await loadReplay(id) : null;
+    if (!r) return;
+    const clips = pickClips(r.chunks.flatMap((c) => c.events), r.meta, mp.id);
+    this.feedAll = false;
+    for (const [i, c] of clips.entries()) {
+      if (this.feedAll || !this.mp) break;
+      this.onFeed?.({ kind: 'clip', caption: c.caption, n: i + 1, of: clips.length });
+      await this.runFeed(r.chunks, c.from, c.to, { focus: c.focus, speed: () => 1 });
+    }
+    this.onFeed?.(null);
+  }
 
   /** A quien se mira: su punto de vista (ojos o desde detras), o la camara libre. */
   replayWatch(id: string, view: 'eyes' | 'chase' = 'eyes') {

@@ -29,3 +29,23 @@
 .rp-mk[data-k='near'] { background: #e9a23b; }
 .rp-time { min-width: 8ch; text-align: right; }
 .rp-help { position: absolute; left: 12px; right: 12px; bottom: 10px; margin: 0; opacity: 0.6; font-size: 11px; }
+
+/* repeticion de muerte y compilacion: encima del juego en vivo */
+.rp-feed { position: fixed; inset: 0; z-index: 40; pointer-events: none; font: 13px/1.3 ui-monospace, Menlo, Consolas, monospace; color: #e8e4d0; }
+.rp-feed button { pointer-events: auto; }
+.rp-vig { position: absolute; inset: 0; background: radial-gradient(ellipse at center, transparent 40%, rgb(0 0 0 / 0.75) 100%); animation: rp-in 0.6s ease-out both; }
+.rp-cap { position: absolute; left: 50%; top: 9%; transform: translateX(-50%); margin: 0; max-width: 60vw; text-align: center; font-size: clamp(18px, 2.6vw, 34px); font-weight: 700; text-shadow: 0 2px 0 #000, 0 0 18px #000; animation: rp-pop 0.5s cubic-bezier(0.2, 1.6, 0.4, 1) both; }
+.rp-feed[data-kind='clip'] .rp-cap { top: auto; bottom: 22%; }
+.rp-feed__l, .rp-feed__r { position: absolute; top: 50%; transform: translateY(-50%); animation: rp-in 0.5s ease-out 0.2s both; }
+.rp-feed__l { left: 16px; }
+.rp-feed__r { right: 16px; }
+.rp-card { width: 150px; display: grid; gap: 6px; padding: 8px; background: rgb(0 0 0 / 0.6); border-top: 3px solid var(--c); }
+.rp-card__banner { height: 44px; border: 1px dashed rgb(255 255 255 / 0.25); }
+.rp-card__badges { display: flex; gap: 6px; }
+.rp-card__badges i { width: 28px; height: 28px; border: 1px dashed rgb(255 255 255 / 0.25); border-radius: 50%; }
+.rp-card__layer { height: 40px; border: 1px dashed rgb(255 255 255 / 0.25); }
+.rp-feed__bar { position: absolute; left: 0; right: 0; bottom: 28px; display: flex; gap: 12px; justify-content: center; align-items: center; }
+.rp-feed__bar span { background: rgb(0 0 0 / 0.6); padding: 4px 10px; }
+@keyframes rp-in { from { opacity: 0; } }
+@keyframes rp-pop { from { opacity: 0; transform: translateX(-50%) scale(0.6); } }
+@media (prefers-reduced-motion: reduce) { .rp-vig, .rp-cap, .rp-feed__l, .rp-feed__r { animation: none; } }

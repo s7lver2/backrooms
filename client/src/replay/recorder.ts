@@ -26,6 +26,7 @@ export class Recorder {
   private q: Promise<void> = Promise.resolve();
   private off: (() => void)[] = [];
   private dead = false;
+  private stopped = false;
 
   constructor(
     private readonly sock: Sock,
@@ -61,7 +62,7 @@ export class Recorder {
   }
 
   private frame(k: ReplayFrame['k'], d: unknown) {
-    if (this.dead) return;
+    if (this.dead || this.stopped) return;
     const f = { t: this.now(), k, d };
     this.frames.push(f);
     this.recent.frames.push(f);
@@ -69,7 +70,7 @@ export class Recorder {
   }
 
   private event(k: ReplayEvent['k'], id: string | undefined, data?: unknown) {
-    if (this.dead) return;
+    if (this.dead || this.stopped) return;
     const e = { t: this.now(), k, id, data };
     this.events.push(e);
     this.recent.events.push(e);
@@ -129,9 +130,11 @@ export class Recorder {
 
   /** Fin de la partida: lo que quedaba sin cerrar se guarda y se devuelve el id (o `null` si no se pudo grabar). */
   async stop(): Promise<string | null> {
+    const first = !this.stopped;
+    this.stopped = true;
     for (const f of this.off) f();
     this.off = [];
-    if (!this.dead && (this.frames.length || this.events.length)) this.flush(this.now());
+    if (first && !this.dead && (this.frames.length || this.events.length)) this.flush(this.now());
     await this.q;
     return this.dead && !this.meta.truncated ? null : this.meta.id;
   }
