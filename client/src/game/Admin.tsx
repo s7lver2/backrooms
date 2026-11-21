@@ -19,6 +19,10 @@ import css from './adminwin.css?inline';
  */
 type Host = { el: HTMLElement; win?: Window };
 let HOST: Host | null = null;
+const subs = new Set<() => void>();
+const setHostG = (h: Host | null) => ((HOST = h), subs.forEach((f) => f()));
+const subHost = (f: () => void) => (subs.add(f), () => void subs.delete(f));
+const getHost = () => HOST;
 const name = (k: string) => k.replace(/([a-z])([A-Z])/g, '$1 $2').toUpperCase();
 const GIVE: { id: ItemId | 'loot'; name: string }[] = [...ITEM_IDS.map((id) => ({ id, name: ITEMS[id].name })), { id: 'loot', name: 'ARTIFACT (LOOT)' }];
 const NL = '\n';
@@ -68,8 +72,8 @@ const Card = ({ title, aside, children }: { title: string; aside?: React.ReactNo
 
 export default function AdminConsole({ game, sock, room, me, onVictory }: Props) {
   // la ventana vive fuera del componente: si React lo desmonta y vuelve a montar (cambio de pantalla, recarga de la sala), no se pierde ni se cierra sola
-  const [host, setHostS] = useState<Host | null>(() => (HOST?.win?.closed ? null : HOST));
-  const setHost = useCallback((h: Host | null) => ((HOST = h), setHostS(h)), []);
+  const host = useSyncExternalStore(subHost, getHost); // (el estado de la ventana es global: si hay otra instancia montada, también lo ve)
+  const setHost = setHostG;
   const [tab, setTab] = useState<Tab>('OVERVIEW');
   const [t, setT] = useState('me'); // el objetivo: 'me', 'all' o el id de un jugador
   const [q, setQ] = useState('');
