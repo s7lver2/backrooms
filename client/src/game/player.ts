@@ -546,6 +546,7 @@ export class Player {
     else if (this.stamina > 0.3) this.winded = false;
     const pace = run ? this.world.groundPace?.run ?? RUN : this.world.groundPace?.walk ?? WALK;
     let speed = moving ? (pace * this.speedMul * this.buffSpeed * perks.stats.speed * (this.pillOn ? PILLS.speed : 1) + this.pillSpeed) * Math.min(1, c.move.length()) * (this.duck ? Math.max(perks.stats.sneak, this.duckMin) : 1) * (this.stunT > 0 ? 0 : this.wetT > 0 ? 0.5 : 1) * (this.aiming ? CAM_AIM_SLOW : 1) : 0;
+    const fx0 = this.pos.x, fz0 = this.pos.z; // (para no desviarse por debajo del suelo de al lado al caer)
     const f = new THREE.Vector3(-Math.sin(this.yaw), 0, -Math.cos(this.yaw)), r = new THREE.Vector3(-f.z, 0, f.x);
     const v = f.multiplyScalar(c.move.y).add(r.multiplyScalar(c.move.x));
     if (v.lengthSq() > 0) v.normalize().multiplyScalar(speed * dt);
@@ -597,6 +598,8 @@ export class Player {
         }
       }
     }
+    // cayendo por un pozo, no se sale del hueco: sin esto se podía ir de lado por debajo de la moqueta de al lado (traspasar el suelo)
+    if (this.falling && !this.poolMode && !this.world.voidAt(this.pos.x, this.pos.z)) (this.pos.x = fx0), (this.pos.z = fz0);
     this.speed = speed;
 
     // saltar y caer: sobre un hueco no hay suelo
