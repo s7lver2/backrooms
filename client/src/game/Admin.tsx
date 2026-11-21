@@ -106,19 +106,18 @@ export default function AdminConsole({ game, sock, room, me, onVictory }: Props)
     let el: HTMLElement, win: Window | undefined;
     if (w) {
       win = w;
-      w.document.title = 'Backrooms · Admin';
-      const meta = w.document.createElement('meta');
-      meta.setAttribute('charset', 'utf-8');
-      w.document.head.append(meta);
+      w.document.open();
+      w.document.write('<!doctype html><meta charset="utf-8"><title>Backrooms · Admin</title>'); // (un documento de verdad: el about:blank inicial a veces se recarga y se llevaba el panel)
+      w.document.close();
       const st = w.document.createElement('style');
       st.textContent = css;
       w.document.head.append(st);
       el = w.document.createElement('div');
       el.id = 'adm-root';
       w.document.body.append(el);
-      const stop = () => (gm && (gm.input.noPause = false), setHost(null));
-      w.addEventListener('pagehide', stop);
-      w.addEventListener('keydown', (e) => (e.code === 'F9' || e.code === 'Backquote') && !(e.target as HTMLElement | null)?.matches('input') && (e.preventDefault(), w.close()));
+      // se sabe que se cerró mirando `closed` (pagehide también salta al recargarse el documento y la cerraba sola)
+      const iv = setInterval(() => w.closed && (clearInterval(iv), gm && (gm.input.noPause = false), setHost(null)), 500);
+      w.addEventListener('keydown', (e) => !e.repeat && (e.code === 'F9' || e.code === 'Backquote') && !(e.target as HTMLElement | null)?.matches('input') && (e.preventDefault(), w.close()));
       addEventListener('pagehide', () => w.close());
       if (gm) gm.input.noPause = true;
       w.focus();
