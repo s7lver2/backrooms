@@ -1032,11 +1032,8 @@ export class World implements Terrain {
     };
     for (const [k, ms] of byKind) for (const im of instanced(assets.gltf[k as Exclude<PropKind, 'suitedoor' | 'bed' | 'sofa' | 'luggage' | 'bin' | 'mirror' | 'plant' | 'nightstand' | 'tlamp' | 'wardrobe' | 'wingchair' | 'bistro' | 'reception' | 'stairs' | 'steeldoor' | 'grandoor' | 'faceling' | 'trolley' | 'cart' | 'panel'>].scene, ms, fix(k))) (im.receiveShadow = true), (im.castShadow = k === 'cabinet' || k === 'shelf' || k === 'desk'), this.root.add(im);
 
-    // la puerta doble del vestíbulo (dos hojas de caoba con paneles y tiradores de latón, en un marco con dintel): cada celda lleva su hoja; se abren juntas
+    // la puerta doble del vestíbulo (models/suites/gdoor.glb, de tools/make_door.mjs: marco y dos hojas con su gozne en el origen) con el rótulo encima; cada celda manda en su hoja y se abren juntas
     if (grandoors.length) {
-      const wood = new THREE.MeshStandardMaterial({ color: 0x3d1d12, roughness: 0.42, metalness: 0.05 }), panel = new THREE.MeshStandardMaterial({ color: 0x55291a, roughness: 0.38 });
-      const brassD = new THREE.MeshStandardMaterial({ color: 0xc9a24a, metalness: 0.75, roughness: 0.3 }), trim = new THREE.MeshStandardMaterial({ color: 0xefe6d0, roughness: 0.5 });
-      [wood, panel, brassD, trim].forEach((m) => lightmapped(m));
       const sc = Object.assign(document.createElement('canvas'), { width: 256, height: 48 }), sx = sc.getContext('2d')!;
       sx.fillStyle = '#c9a24a';
       sx.fillRect(0, 0, 256, 48);
@@ -1047,45 +1044,34 @@ export class World implements Terrain {
       sx.fillText('LAS SUITES', 128, 26);
       const stx = new THREE.CanvasTexture(sc);
       stx.colorSpace = THREE.SRGBColorSpace;
-      const box = (g: THREE.Group, bw: number, bh: number, bd: number, x: number, y: number, z: number, m: THREE.Material) => {
-        const o = new THREE.Mesh(new THREE.BoxGeometry(bw, bh, bd), m);
-        o.position.set(x, y, z);
-        o.castShadow = o.receiveShadow = true;
+      const src = assets.gltf['suites/gdoor'].scene, g = new THREE.Group(), leaves: THREE.Object3D[] = [], top = Math.min(...grandoors.map((p) => p.cell.y));
+      g.position.set(center(grandoors[0].cell).x + CELL / 2, 0, (top + 1) * CELL); // el plano de la puerta: el borde de las celdas hacia el salón (+x); el hueco es de dos celdas
+      for (const n of ['frame', 'leafL', 'leafR']) {
+        const o = src.getObjectByName(n)!.clone();
+        o.traverse((m) => {
+          const me = m as THREE.Mesh;
+          if (!me.isMesh) return;
+          me.material = (me.material as THREE.MeshStandardMaterial).clone();
+          lightmapped(me.material as THREE.MeshStandardMaterial);
+          me.castShadow = me.receiveShadow = true;
+        });
         g.add(o);
-        return o;
-      };
-      grandoors.forEach((p, i) => {
-        const c = center(p.cell), left = i % 2 === 0, g = new THREE.Group(); // (el de la celda de arriba es la hoja izquierda mirando hacia el pasillo)
-        g.position.set(c.x + CELL / 2, 0, c.z); // el plano de la puerta: el borde de la celda hacia el salón (z local = hacia el salón)
-        g.rotation.y = Math.PI / 2;
-        // el marco: jambas y dintel de moldura clara a todo el ancho de la celda (la mitad del hueco) y encima el rótulo, solo en la primera
-        const outer = left ? 1 : -1, sideX = outer * (CELL / 2 - 0.06); // (local +x = norte)
-        box(g, 0.12, 2.5, 0.3, sideX, 1.25, -0.1, trim);
-        box(g, CELL, 0.3, 0.3, 0, 2.55, -0.1, trim);
-        // la hoja, con su gozne en la jamba exterior: tablero, dos paneles en relieve y un tirador de latón en el canto del centro
-        const piv = new THREE.Group(), lw = CELL - 0.16, dir = -outer; // la hoja se extiende hacia el centro del hueco
-        piv.position.set(sideX, 0, 0);
-        const leaf = new THREE.Group();
-        leaf.position.set(dir * (lw / 2 + 0.06), 0, 0);
-        box(leaf, lw, 2.4, 0.06, 0, 1.2, 0, wood);
-        for (const py of [0.85, 1.75]) box(leaf, lw - 0.36, py === 0.85 ? 1.15 : 0.8, 0.02, 0, py, 0.035, panel);
-        const handle = box(leaf, 0.05, 0.5, 0.05, dir * (lw / 2 - 0.12), 1.1, 0.07, brassD);
-        handle.castShadow = false;
-        piv.add(leaf);
-        g.add(piv);
-        if (left) {
-          const plate = new THREE.Mesh(new THREE.PlaneGeometry(1.1, 0.2), new THREE.MeshBasicMaterial({ map: stx }));
-          plate.position.set(-outer * CELL / 2, 2.55, 0.06);
-          g.add(plate);
-        }
-        this.root.add(g);
-        this.grandGroups.push(g);
+        if (n !== 'frame') leaves.push(o);
+      }
+      const plate = new THREE.Mesh(new THREE.PlaneGeometry(1.1, 0.2), new THREE.MeshBasicMaterial({ map: stx }));
+      plate.position.set(0.1, 2.5, 0);
+      plate.rotation.y = Math.PI / 2;
+      g.add(plate);
+      this.root.add(g);
+      this.grandGroups.push(g);
+      grandoors.forEach((p) => {
+        const c = center(p.cell), leaf = leaves[p.cell.y === top ? 0 : 1], dir = p.cell.y === top ? 1 : -1; // las hojas se abren hacia el salón (+x): la izquierda gira en positivo y la derecha en negativo
         this.sealWall = () => {
           const m = new THREE.Mesh(new THREE.BoxGeometry(CELL, HEIGHT, 2 * CELL), wallMat);
-          m.position.set((p.cell.x + 0.5) * CELL, HEIGHT / 2, (grandoors[0].cell.y + 1) * CELL);
+          m.position.set((p.cell.x + 0.5) * CELL, HEIGHT / 2, (top + 1) * CELL);
           this.root.add(m);
         };
-        this.doors.push({ x: c.x + CELL / 2, z: c.z, nx: 1, nz: 0, cell: p.cell.y * w + p.cell.x, cur: 0, tgt: 0, grand: true, swing: (k) => (piv.rotation.y = dir * 1.6 * k) });
+        this.doors.push({ x: c.x + CELL / 2, z: c.z, nx: 1, nz: 0, cell: p.cell.y * w + p.cell.x, cur: 0, tgt: 0, grand: true, swing: (k) => (leaf.rotation.y = dir * 1.6 * k) });
       });
     }
     // el vestíbulo es un edificio normal (techo plano), con una gran cúpula de cristal en el centro (sobre un hueco de 9 × 9 m) y, al otro lado, un cielo que no es de este mundo

@@ -129,6 +129,8 @@ Preparados para las puertas y la escalera (reducidos con tools/pack_glb.py). Tod
 
 Model Information:
 * title:	Heathmont Concrete Stairs - Handrail Setout v1 (stairs.glb: one floor module, simplified by tools/make_stairs.mjs)
+| `backrooms/suites/gdoor.glb` | [Double Door](https://sketchfab.com/ahmagh2e) (frame and two leaves split, stretched to the opening: `tools/make_door.mjs`) | adventurer | CC-BY-4.0 |
+| `backrooms/suites/gdoor.glb` | [Double Door](https://sketchfab.com/ahmagh2e) (marco y dos hojas separados, estirado al hueco: `tools/make_door.mjs`) | adventurer | CC-BY-4.0 |
 * source:	https://sketchfab.com/3d-models/heathmont-concrete-stairs-handrail-setout-v1-139a8214eedb416a8eac5872841d8de3
 * author:	Darren Falconer (https://sketchfab.com/dfalconer84)
 
