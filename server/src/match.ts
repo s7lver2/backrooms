@@ -333,6 +333,15 @@ export class Match {
   clearEnts() {
     this.ents = [];
   }
+  /** Admin: el plano de la sala (celdas abiertas, 1 = suelo) para el minimapa. */
+  adminMap() {
+    const m = this.emaze ?? this.maze;
+    return { w: m.w, h: m.h, open: Array.from(m.open, (v) => (v ? '1' : '0')).join('') };
+  }
+  /** Admin: dónde está cada entidad y qué hace. */
+  adminEnts() {
+    return this.ents.map((e) => ({ k: e.sim.kind, x: Math.round(e.sim.x * 10) / 10, z: Math.round(e.sim.z * 10) / 10, s: e.sim.state }));
+  }
   get entCount() {
     return this.ents.length;
   }

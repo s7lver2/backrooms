@@ -18,7 +18,7 @@ export function parseAdmin(x: unknown): AdminAction | null {
     }
     case 'run': case 'kill': case 'revive': case 'heal': case 'kick':
       return { a: o.a, t };
-    case 'lobby': case 'mission': case 'tvs': case 'info':
+    case 'lobby': case 'mission': case 'tvs': case 'info': case 'map': case 'logs':
       return { a: o.a };
     case 'god': case 'ammo':
       return typeof o.on === 'boolean' ? { a: o.a, t, on: o.on } : null;

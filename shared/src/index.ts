@@ -281,7 +281,9 @@ export type AdminAction =
   | { a: 'end'; ok: boolean }
   | { a: 'tvs' }
   | { a: 'ent'; op: 'spawn' | 'clear' | 'freeze' | 'thaw'; kind?: Kind; near?: string }
-  | { a: 'info' };
+  | { a: 'info' }
+  | { a: 'map' }
+  | { a: 'logs' };
 export interface AdminInfo {
   seed: number;
   levelId: string;
@@ -292,9 +294,20 @@ export interface AdminInfo {
   mission: string;
   ents: number;
   frozen: boolean;
-  players: { id: string; name: string; hp: number; dead: boolean; god: boolean; ammo?: boolean }[];
+  players: { id: string; name: string; hp: number; dead: boolean; god: boolean; ammo?: boolean; x: number; z: number; yaw: number }[];
+  /** Entidades vivas con su sitio (m) y su estado. */
+  ents2: { k: string; x: number; z: number; s: string }[];
+  /** Rondas de esta sala: nivel y semilla de cada una. */
+  hist: { round: number; level: string; seed: number; floor: number; at: number }[];
+  /** La semilla de la ronda que viene. */
+  seedNext: number;
 }
-export type AdminReply = { ok: boolean; error?: string; info?: AdminInfo };
+export interface AdminMap {
+  w: number;
+  h: number;
+  open: string;
+}
+export type AdminReply = { ok: boolean; error?: string; info?: AdminInfo; map?: AdminMap; logs?: string[] };
 /** Efectos de admin que el servidor manda a un cliente (el resto de la consola usa los canales de siempre: room, dead, revived, inv...). */
 export type AdminFx = { k: 'tp'; x: number; y: number; z: number; yaw: number } | { k: 'give'; item: ItemId } | { k: 'heal' } | { k: 'ammo'; on: boolean } | { k: 'take'; item: ItemId } | { k: 'push'; x: number; z: number };
 /** Las Suites: usar pokeball, granada, bate o nokia. `yaw` y `pitch`, hacia donde mira; `to`, a quién llama (nokia; sin él, cuelga). */

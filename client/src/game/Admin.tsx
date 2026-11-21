@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import { createPortal } from 'react-dom';
-import { ACHIEVEMENTS, ENTITIES, ITEMS, ITEM_IDS, LEVELS, RARITIES, UPGRADES, UP_IDS, upLevel, type AdminAction, type AdminInfo, type ItemId, type Kind, type RoomView } from '@backrooms/shared';
+import { ACHIEVEMENTS, CELL, ENTITIES, ITEMS, ITEM_IDS, LEVELS, RARITIES, UPGRADES, UP_IDS, upLevel, type AdminAction, type AdminInfo, type AdminMap, type ItemId, type Kind, type RoomView } from '@backrooms/shared';
 import type { BackroomsGame } from './game';
 import type { Sock } from '../net';
 import { netStats } from '../net';
@@ -26,7 +26,19 @@ const getHost = () => HOST;
 const name = (k: string) => k.replace(/([a-z])([A-Z])/g, '$1 $2').toUpperCase();
 const GIVE: { id: ItemId | 'loot'; name: string }[] = [...ITEM_IDS.map((id) => ({ id, name: ITEMS[id].name })), { id: 'loot', name: 'ARTIFACT (LOOT)' }];
 const NL = '\n';
-const TABS = ['OVERVIEW', 'PLAYER', 'WORLD', 'ENTITIES', 'ITEMS', 'ECONOMY', 'DEBUG'] as const;
+const TABS = ['OVERVIEW', 'MAP', 'PLAYER', 'WORLD', 'ENTITIES', 'ITEMS', 'ECONOMY', 'HISTORY', 'LOGS', 'DEBUG'] as const;
+const ICON: Record<(typeof TABS)[number], string> = {
+  OVERVIEW: 'M4 4h7v7H4zM13 4h7v7h-7zM4 13h7v7H4zM13 13h7v7h-7z',
+  MAP: 'M3 6l6-2 6 2 6-2v14l-6 2-6-2-6 2zM9 4v14M15 6v14',
+  PLAYER: 'M12 12a4 4 0 100-8 4 4 0 000 8zM4 21a8 8 0 0116 0',
+  WORLD: 'M12 21a9 9 0 100-18 9 9 0 000 18zM3 12h18M12 3c3 3 3 15 0 18M12 3c-3 3-3 15 0 18',
+  ENTITIES: 'M12 3l9 16H3zM12 10v4M12 17v.5',
+  ITEMS: 'M4 8l8-4 8 4v8l-8 4-8-4zM4 8l8 4 8-4M12 12v8',
+  ECONOMY: 'M12 3v18M16 7.5c0-1.7-1.8-3-4-3s-4 1.3-4 3 1.8 3 4 3 4 1.3 4 3-1.8 3-4 3-4-1.3-4-3',
+  HISTORY: 'M3 12a9 9 0 109-9 9 9 0 00-6.4 2.6L3 8M3 3v5h5M12 7v5l3 2',
+  LOGS: 'M4 5h16M4 10h16M4 15h10M4 20h7',
+  DEBUG: 'M9 9h6v6H9zM9 3v3M15 3v3M9 18v3M15 18v3M3 9h3M3 15h3M18 9h3M18 15h3',
+};
 type Tab = (typeof TABS)[number];
 
 interface Props {
@@ -88,6 +100,10 @@ export default function AdminConsole({ game, sock, room, me, onVictory }: Props)
   const [money, setMoney] = useState('1000');
   const [log, setLog] = useState<{ at: string; m: string; ok: boolean }[]>([]);
   const [shot, setShot] = useState('');
+  const [map, setMap] = useState<{ key: string; m: AdminMap } | null>(null);
+  const [slog, setSlog] = useState<string[]>([]);
+  const [lsrc, setLsrc] = useState<'SERVER' | 'GAME'>('SERVER');
+  const [lq, setLq] = useState('');
   useSyncExternalStore(dlogSubscribe, dlogVersion);
   useSyncExternalStore(errSubscribe, errVersion);
   const inRoom = !!sock && !!room;
@@ -182,17 +198,23 @@ export default function AdminConsole({ game, sock, room, me, onVictory }: Props)
     [sock, note],
   );
 
-  // información de la partida: en la sala la da el servidor; solo, el cliente
+  // información de la partida: en la sala la da el servidor; solo, el cliente. El plano se pide una vez por ronda y el registro de la sala solo en su pestaña
   useEffect(() => {
-    if (!host || (tab !== 'OVERVIEW' && tab !== 'DEBUG')) return;
+    if (!host || !['OVERVIEW', 'MAP', 'HISTORY', 'DEBUG', 'WORLD', 'LOGS'].includes(tab)) return;
     const ask = () => {
       if (!inRoom) return setSolo(game.current?.adminInfo() ?? null);
       sock!.emit('admin', { a: 'info' }, (r) => r.ok && r.info && setInfo(r.info));
+      if (tab === 'LOGS' && lsrc === 'SERVER') sock!.emit('admin', { a: 'logs' }, (r) => r.ok && r.logs && setSlog(r.logs));
     };
     ask();
-    const id = setInterval(ask, 1000);
+    const id = setInterval(ask, tab === 'MAP' ? 500 : 1000);
     return () => clearInterval(id);
-  }, [host, tab, inRoom, sock, game]);
+  }, [host, tab, inRoom, sock, game, lsrc]);
+  const mapKey = info ? `${info.levelId}:${info.seed}` : '';
+  useEffect(() => {
+    if (!host || !inRoom || !mapKey || map?.key === mapKey || (tab !== 'MAP' && tab !== 'OVERVIEW')) return;
+    sock!.emit('admin', { a: 'map' }, (r) => r.ok && r.map && setMap({ key: mapKey, m: r.map }));
+  }, [host, inRoom, mapKey, map?.key, tab, sock]);
 
   const one = t !== 'me' && t !== 'all';
   const mine = t === 'me' || !inRoom;
@@ -294,18 +316,36 @@ export default function AdminConsole({ game, sock, room, me, onVictory }: Props)
   if (!host) return null;
 
   const hits = q.trim() ? cmds.filter((x) => `${x.group} ${x.sub} ${x.label}`.toLowerCase().includes(q.trim().toLowerCase())) : null;
-  const players = inRoom ? (info?.players ?? room!.players.map((p) => ({ id: p.id, name: p.name, hp: NaN, dead: false, god: false }))) : [];
+  const players = inRoom ? (info?.players ?? room!.players.map((p) => ({ id: p.id, name: p.name, hp: NaN, dead: false, god: false, x: 0, z: 0, yaw: 0 }))) : [];
+  const lvName = (id: string) => LEVELS[id]?.name ?? id;
+  const ago = (at: number) => {
+    const d = Math.max(0, Math.round((Date.now() - at) / 1000));
+    return d < 90 ? `${d}s ago` : d < 5400 ? `${Math.round(d / 60)} min ago` : `${(d / 3600).toFixed(1)} h ago`;
+  };
+  const copy = (v: string) => void copyText(v).then(() => note(`COPIED ${v}`));
 
   const panel = (
     <div className="adm">
       <header className="top">
         <div className="brand">
-          <i /> ADMIN
+          <i /> <b>ADMIN</b>
+          <small>CONTROL ROOM</small>
         </div>
-        <input className="search" type="text" placeholder="Search every action…  (heal, spawn, seed, give…)" value={q} onChange={(e) => setQ(e.target.value)} spellCheck={false} autoFocus />
-        <div className="meta">
-          {inRoom ? `ROOM ${room!.code} · ${room!.levelId.toUpperCase()} · ${room!.phase.toUpperCase()}` : 'SOLO'} · PING {netStats.rtt}ms
+        <div className="pills">
+          {inRoom ? (
+            <>
+              <span className="pill" data-phase={room!.phase}>{room!.phase.toUpperCase()}</span>
+              <span className="pill">{lvName(room!.levelId).toUpperCase()}</span>
+              <button type="button" className="pill pill--btn" title="Copy seed" onClick={() => info && copy(String(info.seed))}>SEED {info?.seed ?? '…'}</button>
+              <span className="pill">ROUND {room!.round}</span>
+              <span className="pill">ROOM {room!.code}</span>
+            </>
+          ) : (
+            <span className="pill">SOLO</span>
+          )}
+          <span className="pill" data-ping={netStats.rtt > 150 ? 'bad' : netStats.rtt > 80 ? 'mid' : 'ok'}>{netStats.rtt} ms</span>
         </div>
+        <input className="search" type="text" placeholder="Search every action…  heal · spawn · seed · give" value={q} onChange={(e) => setQ(e.target.value)} spellCheck={false} autoFocus />
         {host.win ? null : (
           <button type="button" className="b" onClick={close}>
             CLOSE
@@ -338,13 +378,14 @@ export default function AdminConsole({ game, sock, room, me, onVictory }: Props)
         <nav className="side">
           {TABS.map((x) => (
             <button key={x} type="button" data-on={(!hits && tab === x) || undefined} onClick={() => (setQ(''), setTab(x))}>
-              {x}
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d={ICON[x]} /></svg>
+              <span>{x}</span>
               {x === 'DEBUG' && nErr > 0 && <b>{nErr}</b>}
             </button>
           ))}
         </nav>
 
-        <main className="main">
+        <main className="main" key={hits ? "q" : tab}>
           {hits ? (
             <Card title={`RESULTS · ${hits.length}`}>
               <div className="row">{hits.map((x) => <Btn key={x.group + x.label} c={{ ...x, label: `${x.label}` }} />)}</div>
@@ -354,6 +395,14 @@ export default function AdminConsole({ game, sock, room, me, onVictory }: Props)
             <>
               {tab === 'OVERVIEW' && (
                 <>
+                  {inRoom && info && (
+                    <div className="tiles">
+                      <div className="tile"><em>PLAYERS</em><b>{info.players.filter((p) => !p.dead).length}<small> / {info.players.length}</small></b><i style={{ width: `${(info.players.filter((p) => !p.dead).length / Math.max(1, info.players.length)) * 100}%` }} /></div>
+                      <div className="tile"><em>ENTITIES</em><b>{info.ents}{info.frozen && <small> frozen</small>}</b></div>
+                      <div className="tile"><em>TIME</em><b>{Math.floor(info.elapsed / 60)}:{String(info.elapsed % 60).padStart(2, '0')}</b></div>
+                      <div className="tile"><em>BANK</em><b>${info.bank}</b></div>
+                    </div>
+                  )}
                   <Card title="STATUS">
                     {inRoom && info ? (
                       <dl className="kv">
@@ -493,6 +542,93 @@ export default function AdminConsole({ game, sock, room, me, onVictory }: Props)
                 </>
               )}
 
+              {tab === 'MAP' && (
+                <Card title="ROOM MAP" aside={map ? `${map.m.w}×${map.m.h} cells` : undefined}>
+                  {inRoom && info ? (
+                    <>
+                      <MapView map={map?.m ?? null} players={info.players} ents={info.ents2} me={me} target={t} onPick={setT} />
+                      <div className="legend">
+                        <span><i className="d me" /> YOU</span>
+                        <span><i className="d pl" /> PLAYER</span>
+                        <span><i className="d en" /> ENTITY</span>
+                        <span><i className="d dead" /> DEAD</span>
+                        <span className="dim">wheel: zoom · drag: pan · double click: fit · click a player: target</span>
+                      </div>
+                    </>
+                  ) : (
+                    <p className="dim">The room map is available in a room.</p>
+                  )}
+                </Card>
+              )}
+              {tab === 'MAP' && inRoom && info && (
+                <Card title={`ENTITIES · ${info.ents2.length}`}>
+                  {info.ents2.length ? (
+                    <table className="pl">
+                      <tbody>
+                        {info.ents2.slice(0, 40).map((e, i) => (
+                          <tr key={i}><td className="nm">{name(e.k)}</td><td className="st">{e.s}</td><td className="ac">{e.x.toFixed(0)}, {e.z.toFixed(0)}</td></tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  ) : (
+                    <p className="dim">No entities alive.</p>
+                  )}
+                </Card>
+              )}
+
+              {tab === 'HISTORY' && (
+                <Card title="LEVEL HISTORY" aside={info ? `NEXT SEED ${info.seedNext}` : undefined}>
+                  {inRoom && info ? (
+                    info.hist.length ? (
+                      <table className="hist">
+                        <thead><tr><th>#</th><th>LEVEL</th><th>FLOOR</th><th>SEED</th><th>STARTED</th><th /></tr></thead>
+                        <tbody>
+                          {[...info.hist].reverse().map((h, i) => (
+                            <tr key={h.at} data-now={(i === 0 && info.phase !== 'lobby') || undefined}>
+                              <td>{h.round}</td>
+                              <td>{lvName(h.level)}</td>
+                              <td>{h.level === 'suites' ? h.floor : '—'}</td>
+                              <td className="mono">{h.seed}</td>
+                              <td className="dim">{ago(h.at)}</td>
+                              <td className="ac">
+                                <button type="button" onClick={() => copy(String(h.seed))}>COPY</button>
+                                <button type="button" onClick={() => (setSeed(String(h.seed)), setTab('WORLD'))}>USE SEED</button>
+                                <button type="button" data-danger onClick={() => send({ a: 'level', id: h.level, seed: h.seed })}>REPLAY</button>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    ) : (
+                      <p className="dim">No rounds played in this room yet.</p>
+                    )
+                  ) : (
+                    <p className="dim">The history is kept per room.</p>
+                  )}
+                </Card>
+              )}
+
+              {tab === 'LOGS' && (
+                <Card
+                  title="LOGS"
+                  aside={
+                    <span className="seg">
+                      {(['SERVER', 'GAME'] as const).map((k) => (
+                        <button key={k} type="button" data-on={lsrc === k || undefined} onClick={() => setLsrc(k)}>{k === 'SERVER' ? 'ROOM' : 'THIS CLIENT'}</button>
+                      ))}
+                    </span>
+                  }
+                >
+                  <div className="row">
+                    <input className="field" type="text" placeholder="Filter…" value={lq} onChange={(e) => setLq(e.target.value)} spellCheck={false} />
+                    <button type="button" className="b" onClick={() => copy((lsrc === 'SERVER' ? slog : dlogLines()).join(NL))}>COPY ALL</button>
+                    {lsrc === 'GAME' && <button type="button" className="b" onClick={dlogClear}>CLEAR</button>}
+                  </div>
+                  <LogView lines={(lsrc === 'SERVER' ? slog : dlogLines()).filter((l) => !lq.trim() || l.toLowerCase().includes(lq.trim().toLowerCase()))} />
+                  {lsrc === 'SERVER' && !inRoom && <p className="dim">The room log needs a room.</p>}
+                </Card>
+              )}
+
               {tab === 'DEBUG' && (
                 <>
                   <Card title="CAPTURE">
@@ -534,4 +670,176 @@ export default function AdminConsole({ game, sock, room, me, onVictory }: Props)
   );
 
   return createPortal(panel, host.el);
+}
+
+
+/** El registro: líneas de monoespaciada, coloreadas por lo que dicen, que se queda abajo mientras llegan líneas nuevas. */
+function LogView({ lines }: { lines: string[] }) {
+  const el = useRef<HTMLDivElement>(null);
+  const stick = useRef(true);
+  useEffect(() => {
+    const e = el.current;
+    if (e && stick.current) e.scrollTop = e.scrollHeight;
+  }, [lines]);
+  const kind = (l: string) => (/denied|error|fail|dead|died|refused|forbidden/i.test(l) ? 'bad' : /complete|round start|restored|victory|boarded/i.test(l) ? 'good' : /admin|kick|level|seed/i.test(l) ? 'acc' : undefined);
+  return (
+    <div className="logv" ref={el} onScroll={(e) => (stick.current = e.currentTarget.scrollTop + e.currentTarget.clientHeight >= e.currentTarget.scrollHeight - 24)}>
+      {lines.length ? lines.map((l, i) => <div key={i} data-k={kind(l)}>{l}</div>) : <div className="dim">(empty)</div>}
+    </div>
+  );
+}
+
+const COLORS = ['#4cc9f0', '#f72585', '#b8f35b', '#ffb703', '#a78bfa', '#2ec4b6', '#ff7b54', '#e0e0e0'];
+/** El plano de la sala en vivo: celdas abiertas, jugadores (con hacia dónde miran) y entidades. Rueda: zoom; arrastrar: mover; doble clic: encajar; clic en un jugador: lo elige como objetivo. */
+function MapView({ map, players, ents, me, target, onPick }: { map: AdminMap | null; players: AdminInfo['players']; ents: AdminInfo['ents2']; me: string; target: string; onPick: (id: string) => void }) {
+  const cv = useRef<HTMLCanvasElement>(null);
+  const data = useRef({ map, players, ents, me, target });
+  data.current = { map, players, ents, me, target };
+  const view = useRef({ s: 8, ox: 0, oy: 0, fit: true });
+  const base = useRef<{ key: string; c: HTMLCanvasElement } | null>(null);
+  const hover = useRef<{ x: number; y: number } | null>(null);
+  const hit = useRef<{ x: number; y: number; r: number; id?: string; text: string }[]>([]);
+
+  useEffect(() => {
+    const c = cv.current;
+    const win = c?.ownerDocument.defaultView;
+    if (!c || !win) return;
+    const ctx = c.getContext('2d')!;
+    let raf = 0;
+    const loop = (t: number) => {
+      raf = win.requestAnimationFrame(loop);
+      const d = data.current, dpr = win.devicePixelRatio || 1, W = c.clientWidth, H = c.clientHeight;
+      if (c.width !== Math.round(W * dpr) || c.height !== Math.round(H * dpr)) (c.width = Math.round(W * dpr)), (c.height = Math.round(H * dpr));
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      ctx.clearRect(0, 0, W, H);
+      const v = view.current, mw = d.map?.w ?? 0, mh = d.map?.h ?? 0;
+      if (v.fit && mw) {
+        v.s = Math.max(2, Math.min(W / mw, H / mh) * 0.96);
+        v.ox = (W / v.s - mw) / 2;
+        v.oy = (H / v.s - mh) / 2;
+      }
+      const sx = (x: number) => (x / CELL + v.ox) * v.s, sy = (z: number) => (z / CELL + v.oy) * v.s;
+      // el plano: una imagen de 1 px por celda, escalada sin suavizar
+      if (d.map) {
+        const key = `${d.map.w}x${d.map.h}:${d.map.open.length}:${d.map.open.slice(0, 64)}`;
+        if (base.current?.key !== key) {
+          const o = c.ownerDocument.createElement('canvas');
+          o.width = mw, o.height = mh;
+          const ox = o.getContext('2d')!, img = ox.createImageData(mw, mh);
+          for (let i = 0; i < mw * mh; i++) {
+            const on = d.map.open.charCodeAt(i) === 49;
+            img.data.set(on ? [34, 46, 60, 255] : [0, 0, 0, 0], i * 4);
+          }
+          ox.putImageData(img, 0, 0);
+          base.current = { key, c: o };
+        }
+        ctx.imageSmoothingEnabled = false;
+        ctx.drawImage(base.current.c, (v.ox) * v.s, (v.oy) * v.s, mw * v.s, mh * v.s);
+        if (v.s >= 9) {
+          ctx.strokeStyle = 'rgba(255,255,255,0.045)';
+          ctx.lineWidth = 1;
+          ctx.beginPath();
+          for (let i = 0; i <= mw; i++) (ctx.moveTo((i + v.ox) * v.s, v.oy * v.s), ctx.lineTo((i + v.ox) * v.s, (mh + v.oy) * v.s));
+          for (let j = 0; j <= mh; j++) (ctx.moveTo(v.ox * v.s, (j + v.oy) * v.s), ctx.lineTo((mw + v.ox) * v.s, (j + v.oy) * v.s));
+          ctx.stroke();
+        }
+      }
+      hit.current = [];
+      const pulse = 0.5 + 0.5 * Math.sin(t / 380);
+      // entidades: rombos rojos
+      for (const e of d.ents) {
+        const x = sx(e.x), y = sy(e.z), r = Math.max(4, v.s * 0.32);
+        ctx.fillStyle = e.s === 'chase' || e.s === 'hunt' ? '#ff3b30' : '#c2362f';
+        ctx.beginPath();
+        ctx.moveTo(x, y - r); ctx.lineTo(x + r, y); ctx.lineTo(x, y + r); ctx.lineTo(x - r, y);
+        ctx.closePath();
+        ctx.fill();
+        hit.current.push({ x, y, r: r + 3, text: `${e.k} · ${e.s}` });
+      }
+      // jugadores: punto con su color, la mirada y el nombre
+      d.players.forEach((p, i) => {
+        const x = sx(p.x), y = sy(p.z), r = Math.max(5, v.s * 0.36), col = COLORS[i % COLORS.length], isT = d.target === p.id || (d.target === 'me' && p.id === d.me) || d.target === 'all';
+        if (isT) {
+          ctx.strokeStyle = col;
+          ctx.globalAlpha = 0.35 + 0.45 * pulse;
+          ctx.lineWidth = 2;
+          ctx.beginPath(); ctx.arc(x, y, r + 5 + pulse * 4, 0, 6.283); ctx.stroke();
+          ctx.globalAlpha = 1;
+        }
+        if (p.dead) {
+          ctx.strokeStyle = '#7c857a'; ctx.lineWidth = 2;
+          ctx.beginPath(); ctx.moveTo(x - r, y - r); ctx.lineTo(x + r, y + r); ctx.moveTo(x + r, y - r); ctx.lineTo(x - r, y + r); ctx.stroke();
+        } else {
+          const fx = -Math.sin(p.yaw), fz = -Math.cos(p.yaw);
+          ctx.strokeStyle = col; ctx.lineWidth = 2;
+          ctx.beginPath(); ctx.moveTo(x, y); ctx.lineTo(x + fx * (r + 7), y + fz * (r + 7)); ctx.stroke();
+          ctx.fillStyle = col;
+          ctx.beginPath(); ctx.arc(x, y, r, 0, 6.283); ctx.fill();
+          if (p.id === d.me) { ctx.strokeStyle = '#fff'; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(x, y, r + 1.5, 0, 6.283); ctx.stroke(); }
+        }
+        ctx.font = '11px ui-monospace, Consolas, monospace';
+        ctx.fillStyle = 'rgba(232,236,240,0.92)';
+        ctx.fillText(p.name.slice(0, 14), x + r + 6, y + 4);
+        hit.current.push({ x, y, r: r + 6, id: p.id, text: `${p.name}${p.dead ? ' · dead' : ` · ${Math.round(p.hp)} hp`}` });
+      });
+      // el cursor: ficha con lo que hay bajo él
+      const h = hover.current;
+      if (h) {
+        const near = hit.current.find((q) => Math.hypot(q.x - h.x, q.y - h.y) <= q.r);
+        if (near) {
+          ctx.font = '12px ui-monospace, Consolas, monospace';
+          const w = ctx.measureText(near.text).width + 14;
+          ctx.fillStyle = 'rgba(8,11,16,0.94)'; ctx.strokeStyle = 'rgba(255,255,255,0.18)';
+          ctx.beginPath(); ctx.rect(Math.min(W - w - 4, h.x + 12), Math.min(H - 28, h.y + 12), w, 22); ctx.fill(); ctx.stroke();
+          ctx.fillStyle = '#e8ecf0';
+          ctx.fillText(near.text, Math.min(W - w - 4, h.x + 12) + 7, Math.min(H - 28, h.y + 12) + 15);
+          c.style.cursor = near.id ? 'pointer' : 'default';
+        } else c.style.cursor = 'grab';
+      }
+    };
+    raf = win.requestAnimationFrame(loop);
+    return () => win.cancelAnimationFrame(raf);
+  }, []);
+
+  const pos = (e: React.PointerEvent | React.WheelEvent) => {
+    const r = cv.current!.getBoundingClientRect();
+    return { x: e.clientX - r.left, y: e.clientY - r.top };
+  };
+  const drag = useRef<{ x: number; y: number; moved: boolean } | null>(null);
+  return (
+    <div className="map">
+      <canvas
+        ref={cv}
+        onPointerDown={(e) => ((drag.current = { ...pos(e), moved: false }), e.currentTarget.setPointerCapture(e.pointerId))}
+        onPointerMove={(e) => {
+          const p = pos(e), v = view.current, d = drag.current;
+          hover.current = p;
+          if (d && Math.hypot(p.x - d.x, p.y - d.y) > 3) {
+            d.moved = true;
+            v.fit = false;
+            v.ox += (p.x - d.x) / v.s;
+            v.oy += (p.y - d.y) / v.s;
+            d.x = p.x;
+            d.y = p.y;
+          }
+        }}
+        onPointerUp={(e) => {
+          const d = drag.current, p = pos(e);
+          drag.current = null;
+          if (d && !d.moved) hit.current.find((q) => q.id && Math.hypot(q.x - p.x, q.y - p.y) <= q.r) && onPick(hit.current.find((q) => q.id && Math.hypot(q.x - p.x, q.y - p.y) <= q.r)!.id!);
+        }}
+        onPointerLeave={() => (hover.current = null)}
+        onDoubleClick={() => (view.current.fit = true)}
+        onWheel={(e) => {
+          const v = view.current, p = pos(e), k = e.deltaY < 0 ? 1.15 : 1 / 1.15, ns = Math.max(2, Math.min(60, v.s * k));
+          v.fit = false;
+          v.ox = p.x / ns - (p.x / v.s - v.ox);
+          v.oy = p.y / ns - (p.y / v.s - v.oy);
+          v.s = ns;
+        }}
+      />
+      <div className="radar" aria-hidden="true" />
+      {!map && <p className="map__wait">Loading the plan…</p>}
+    </div>
+  );
 }

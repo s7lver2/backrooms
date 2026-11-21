@@ -64,6 +64,9 @@ interface RoomState extends Omit<Room, 'floor' | 'caps' | 'offers' | 'leading' |
   /** Taquillas abiertas esta ronda: su contenido y qué piezas se han cogido. */
   lockers: Map<string, { items: LockerItem[]; taken: boolean[] }>;
   match?: Match;
+  /** Admin: historial de rondas (nivel, semilla) y registro de la sala. */
+  hist?: { round: number; level: string; seed: number; floor: number; at: number }[];
+  logs?: string[];
   /** Las Suites: en las plantas 2-5 (salas aparte, una por planta), la sala del edificio de la que cuelgan; en la sala madre (planta 1), nada. */
   bld?: RoomState;
   startedAt?: number;
@@ -415,7 +418,11 @@ const SUITE_BONUS = 600;
 
 /** La misión actual se cumple: su pago se suma, la salida se abre. */
 /** Una línea del registro de la sala: la ven todos los jugadores (popup de registro del cliente, tecla F8). */
-const rlog = (r: RoomState, msg: string) => io.to(r.code).emit('rlog', msg);
+const rlog = (r: RoomState, msg: string) => {
+  (r.logs ??= []).push(`${new Date().toISOString().slice(11, 19)} ${msg}`);
+  if (r.logs.length > 300) r.logs.splice(0, r.logs.length - 300);
+  io.to(r.code).emit('rlog', msg);
+};
 function complete(r: RoomState) {
   rlog(r, `mission complete: ${r.chosen?.text ?? '?'}`);
   r.cur = r.done = true;
@@ -465,6 +472,7 @@ function creditEscape(r: RoomState) {
 function begin(r: RoomState) {
   rlog(r, `round start: seed ${r.nextSeed} level ${r.levelId} round ${r.round} players ${r.players.size}`);
   r.seed = r.nextSeed;
+  ((r.hist ??= []).push({ round: r.round, level: r.levelId, seed: r.seed, floor: r.floor, at: Date.now() }), r.hist.length > 40 && r.hist.shift());
   r.chosen = undefined;
   r.voteEnd = undefined;
   r.votes.clear();
@@ -799,11 +807,16 @@ io.on('connection', (sock) => {
       io.to(r.code).emit('dead', p.id);
     };
     switch (a.a) {
+      case 'map':
+        return reply({ ok: true, map: m?.adminMap() });
+      case 'logs':
+        return reply({ ok: true, logs: (r.logs ?? []).slice(-200) });
       case 'info': {
         const info: AdminInfo = {
           seed: r.seed || r.nextSeed, levelId: r.levelId, round: r.round, phase: r.phase, elapsed: Math.round(m?.elapsed ?? 0), bank: r.bank, mission: r.chosen ? `${r.chosen.text} ${m?.progress ?? 0}/${r.chosen.goal}${r.done ? ' DONE' : ''}` : '-',
           ents: m?.entCount ?? 0, frozen: !!m?.frozen,
-          players: [...r.players.values()].map((p) => ({ id: p.id, name: p.name, hp: p.hp, dead: p.dead, god: (p.immuneUntil ?? 0) > Date.now() + 3600_000, ammo: !!p.infAmmo })),
+          players: [...r.players.values()].map((p) => ({ id: p.id, name: p.name, hp: p.hp, dead: p.dead, god: (p.immuneUntil ?? 0) > Date.now() + 3600_000, ammo: !!p.infAmmo, x: p.st.x, z: p.st.z, yaw: p.st.yaw })),
+          ents2: m?.adminEnts() ?? [], hist: (r.hist ?? []).slice(-30), seedNext: r.nextSeed,
         };
         return reply({ ok: true, info });
       }
