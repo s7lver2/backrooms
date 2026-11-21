@@ -258,10 +258,10 @@ export class Remote {
 
   /** La cabeza se esconde mientras se mira por sus ojos. */
   private fpv = false;
-  setFirstPerson(on: boolean) {
+  setFirstPerson(on: boolean, hands = false) {
     this.fpv = on;
     this.bones.Head?.scale.setScalar(on ? 0.001 : 1);
-    this.rig.root.visible = !on || this.dead; // por sus ojos no se ve su cuerpo por dentro (cuello, hombros); lo que lleva en las manos cuelga de otro sitio y sí se ve
+    this.rig.root.visible = !on || hands || this.dead; // (con `hands`, el cuerpo sin cabeza: se ven sus brazos y como usa lo que lleva) // por sus ojos no se ve su cuerpo por dentro (cuello, hombros); lo que lleva en las manos cuelga de otro sitio y sí se ve
   }
 
   update(dt: number) {

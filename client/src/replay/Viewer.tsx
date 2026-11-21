@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { HP_MAX, type Inventory } from '@backrooms/shared';
+import { HP_MAX, RARITIES, rarity, type Inventory } from '@backrooms/shared';
 import Frame from '../game/Frame';
 import type { BackroomsGame as Game } from '../game/game';
 import { REPLAY_BUILD, REPLAY_FORMAT, type ReplayMeta } from './format';
@@ -215,12 +215,55 @@ function Bar({ v, c, label }: { v: number; c?: string; label?: string }) {
   );
 }
 
+const ROWS: [keyof Inventory, string, 'n' | 'b'][] = [
+  ['spares', 'SPARE FLASHLIGHTS', 'n'], ['camera', 'CAMCORDER', 'b'], ['gun', 'RIFLE', 'b'], ['ammo', 'AMMO', 'n'], ['water', 'ALMOND WATER', 'n'], ['totem', 'LIFE TOTEMS', 'n'],
+  ['radar', 'RADAR', 'b'], ['tank', 'DIVING TANK', 'b'], ['watergun', 'WATER GUN', 'b'], ['caution', 'CAUTION TAPE', 'b'], ['uno', 'UNO REVERSE', 'b'], ['monster', 'MONSTER', 'n'],
+  ['pokeball', 'POKEBALL', 'b'], ['nokia', 'NOKIA', 'b'], ['bat', 'BAT', 'b'], ['grenade', 'SMOKE GRENADES', 'n'], ['glasses', 'X-RAY GLASSES', 'b'], ['pills', 'PILLS', 'n'], ['steelcard', 'STEEL CARD', 'b'], ['beer', 'BEER', 'n'],
+];
+
+/** Todo lo que lleva quien se mira en este instante (lo que recibio del servidor): objetos con su rareza y desgaste, y el botin. */
+function InventoryPanel({ name, color, inv, held, onClose }: { name: string; color: string; inv?: Inventory; held: string; onClose: () => void }) {
+  const have = inv ? ROWS.filter(([k, , t]) => (t === 'b' ? !!inv[k] : Number(inv[k]) > 0)) : [];
+  const q = (k: keyof Inventory) => {
+    const id = ({ spares: 'flashlight', ammo: 'ammo' } as Record<string, string>)[k] ?? k;
+    const v = (inv?.q as Record<string, { r: number; w: number } | undefined> | undefined)?.[id];
+    return v ? { name: rarity(v.r).name, color: `#${RARITIES[Math.max(0, Math.min(RARITIES.length - 1, v.r))].color.toString(16).padStart(6, '0')}`, wear: Math.round(v.w * 100) } : null;
+  };
+  return (
+    <div className="rp-invp" style={{ ['--c' as string]: color }}>
+      <div className="rp-invp__h"><b>{name} · INVENTORY</b><button type="button" onClick={onClose} aria-label="Close">✕</button></div>
+      <div className="rp-dim">IN HAND · {HELD[held] ?? '—'}</div>
+      {!inv && <p className="rp-dim">NOTHING RECORDED YET FOR THIS PLAYER AT THIS MOMENT.</p>}
+      {inv && have.length === 0 && !inv.loot?.length && <p className="rp-dim">CARRYING NOTHING.</p>}
+      <ul>
+        {have.map(([k, label, t]) => {
+          const x = q(k);
+          return (
+            <li key={k}>
+              <span>{label}</span>
+              {x && <em style={{ color: x.color }}>{x.name}{x.wear ? ` · ${x.wear}% WORN` : ''}</em>}
+              <b>{t === 'n' ? `×${String(inv?.[k])}` : '✓'}</b>
+            </li>
+          );
+        })}
+      </ul>
+      {!!inv?.loot?.length && (
+        <>
+          <div className="rp-invp__s">LOOT · {inv.loot.length}</div>
+          <div className="rp-inv">{inv.loot.map((l, i) => <i key={i} data-on="1" style={{ borderColor: `#${RARITIES[Math.max(0, Math.min(RARITIES.length - 1, l.r))].color.toString(16).padStart(6, '0')}` }}>{rarity(l.r).name}</i>)}</div>
+        </>
+      )}
+    </div>
+  );
+}
+
 export function ReplayBar({ game, onExit }: { game: Game; onExit: () => void }) {
   const clock = game.replayClock, data = game.replayData;
   const [, tick] = useState(0);
   const [view, setView] = useState<View | null>(null);
   const [hide, setHide] = useState(false);
   const [big, setBig] = useState(false);
+  const [invOpen, setInvOpen] = useState(false);
   const bar = useRef<HTMLDivElement>(null);
   const [tip, setTip] = useState<{ x: number; t: number } | null>(null);
   // el tramo a exportar (entrada y salida, en ms) y la exportacion en curso (progreso 0-1)
@@ -243,6 +286,7 @@ export function ReplayBar({ game, onExit }: { game: Game; onExit: () => void }) 
       else if (e.code === 'BracketRight') clock.speed = Math.min(4, clock.speed * 2);
       else if (e.code === 'KeyH') setHide((h) => !h);
       else if (e.code === 'KeyM') setBig((b) => !b);
+      else if (e.code === 'KeyI') setInvOpen((o) => !o);
     };
     addEventListener('keydown', key);
     return () => removeEventListener('keydown', key);
@@ -252,7 +296,7 @@ export function ReplayBar({ game, onExit }: { game: Game; onExit: () => void }) 
   const { marks, log, invs, stats } = useMemo(() => {
     const marks: { t: number; k: 'death' | 'near'; who: string; text: string }[] = [];
     const log: { t: number; k: string; text: string }[] = [];
-    const invs: { t: number; d: Inventory }[] = [], stats: { t: number; d: number[] }[] = [];
+    const invs = new Map<string, { t: number; d: Inventory }[]>(), stats: { t: number; d: number[] }[] = [];
     if (!data) return { marks, log, invs, stats };
     const lastNear = new Map<string, number>();
     for (const e of data.events) {
@@ -266,7 +310,7 @@ export function ReplayBar({ game, onExit }: { game: Game; onExit: () => void }) 
         const d = e.data as { hp: number; was: number };
         log.push({ t: e.t, k: 'hurt', text: `${nameOf(data.meta, e.id)} −${Math.round(d.was - d.hp)} HP` });
         if (d.hp > 0 && d.hp <= HP_MAX * 0.2 && e.t - (lastNear.get(e.id) ?? -1e9) > 8000) (lastNear.set(e.id, e.t), marks.push({ t: e.t, k: 'near', who: e.id, text: `${nameOf(data.meta, e.id)} · LOW HP` }));
-      } else if (e.k === 'inv') invs.push({ t: e.t, d: e.data as Inventory });
+      } else if (e.k === 'inv' && e.id) (invs.get(e.id) ?? invs.set(e.id, []).get(e.id)!).push({ t: e.t, d: e.data as Inventory });
       else if (e.k === 'stat') stats.push({ t: e.t, d: e.data as number[] });
     }
     return { marks, log, invs, stats };
@@ -285,7 +329,7 @@ export function ReplayBar({ game, onExit }: { game: Game; onExit: () => void }) 
   };
   const watched = view?.players.find((p) => p.id === view.watching);
   const mine = !!watched && watched.id === meta.me;
-  const inv = at(invs)?.d, st = at(stats)?.d;
+  const inv = watched ? at(invs.get(watched.id) ?? [])?.d : undefined, st = at(stats)?.d;
   const recent = log.filter((l) => l.t <= clock.t && clock.t - l.t < 14000).slice(-6);
 
   const save = async (kind: 'video' | 'gif') => {
@@ -342,11 +386,16 @@ export function ReplayBar({ game, onExit }: { game: Game; onExit: () => void }) 
             </button>
           );
         })}
-        <button type="button" className="rp-pl rp-pl--free" aria-pressed={view?.free} onClick={() => game.replayFree()}><b>{view?.free ? '▶ ' : ''}FREE CAM</b><span className="rp-dim">C · FLY ANYWHERE</span></button>
+        <button type="button" className="rp-pl rp-pl--free" aria-pressed={view?.free && !view.aerial} onClick={() => (game.replayAerial(false), game.replayFree())}><b>{view?.free && !view.aerial ? '▶ ' : ''}FREE CAM</b><span className="rp-dim">C · WASD + E/Q · WHEEL = SPEED {view ? `×${view.speed.toFixed(0)}` : ''}</span></button>
+        <button type="button" className="rp-pl rp-pl--free" aria-pressed={view?.aerial} onClick={() => game.replayAerial()}><b>{view?.aerial ? '▶ ' : ''}AERIAL VIEW</b><span className="rp-dim">T · WASD PAN · WHEEL ZOOM · F FIT ALL</span></button>
+        <div className="rp-tog">
+          <button type="button" className="rp-btn" aria-pressed={invOpen} onClick={() => setInvOpen((o) => !o)}>INVENTORY · I</button>
+          <button type="button" className="rp-btn" aria-pressed={view?.hands} onClick={() => (game.specHands = !game.specHands)} title="See their hands when looking through their eyes">HANDS · B</button>
+        </div>
       </div>
 
       <div className="rp-mapbox" data-big={big ? '1' : undefined}>
-        <MiniMap levelId={meta.levelId} seed={meta.seed} count={Math.max(1, meta.players.length)} floor={meta.floor} dots={dots} cam={view?.free ? view.cam : null} big={big} onPick={(id) => game.replayWatch(id)} />
+        <MiniMap levelId={meta.levelId} seed={meta.seed} count={Math.max(1, meta.players.length)} floor={meta.floor} dots={dots} cam={view?.free ? view.cam : null} big={big} onPick={(id) => game.replayWatch(id)} onTeleport={(x, z, y) => game.replayGoto(x, z, y)} />
         <button type="button" className="rp-btn rp-mapbox__sz" onClick={() => setBig((b) => !b)}>{big ? 'SMALLER · M' : 'BIGGER · M'}</button>
       </div>
 
@@ -362,17 +411,19 @@ export function ReplayBar({ game, onExit }: { game: Game; onExit: () => void }) 
             </>
           )}
           <div className="rp-me__hand">IN HAND · {HELD[watched.held] ?? '—'} · {watched.light ? 'LIGHT ON' : 'LIGHT OFF'}</div>
-          {mine && inv ? (
+          {inv ? (
             <div className="rp-inv">
               {FLAGS.filter(([k]) => inv[k]).map(([k, n]) => <i key={k} data-on="1">{n}</i>)}
               {CHIPS.filter(([k]) => Number(inv[k]) > 0).map(([k, n]) => <i key={k} data-on="1">{n} ×{String(inv[k])}</i>)}
               {!FLAGS.some(([k]) => inv[k]) && !CHIPS.some(([k]) => Number(inv[k]) > 0) && <i>NOTHING CARRIED</i>}
             </div>
           ) : (
-            <div className="rp-me__note rp-dim">{meta.me ? `FULL INVENTORY ONLY FOR ${nameOf(meta, meta.me)} (WHO RECORDED)` : 'NO INVENTORY RECORDED'}</div>
+            <div className="rp-me__note rp-dim">NO INVENTORY RECORDED YET</div>
           )}
         </div>
       )}
+
+      {invOpen && watched && <InventoryPanel name={nameOf(meta, watched.id)} color={colorOf(meta, watched.id)} inv={inv} held={watched.held} onClose={() => setInvOpen(false)} />}
 
       <div className="rp-evs" aria-live="off">
         {recent.map((l) => <p key={`${l.t}${l.text}`} data-k={l.k} style={{ opacity: Math.max(0.25, 1 - (clock.t - l.t) / 14000) }}><em>{mmss(l.t)}</em> {l.text}</p>)}
@@ -419,7 +470,7 @@ export function ReplayBar({ game, onExit }: { game: Game; onExit: () => void }) 
           {[0.25, 0.5, 1, 2, 4].map((v) => <option key={v} value={v}>{v}×</option>)}
         </select>
       </div>
-      <p className="rp-help">SPACE PAUSE · , . ±5 S · [ ] SPEED · TAB / ← → NEXT PLAYER · V EYES / BEHIND · C FREE CAM · H HUD · M BIG MAP · DRAG THE PICTURE TO LOOK AROUND</p>
+      <p className="rp-help">SPACE PAUSE · , . ±5 S · [ ] SPEED · TAB / ← → NEXT PLAYER · V EYES / BEHIND · C FREE CAM · T AERIAL · I INVENTORY · B HANDS · H HUD · M BIG MAP · CLICK THE MAP TO GO THERE · DRAG THE PICTURE TO LOOK AROUND</p>
     </div>
   );
 }

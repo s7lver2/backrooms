@@ -768,6 +768,18 @@ export class BackroomsGame {
   private specView: 'eyes' | 'chase' | 'free' = 'eyes';
   /** La vista de espectador de antes de pasar a la cámara libre (C vuelve a ella). */
   private specBack: 'eyes' | 'chase' = 'eyes';
+  /** Repeticion: teclas sueltas (E/Q suben y bajan), rueda acumulada, inercia de la camara libre y su velocidad. */
+  private replayKeys = new Set<string>();
+  private replayWheel = 0;
+  private replayKeyOff?: () => void;
+  private freeVel = new THREE.Vector3();
+  freeSpeed = 6;
+  /** Vista aerea: la camara libre mirando hacia abajo desde `aerialH` metros. */
+  aerial = false;
+  private aerialH = 45;
+  private aerialLight?: THREE.AmbientLight;
+  /** Ver las manos de quien se mira por sus ojos. */
+  specHands = true;
   private freePos = new THREE.Vector3();
   private freeYaw = 0;
   private freePitch = 0;
@@ -1446,6 +1458,7 @@ export class BackroomsGame {
     const c0 = this.input.read();
     // en una repeticion el teclado y el raton solo mueven la camara: nada de lo demas (inventario, disparar, linterna...) llega al cuerpo
     const c: Controls = this.mp?.replay ? { ...c0, jump: false, flash: false, grab: false, bagHeld: false, bag: false, inventory: false, aim: false, zoom: 0, fire: false, reload: false, swap: false, drop: false, slot: -1, wheel: 0, use: false, pause: false, hold: false, crouch: false, fireHeld: false, grabHeld: false, slotHeld: -1 } : c0;
+    if (this.mp?.replay) this.replayWheel += c0.wheel;
     if (this.mp?.replay && !this.spectating && (this.world || this.pool || this.parking)) this.spectate(); // (una repeticion se mira siempre como espectador)
     if ((this.run || this.dying >= 0) && this.eehRed) this.eehCheck(); // (la sirena del nivel -20 se calla al morir o llegar al nivel rojo)
     this.itemEffects();
@@ -2963,9 +2976,12 @@ export class BackroomsGame {
     if (!t) return void (this.flash.intensity = 0);
     const cam = this.cam, eye = _spec.set(t.pos.x, t.pos.y + 1.62, t.pos.z);
     const chase = this.specView === 'chase';
-    for (const r of this.remotes.values()) r.setFirstPerson(r === t && !chase);
+    const hands = this.specHands && !!this.mp?.replay;
+    for (const r of this.remotes.values()) r.setFirstPerson(r === t && !chase, hands);
+    this.aerialOff();
     if (!chase) {
-      // por sus ojos: donde está, hacia donde mira, y con su linterna
+      // por sus ojos: donde está, hacia donde mira, y con su linterna (con manos: un poco atrás, para que sus brazos entren en la imagen)
+      if (hands) eye.set(eye.x + Math.sin(t.yaw) * 0.12, eye.y, eye.z + Math.cos(t.yaw) * 0.12);
       this.specPos.copy(eye);
       cam.position.copy(eye);
       cam.rotation.set(t.pitch, t.yaw, 0, 'YXZ');
@@ -3001,17 +3017,88 @@ export class BackroomsGame {
     this.specView = 'free';
   }
 
-  /** Cámara libre del espectador: vuela sin colisión (WASD hacia donde mira, Shift más rápido), dentro del área del mapa. No toca la simulación. */
+  /** Hasta donde llega el mapa (m): para encuadrarlo entero y no salirse de el. */
+  private mapSpan() {
+    if (this.pool instanceof PoolLevel) {
+      const b = this.pool.freeBox();
+      return { x0: 0, z0: 0, x1: b.x, z1: b.z };
+    }
+    if (this.parking) {
+      const b = this.parking.level.map.floors[0].bounds;
+      return { x0: b.x, z0: b.z, x1: b.x + b.w, z1: b.z + b.d };
+    }
+    const m = this.world?.maze;
+    return m ? { x0: 0, z0: 0, x1: m.w * CELL, z1: m.h * CELL } : { x0: -50, z0: -50, x1: 50, z1: 50 };
+  }
+
+  private aerialScene() {
+    return this.pool instanceof PoolLevel ? this.pool.scene : this.parking?.level.scene ?? this.scene;
+  }
+
+  /** Se sale de la vista aerea: se quita la luz extra (la niebla y el alcance los repone el juego en el siguiente fotograma). */
+  private aerialOff() {
+    if (this.aerialLight) (this.aerialLight.removeFromParent(), (this.aerialLight = undefined));
+    const fog = this.pool instanceof PoolLevel ? this.pool.scene.fog : null;
+    if (fog instanceof THREE.FogExp2) fog.density = 0.0065;
+  }
+
+  /** T: vista aerea (la camara libre mirando hacia abajo: WASD desplaza, rueda sube y baja, arrastrar gira). */
+  replayAerial(on = !this.aerial) {
+    if (on === this.aerial) return;
+    if (this.specView !== 'free') this.toggleFree();
+    this.aerial = on;
+    this.freeVel.set(0, 0, 0);
+    if (on) this.aerialH = THREE.MathUtils.clamp(this.freePos.y + 30, 20, 120);
+    else ((this.freePitch = -0.5), (this.freePos.y = Math.min(this.freePos.y, 3)), this.aerialOff());
+  }
+
+  /** F (en la vista aerea): centra el mapa entero y sube lo justo para verlo todo. */
+  replayFit() {
+    if (!this.aerial) this.replayAerial(true);
+    const b = this.mapSpan(), w = b.x1 - b.x0, d = b.z1 - b.z0, cam = this.cam, tan = Math.tan(THREE.MathUtils.degToRad(cam.fov) / 2);
+    this.freePos.x = (b.x0 + b.x1) / 2;
+    this.freePos.z = (b.z0 + b.z1) / 2;
+    this.freeYaw = 0;
+    this.aerialH = Math.max(w / cam.aspect, d) / (2 * tan) * 1.04;
+    this.freeVel.set(0, 0, 0);
+  }
+
+  /** Clic en el minimapa: la camara libre se coloca ahi (a `y` si no se esta en la vista aerea). */
+  replayGoto(x: number, z: number, y?: number) {
+    if (this.specView !== 'free') this.toggleFree();
+    this.freeVel.set(0, 0, 0);
+    this.freePos.x = x;
+    this.freePos.z = z;
+    if (!this.aerial && y !== undefined) this.freePos.y = y;
+  }
+
+  /** Cámara libre del espectador: vuela con inercia (WASD hacia donde mira, E/Q suben y bajan, Shift más rápido, rueda cambia la velocidad), dentro del área del mapa. Con `aerial`, mira hacia abajo y desplaza. No toca la simulación. */
   private freeFrame(dt: number, c: Controls) {
-    const cam = this.cam, m = this.world?.maze;
+    const cam = this.cam, K = this.replayKeys, wheel = this.replayWheel;
+    this.replayWheel = 0;
     for (const r of this.remotes.values()) r.setFirstPerson(false); // (al pasar de mirar por unos ojos a la cámara libre, su cabeza volvía a verse… o se quedaba sin ella)
     this.freeYaw -= c.look.x;
-    this.freePitch = THREE.MathUtils.clamp(this.freePitch - c.look.y, -1.55, 1.55);
-    cam.rotation.set(this.freePitch, this.freeYaw, 0, 'YXZ');
-    const v = (c.run ? 9 : 3.5) * dt;
-    this.freePos.addScaledVector(_want.set(0, 0, -1).applyQuaternion(cam.quaternion), c.move.y * v);
-    this.freePos.addScaledVector(_want.set(1, 0, 0).applyQuaternion(cam.quaternion), c.move.x * v);
-    if (this.pool instanceof PoolLevel) {
+    const want = _want, sp = this.mapSpan();
+    if (this.aerial) {
+      this.freePitch = -Math.PI / 2;
+      this.aerialH = THREE.MathUtils.clamp(this.aerialH * Math.pow(1.18, wheel), 5, 700);
+      const fx = -Math.sin(this.freeYaw), fz = -Math.cos(this.freeYaw), rx = Math.cos(this.freeYaw), rz = -Math.sin(this.freeYaw);
+      want.set(fx * c.move.y + rx * c.move.x, 0, fz * c.move.y + rz * c.move.x).multiplyScalar(this.aerialH * (c.run ? 1.6 : 0.6));
+    } else {
+      this.freePitch = THREE.MathUtils.clamp(this.freePitch - c.look.y, -1.55, 1.55);
+      this.freeSpeed = THREE.MathUtils.clamp(this.freeSpeed * Math.pow(1.2, -wheel), 1, 60);
+      cam.rotation.set(this.freePitch, this.freeYaw, 0, 'YXZ');
+      const v = this.freeSpeed * (c.run ? 3 : 1);
+      want.set(0, 0, -1).applyQuaternion(cam.quaternion).multiplyScalar(c.move.y * v);
+      want.addScaledVector(_dir.set(1, 0, 0).applyQuaternion(cam.quaternion), c.move.x * v);
+      want.y += ((K.has('KeyE') ? 1 : 0) - (K.has('KeyQ') ? 1 : 0)) * v;
+    }
+    this.freeVel.lerp(want, 1 - Math.exp(-dt * 9));
+    this.freePos.addScaledVector(this.freeVel, dt);
+    if (this.aerial) {
+      this.freePos.y += (this.aerialH - this.freePos.y) * (1 - Math.exp(-dt * 6));
+      (this.freePos.x = THREE.MathUtils.clamp(this.freePos.x, sp.x0 - 20, sp.x1 + 20)), (this.freePos.z = THREE.MathUtils.clamp(this.freePos.z, sp.z0 - 20, sp.z1 + 20));
+    } else if (this.pool instanceof PoolLevel) {
       // las Poolrooms: otro tamaño de mapa y alturas por debajo de 0 (agua, túneles) y hasta las salas altas
       const b = this.pool.freeBox();
       (this.freePos.x = THREE.MathUtils.clamp(this.freePos.x, 0, b.x)), (this.freePos.z = THREE.MathUtils.clamp(this.freePos.z, 0, b.z));
@@ -3022,12 +3109,20 @@ export class BackroomsGame {
       (this.freePos.x = THREE.MathUtils.clamp(this.freePos.x, b.x - 2, b.x + b.w + 2)), (this.freePos.z = THREE.MathUtils.clamp(this.freePos.z, b.z - 2, b.z + b.d + 2));
       this.freePos.y = THREE.MathUtils.clamp(this.freePos.y, low + 0.3, mp.floors[0].y + PARKING_HEIGHT + 2);
     } else {
-      if (m) (this.freePos.x = THREE.MathUtils.clamp(this.freePos.x, 0, m.w * CELL)), (this.freePos.z = THREE.MathUtils.clamp(this.freePos.z, 0, m.h * CELL));
+      (this.freePos.x = THREE.MathUtils.clamp(this.freePos.x, sp.x0, sp.x1)), (this.freePos.z = THREE.MathUtils.clamp(this.freePos.z, sp.z0, sp.z1));
       this.freePos.y = THREE.MathUtils.clamp(this.freePos.y, 0.3, HEIGHT - 0.2);
     }
+    cam.rotation.set(this.freePitch, this.freeYaw, 0, 'YXZ');
     cam.position.copy(this.freePos);
     this.specPos.copy(this.freePos);
-    for (const r of this.remotes.values()) r.setFirstPerson(false);
+    if (this.aerial) {
+      // desde arriba no hay niebla ni oscuridad que valga: se ve el mapa entero
+      const sc = this.aerialScene();
+      if (!this.aerialLight) (this.aerialLight = new THREE.AmbientLight(0xffffff, 2.2)), sc.add(this.aerialLight);
+      if (sc.fog instanceof THREE.Fog) sc.fog.far = 5000;
+      else if (sc.fog instanceof THREE.FogExp2) sc.fog.density = 0.0008;
+      if (cam.far < 1500) (cam.far = 1500), cam.updateProjectionMatrix();
+    } else this.aerialOff();
     this.haunt(cam.position);
     cam.updateMatrixWorld();
     this.flash.intensity = 0;
@@ -3264,9 +3359,10 @@ export class BackroomsGame {
     const rec = this.rec, mp = this.mp;
     if (!rec || !mp) return;
     const tail = rec.tail(14000), d = [...tail.events].reverse().find((e) => e.k === 'death' && e.id === mp.id);
-    if (!d || !tail.frames.length) return;
-    const to = d.t + 600, from = Math.max(tail.frames[0].t, to - 5000);
-    const info = this.lastDeath?.id === mp.id ? this.lastDeath : (d.data as DeathInfo | undefined);
+    if (!tail.frames.length) return;
+    // sin aviso del servidor (p. ej. una caida al vacio que el servidor no cuenta): el momento es el final de lo grabado, menos lo que dura el negro
+    const to = (d ? d.t : tail.frames[tail.frames.length - 1].t - 1500) + 600, from = Math.max(tail.frames[0].t, to - 5000);
+    const info = this.lastDeath?.id === mp.id ? this.lastDeath : (d?.data as DeathInfo | undefined);
     const name = (id: string) => this.names.get(id) ?? (id === mp.id ? 'YOU' : '???');
     const by = info?.by, killer = by?.kind === 'player' ? by.id : undefined;
     this.onFeed?.({ kind: 'death', caption: deathCaption(info, name(mp.id), killer && name(killer)), left: cardOf(mp.id, name(mp.id)), right: killer ? cardOf(killer, name(killer)) : undefined });
@@ -3307,6 +3403,9 @@ export class BackroomsGame {
       map: m ? { w: m.w, h: m.h, open: m.open } : null,
       watching: this.specView === 'free' ? '' : this.watching,
       free: this.specView === 'free',
+      aerial: this.aerial,
+      hands: this.specHands,
+      speed: this.freeSpeed,
       cam: { x: this.cam.position.x, z: this.cam.position.z },
       players: [...this.remotes.values()].map((r) => ({ id: r.id, x: r.pos.x, y: r.pos.y, z: r.pos.z, yaw: r.yaw, dead: r.dead, hp: this.hps[r.id], held: r.held, light: r.light })),
       ents: this.entities.map((e) => ({ x: e.pos.x, y: e.pos.y, z: e.pos.z })),
@@ -3319,6 +3418,19 @@ export class BackroomsGame {
     if (!r) return false;
     this.replayData = { meta: r.meta, events: r.chunks.flatMap((c) => c.events).sort((a, b) => a.t - b.t) };
     this.input.noLock = this.input.dragLook = this.input.noPause = true; // (el cursor libre para el visor; mirar arrastrando)
+    this.replayKeyOff?.();
+    const kd = (e: KeyboardEvent) => {
+      if ((e.target as HTMLElement | null)?.tagName === 'INPUT') return;
+      this.replayKeys.add(e.code);
+      if (e.repeat) return;
+      if (e.code === 'KeyT') this.replayAerial();
+      else if (e.code === 'KeyF') this.replayFit();
+      else if (e.code === 'KeyB') this.specHands = !this.specHands;
+    };
+    const ku = (e: KeyboardEvent) => this.replayKeys.delete(e.code);
+    addEventListener('keydown', kd);
+    addEventListener('keyup', ku);
+    this.replayKeyOff = () => (removeEventListener('keydown', kd), removeEventListener('keyup', ku), this.replayKeys.clear(), (this.aerial = false), (this.replayKeyOff = undefined));
     const clock = (this.replayClock = new ReplayClock(r.meta.durationMs));
     const src = new ReplaySource(r.chunks, clock);
     this.start(r.meta.seed, { sock: src.sock, id: src.id, replay: src, players: Math.max(1, r.meta.players.length), index: 0, level: r.meta.levelId, floor: r.meta.floor });
@@ -4322,6 +4434,7 @@ server-synced inv ${JSON.stringify(this.mp.inv)}` : ''}`);
 
   /** Saca al jugador de la partida (la sala vuelve al lobby): se para todo y queda el lienzo en negro. */
   stop() {
+    this.replayKeyOff?.();
     this.epi?.ep.dispose();
     this.epi?.self?.dispose();
     this.epi = undefined;

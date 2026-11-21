@@ -148,6 +148,7 @@ const view = (r: RoomState): RoomView => {
     players: [...r.players.values()].map((p) => ({ id: p.id, name: p.name, dead: p.dead, look: p.look, avatar: avatarRef(p.uid), ready: !!p.ready, boarded: !!p.boarded, ups: p.ups })),
   };
 };
+const invSent = new Map<string, { key: string; at: number }>();
 const push = (r: RoomState) => (r.phase === 'lobby' && save(r), io.to(r.code).emit('room', view(r)));
 /** Lo que dan las mejoras de un jugador (casillas, vida máxima...). */
 const st = (p: Player) => statsOf(p.ups);
@@ -1705,7 +1706,12 @@ setInterval(() => {
     if (r.phase !== 'playing' && !inWait(r)) continue;
     // volatile: si el socket de alguien (un túnel lento) no ha terminado de vaciar lo anterior, este se descarta en vez de
     // encolarse: llega siempre lo último y no una ráfaga de estados viejos
-    io.to(r.code).volatile.emit('players', Object.fromEntries([...r.players].map(([id, p]) => [id, { ...p.st, name: p.name, dead: p.dead, hp: p.dead ? 0 : p.hp, xrayGlasses: r.phase === 'playing' && !p.dead && !p.boarded && !!p.glassesOn }])));
+    const nowMs = Date.now();
+    io.to(r.code).volatile.emit('players', Object.fromEntries([...r.players].map(([id, p]) => {
+      const inv = p.cap ?? p.inv, key = JSON.stringify(inv), was = invSent.get(id), send = !was || was.key !== key || nowMs - was.at > 3000;
+      if (send) invSent.set(id, { key, at: nowMs });
+      return [id, { ...p.st, name: p.name, dead: p.dead, hp: p.dead ? 0 : p.hp, xrayGlasses: r.phase === 'playing' && !p.dead && !p.boarded && !!p.glassesOn, ...(send ? { inv } : {}) }];
+    })));
   }
 }, 1000 / 15);
 const lobbyHad = new Set<string>(); // salas de espera a las que ya se mandó una lista con algo (para mandar también la vacía)

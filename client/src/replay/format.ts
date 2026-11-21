@@ -44,7 +44,7 @@ export type ReplayMeta = {
 export type ReplayEvent = {
   /** ms desde el inicio de la grabacion. */
   t: number;
-  /** `inv`: mi inventario (solo el de quien grabo); `stat`: [aguante, cordura, bateria] 0-1 de quien grabo, cada medio segundo. */
+  /** `inv`: lo que lleva cada jugador (id) cuando cambia; `stat`: [aguante, cordura, bateria] 0-1 de quien grabo, cada medio segundo. */
   k: 'death' | 'hit' | 'hurt' | 'elevator' | 'fx' | 'inv' | 'stat';
   id?: string;
   data?: unknown;

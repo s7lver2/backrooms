@@ -12,7 +12,7 @@ import { renderThumb } from './thumb';
  */
 const CHUNK_MS = 5000;
 const TAIL_MS = 15000;
-type Players = Record<string, PlayerState & { name: string; dead: boolean; hp?: number }>;
+type Players = Record<string, PlayerState & { name: string; dead: boolean; hp?: number; inv?: Inventory }>;
 
 export class Recorder {
   readonly meta: ReplayMeta;
@@ -23,6 +23,7 @@ export class Recorder {
   private n = 0;
   private recent: { frames: ReplayFrame[]; events: ReplayEvent[] } = { frames: [], events: [] };
   private hp = new Map<string, number>();
+  private invKey = new Map<string, string>();
   private names = new Map<string, string>();
   private q: Promise<void> = Promise.resolve();
   private off: (() => void)[] = [];
@@ -46,6 +47,11 @@ export class Recorder {
       this.lastAll = all;
       for (const id in all) {
         this.names.set(id, all[id].name);
+        const inv = all[id].inv;
+        if (inv) {
+          const k = JSON.stringify(inv);
+          if (this.invKey.get(id) !== k) (this.invKey.set(id, k), this.event('inv', id, inv));
+        }
         const hp = all[id].hp;
         const was = this.hp.get(id);
         if (hp !== undefined) {
@@ -61,14 +67,12 @@ export class Recorder {
       this.meta.hl ??= this.now();
       this.event('death', d.id, d);
     };
-    const onInv = (i: Inventory) => this.event('inv', this.meta.me, i);
     const onBlast = (m: unknown) => this.event('fx', undefined, { k: 'blast', m });
     s.on('players', onPlayers);
     s.on('world', onWorld);
     s.on('deathInfo', onDeath);
     s.on('blastFx', onBlast);
-    s.on('inv', onInv);
-    this.off.push(() => (s.off('players', onPlayers), s.off('world', onWorld), s.off('deathInfo', onDeath), s.off('blastFx', onBlast), s.off('inv', onInv)));
+    this.off.push(() => (s.off('players', onPlayers), s.off('world', onWorld), s.off('deathInfo', onDeath), s.off('blastFx', onBlast)));
     this.q = putMeta(this.meta).then(() => rotate(this.meta.id)).catch(() => this.kill());
   }
 

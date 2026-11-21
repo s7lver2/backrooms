@@ -454,7 +454,8 @@ export interface ServerToClient {
   adminFx: (m: AdminFx) => void;
   status: (s: Status) => void;
   room: (r: RoomView) => void;
-  players: (all: Record<string, PlayerState & { name: string; dead: boolean }>) => void;
+  /** `inv` (lo que lleva cada uno) solo viaja cuando cambia y cada pocos segundos: lo usa el visor de repeticiones. */
+  players: (all: Record<string, PlayerState & { name: string; dead: boolean; inv?: Inventory }>) => void;
   world: (w: WorldSnapshot) => void;
   chat: (m: { id: string; name: string; text: string }) => void;
   /** Señalización WebRTC de `from` (un compañero de la sala). */

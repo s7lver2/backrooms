@@ -122,6 +122,18 @@
 .rp-tl__range { position: absolute; top: -3px; height: 20px; border: 1px solid #e9a23b; background: rgb(233 162 59 / 0.18); pointer-events: none; }
 .rp-clip { position: absolute; right: 12px; bottom: 92px; display: flex; gap: 6px; align-items: center; }
 .rp-clip span { border: 0; cursor: default; }
+
+.rp-tog { display: flex; gap: 6px; }
+.rp-tog .rp-btn { flex: 1; font-size: 10px; padding: 4px 4px; }
+.rp-invp { position: absolute; left: 272px; bottom: 134px; width: 270px; max-height: 46vh; overflow-y: auto; padding: 8px 10px; background: rgb(0 0 0 / 0.72); border: 1px solid rgb(242 241 234 / 0.25); border-top: 3px solid var(--c); display: grid; gap: 6px; align-content: start; pointer-events: auto; animation: rp-slide 0.3s cubic-bezier(0.2, 0.9, 0.3, 1) both; scrollbar-width: thin; }
+.rp-invp__h { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+.rp-invp__h button { font: inherit; color: inherit; background: none; border: 0; cursor: pointer; text-shadow: inherit; }
+.rp-invp ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 2px; }
+.rp-invp li { display: flex; gap: 8px; align-items: baseline; padding: 2px 0; border-bottom: 1px solid rgb(242 241 234 / 0.1); animation: rp-pop-in 0.2s ease-out both; }
+.rp-invp li span { flex: 1; }
+.rp-invp li em { font-style: normal; font-size: 10px; }
+.rp-invp__s { margin-top: 4px; border-bottom: 1px solid rgb(242 241 234 / 0.3); }
+.rp-invp p { margin: 0; }
 @keyframes rp-drop { from { opacity: 0; transform: translateY(-14px); } }
 @keyframes rp-rise { from { opacity: 0; transform: translateY(14px); } }
 @keyframes rp-slide { from { opacity: 0; transform: translateX(-22px); } }

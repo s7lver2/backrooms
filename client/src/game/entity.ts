@@ -156,7 +156,13 @@ export class Entity implements Target {
     arr[i * 3 + 2] = Math.sin(ang) * r;
   }
 
+  private nx = Number.NaN;
+  private nz = 0;
+  private moveUntil = 0;
   net(s: EntState, snap = false, t = performance.now()) {
+    if (!Number.isNaN(this.nx) && Math.hypot(s.x - this.nx, s.z - this.nz) > 0.03) this.moveUntil = performance.now() + 400;
+    this.nx = s.x;
+    this.nz = s.z;
     this.track.push({ t, x: s.x, y: 0, z: s.z, yaw: s.yaw, pitch: 0 }, 0);
     this.netState = s.state;
     this.hp = s.hp;
@@ -231,7 +237,7 @@ export class Entity implements Target {
     const bx = this.pos.x, bz = this.pos.z;
     Timeline.follow(this.pos, this.goal, dt, k, 9);
     this.facing += (THREE.MathUtils.euclideanModulo(this.goalYaw - this.facing + Math.PI, Math.PI * 2) - Math.PI) * k;
-    this.moving = Math.hypot(this.pos.x - bx, this.pos.z - bz) > 0.3 * dt;
+    this.moving = Math.hypot(this.pos.x - bx, this.pos.z - bz) > 0.3 * dt || performance.now() < this.moveUntil;
     this.state = this.netState;
     const want = this.state === 'attack' ? clip.attack : this.state === 'dance' ? clip.dances[this.id % clip.dances.length] : this.clipOf();
     if (want === this.shown) return;

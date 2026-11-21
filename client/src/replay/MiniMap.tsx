@@ -10,9 +10,9 @@ import { TILE_COLOR } from './thumb';
  */
 export type Dot = { id: string; x: number; y: number; z: number; yaw: number; color: string; label: string; dead?: boolean; watched?: boolean; ent?: boolean };
 
-type Props = { levelId: string; seed: number; count: number; floor?: number; dots: Dot[]; cam?: { x: number; z: number } | null; onPick?: (id: string) => void; big?: boolean };
+type Props = { levelId: string; seed: number; count: number; floor?: number; dots: Dot[]; cam?: { x: number; z: number } | null; onPick?: (id: string) => void; onTeleport?: (x: number, z: number, y: number) => void; big?: boolean };
 
-export function MiniMap({ levelId, seed, count, floor, dots, cam, onPick, big }: Props) {
+export function MiniMap({ levelId, seed, count, floor, dots, cam, onPick, onTeleport, big }: Props) {
   const map = useMemo(() => levelMap(levelId, seed, count, floor ?? 1), [levelId, seed, count, floor]);
   const cv = useRef<HTMLCanvasElement>(null);
   const out = useRef<HTMLSpanElement>(null);
@@ -186,6 +186,7 @@ export function MiniMap({ levelId, seed, count, floor, dots, cam, onPick, big }:
     const h = hits.current.find((q) => (q.x - mx) ** 2 + (q.y - my) ** 2 <= q.r * q.r);
     if (h) return onPick?.(h.id);
     const v = V.current, x = mx / v.s + v.ox, z = my / v.s + v.oz, y = map?.layers[shown]?.y ?? 0;
+    if (onTeleport && !e.shiftKey) return (onTeleport(x, z, y + 1.7), flash('TELEPORTED'));
     const text = `seed ${seed} level ${levelId} x ${x.toFixed(3)} y ${y.toFixed(3)} z ${z.toFixed(3)}`;
     void navigator.clipboard?.writeText(text).then(() => flash('POSITION COPIED'), () => flash('COULD NOT COPY'));
   };
@@ -238,7 +239,7 @@ export function MiniMap({ levelId, seed, count, floor, dots, cam, onPick, big }:
           ))}
         </div>
       )}
-      <div className="rp-mm__foot"><span ref={out}>—</span><span className="rp-dim">{map ? `${map.layers[shown]?.name ?? ''} · CLICK = COPY` : 'NO PLAN · POINTS ONLY'}</span></div>
+      <div className="rp-mm__foot"><span ref={out}>—</span><span className="rp-dim">{map ? `${map.layers[shown]?.name ?? ''} · CLICK = GO THERE · SHIFT = COPY` : 'NO PLAN · POINTS ONLY'}</span></div>
     </div>
   );
 }
