@@ -142,7 +142,7 @@ export default function AdminConsole({ game, sock, room, me, onVictory }: Props)
     const wait = setInterval(() => {
       let ready = false;
       try {
-        ready = w.location.pathname.endsWith('admin.html') && w.document.readyState === 'complete' && !!w.document.body;
+        ready = (w as unknown as { __admReady?: boolean }).__admReady === true && !!w.document.body; // (la página avisa al terminar de cargar: el documento en blanco previo también dice «complete» y el panel se montaba en él)
       } catch { /* aún no es del mismo origen */ }
       if (ready) (clearInterval(wait), mount(w));
       else if (w.closed || ++tries > 80) (clearInterval(wait), w.closed ? undefined : (w.close(), mount()));
