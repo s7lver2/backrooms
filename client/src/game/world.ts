@@ -1664,6 +1664,18 @@ export class World implements Terrain {
     if (c.x < 0 || c.y < 0 || c.x >= w || c.y >= h || !open[c.y * w + c.x]) return true;
     return this.decoys.has(c.y * w + c.x) || this.doors.some((d) => d.cell === c.y * w + c.x && d.cur < 0.7) || (!this.elevatorOpen && c.x === this.maze.elevator.x && c.y === this.maze.elevator.y);
   }
+  /** Saca un cuerpo de radio `r` de los círculos del mobiliario, hacia fuera por el radio (así resbala por el borde); null si no toca ninguno. */
+  push(x: number, z: number, r: number): [number, number] | null {
+    let moved = false;
+    for (let it = 0; it < 2; it++)
+      for (const b of this.blockers) {
+        const dx = x - b.x, dz = z - b.z, d = Math.hypot(dx, dz), m = b.r + r;
+        if (d >= m) continue;
+        const k = d > 1e-4 ? m / d : 1;
+        (x = b.x + (d > 1e-4 ? dx * k : m)), (z = b.z + (d > 1e-4 ? dz * k : 0)), (moved = true);
+      }
+    return moved ? [x, z] : null;
+  }
   /** Un sillón a menos de `r` de ese punto (cada uno, un círculo de 0,6 m en el centro de su celda). */
   furniture(x: number, z: number, r: number) {
     return this.blockers.some((c) => (c.x - x) ** 2 + (c.z - z) ** 2 < (c.r + r) ** 2);

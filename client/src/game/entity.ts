@@ -45,6 +45,8 @@ export interface EntityHost {
   root: THREE.Object3D;
   maze?: Maze;
   solid?: (x: number, z: number) => boolean;
+  /** Saca un cuerpo de radio `r` del mobiliario (círculos en el suelo): devuelve su sitio nuevo, o null si no toca nada. */
+  push?: (x: number, z: number, r: number) => [number, number] | null;
 }
 /**
  * La cabeza de una entidad: lo que el cuerpo (`Entity`) necesita saber de cualquier IA. `EntitySim` (shared/sim.ts, el laberinto) ya lo cumple tal cual;
@@ -112,6 +114,7 @@ export class Entity implements Target {
     this.goal.copy(this.pos);
     this.rig.root.position.copy(this.pos);
     host.root.add(this.rig.root);
+    this.push = host.push?.bind(host);
     if (brain) this.sim = brain;
     else if (!remote) this.sim = new EntitySim(kind, host.maze!, (x, z) => host.solid!(x, z), at, speed, hp, true); // recover: un golpe que no mata, y vuelve a lo suyo
     if (this.balloon) host.root.add(this.balloon);
@@ -169,6 +172,7 @@ export class Entity implements Target {
    * `hidden`: el jugador está en un nicho (no es objetivo); `hides`: los nichos con alguien dentro (pueden inspeccionarlo).
    */
   private lag = 0;
+  private push?: EntityHost['push'];
   private skip = 0;
   update(dt: number, player: THREE.Vector3, eye: THREE.Vector3, torch: THREE.Vector3 | null, exposed: boolean, god: boolean, hides: HideState[] = [], hidden = false, duck = false, yaw?: number, noises: Noise[] = []) {
     const clip = CLIPS[this.kind];
@@ -176,6 +180,11 @@ export class Entity implements Target {
     if (this.sim) {
       const t: SimTarget = { id: 'me', x: player.x, y: player.y, z: player.z, ex: eye.x, ey: eye.y, ez: eye.z, torch: torch ? [torch.x, torch.y, torch.z] : null, exposed, duck, yaw };
       caught = this.sim.update(dt, hidden ? [] : [t], god, hides, noises) !== undefined;
+      if (ROAM.has(this.sim.state) && this.push && this.sim.state !== 'inspect') {
+        // el mobiliario no se atraviesa (la IA va por celdas y no lo sabe): se le desliza por el borde
+        const q = this.push(this.sim.x, this.sim.z, 0.3);
+        if (q) (this.sim.x = q[0]), (this.sim.z = q[1]);
+      }
       if (ROAM.has(this.sim.state)) this.pos.set(this.sim.x, 0, this.sim.z);
       this.facing = this.sim.facing;
       this.state = this.sim.state;
