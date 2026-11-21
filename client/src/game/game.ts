@@ -49,6 +49,9 @@ import { netStats, type Sock } from '../net';
 import { worldTl } from './interp';
 import { ANISO, FPS_CAPS, setSetting, settings } from '../settings';
 import { Recorder } from '../replay/recorder';
+import { ReplayClock } from '../replay/clock';
+import { ReplaySource } from '../replay/source';
+import { loadReplay } from '../replay/store';
 import { loadTapes, saveTape } from './tapes';
 import { watchCanvas } from '../errlog';
 import { gearIcons } from './invIcons';
@@ -82,6 +85,8 @@ export interface Mp {
   floor?: number;
   /** Capacidades del nivel que manda el servidor (LevelCaps): qué componentes del jugador están activos. */
   caps?: LevelCaps;
+  /** Es una repeticion: el socket es la grabacion y yo solo miro (el espectador de siempre, con todos como «los demas»). */
+  replay?: ReplaySource;
 }
 
 /** Lo que enseña el inventario. */
@@ -1431,6 +1436,7 @@ export class BackroomsGame {
     // en una sala la pausa no detiene el mundo (los demás siguen jugando): solo se sueltan los mandos
     if (this.paused && (!this.mp || this.run)) return;
     const c = this.input.read();
+    if (this.mp?.replay && !this.spectating && (this.world || this.pool || this.parking)) this.spectate(); // (una repeticion se mira siempre como espectador)
     if ((this.run || this.dying >= 0) && this.eehRed) this.eehCheck(); // (la sirena del nivel -20 se calla al morir o llegar al nivel rojo)
     this.itemEffects();
     if (this.fxList.length) this.fxList = this.fxList.filter((f) => f(dt));
@@ -2639,9 +2645,14 @@ export class BackroomsGame {
   private wire(mp: Mp, items?: Items) {
     this.mp = mp;
     const s = mp.sock;
-    if (settings.recordReplays) {
+    if (mp.replay) {
+      const r = mp.replay;
+      r.onSeek = () => (this.resync = true);
+      r.begin();
+      this.offNet.push(() => r.end());
+    } else if (settings.recordReplays) {
       const pl = this.pool instanceof PoolLevel ? this.pool : undefined;
-      const rec = (this.rec = new Recorder(s, { levelId: mp.level ?? (this.parking ? 'parking' : 'level0'), floor: mp.floor, seed: pl ? pl.seed : this.seed0 }));
+      const rec = (this.rec = new Recorder(s, { me: mp.id, levelId: mp.level ?? (this.parking ? 'parking' : 'level0'), floor: mp.floor, seed: pl ? pl.seed : this.seed0 }));
       this.offNet.push(() => (void rec.stop(), this.rec === rec && (this.rec = undefined)));
     }
     worldTl.reset(100); // snapshots del mundo cada 100 ms
@@ -3162,6 +3173,19 @@ export class BackroomsGame {
   }
 
   /** Desarrollo (`?pool`): el cuarto de prueba del agua de las Poolrooms (pool.ts). Sin VHS ni sala. */
+  /** La repeticion que se esta viendo: su reloj (pausa, velocidad, saltos). */
+  replayClock?: ReplayClock;
+
+  /** Abre una repeticion guardada: monta el nivel con su semilla y la mira como espectador (cámara libre, ojos y chase de siempre). */
+  async openReplay(id: string): Promise<boolean> {
+    const r = await loadReplay(id);
+    if (!r) return false;
+    const clock = (this.replayClock = new ReplayClock(r.meta.durationMs));
+    const src = new ReplaySource(r.chunks, clock);
+    this.start(r.meta.seed, { sock: src.sock, id: src.id, replay: src, players: Math.max(1, r.meta.players.length), index: 0, level: r.meta.levelId, floor: r.meta.floor });
+    return true;
+  }
+
   async devPool(level = false) {
     this.input.suspend = false;
     const kit = level ? await loadPoolKit() : {};

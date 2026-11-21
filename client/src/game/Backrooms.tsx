@@ -1,4 +1,5 @@
 'use client';
+import { listReplays } from '../replay/store';
 import { setCrashContext } from '../telemetry';
 import { DEV_LOCAL } from '../devGate';
 import DownloadToast from './DownloadToast';
@@ -489,6 +490,7 @@ export default function Backrooms({ onQuit, onWin }: { onQuit: () => void; onWin
         else if (alive) setScreen('menu');
         if (alive && (dev?.has('pool') || dev?.has('poolmap'))) (setScreen('play'), g.devPool(dev.has('poolmap')));
         else if (alive && dev?.has('suites')) (setScreen('play'), g.devSuites());
+        else if (alive && dev?.has('replay')) void (async () => (((id) => id && (setScreen('play'), g.openReplay(id)))(dev.get('replay') || (await listReplays())[0]?.id)))(); // desarrollo: ?replay[=id] abre una repeticion guardada (la ultima si no hay id)
         else if (alive && dev?.has('runlevel')) (setScreen('play'), g.devRun()); // desarrollo: ?runlevel arranca «Run for your life» sin sala
       })
       .catch((e) => (console.error('load failed', e), alive && setFailed(true)))

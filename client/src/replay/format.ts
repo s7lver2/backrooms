@@ -25,6 +25,8 @@ export type ReplayMeta = {
   started: number;
   durationMs: number;
   players: ReplayPlayer[];
+  /** Mi id de socket al grabar (quien grabo: su camara exacta va en los fotogramas `own`). */
+  me?: string;
   starred: boolean;
   /** Bytes comprimidos guardados. */
   size: number;

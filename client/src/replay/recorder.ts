@@ -29,7 +29,7 @@ export class Recorder {
 
   constructor(
     private readonly sock: Sock,
-    info: { levelId: string; floor?: number; seed: number },
+    info: { me?: string; levelId: string; floor?: number; seed: number },
   ) {
     this.meta = { id: `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`, v: REPLAY_FORMAT, build: REPLAY_BUILD, started: Date.now(), durationMs: 0, players: [], starred: false, size: 0, ...info };
     const s = sock;
