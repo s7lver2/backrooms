@@ -1443,7 +1443,9 @@ export class BackroomsGame {
     }
     // en una sala la pausa no detiene el mundo (los demás siguen jugando): solo se sueltan los mandos
     if (this.paused && (!this.mp || this.run)) return;
-    const c = this.input.read();
+    const c0 = this.input.read();
+    // en una repeticion el teclado y el raton solo mueven la camara: nada de lo demas (inventario, disparar, linterna...) llega al cuerpo
+    const c: Controls = this.mp?.replay ? { ...c0, jump: false, flash: false, grab: false, bagHeld: false, bag: false, inventory: false, aim: false, zoom: 0, fire: false, reload: false, swap: false, drop: false, slot: -1, wheel: 0, use: false, pause: false, hold: false, crouch: false, fireHeld: false, grabHeld: false, slotHeld: -1 } : c0;
     if (this.mp?.replay && !this.spectating && (this.world || this.pool || this.parking)) this.spectate(); // (una repeticion se mira siempre como espectador)
     if ((this.run || this.dying >= 0) && this.eehRed) this.eehCheck(); // (la sirena del nivel -20 se calla al morir o llegar al nivel rojo)
     this.itemEffects();
@@ -3412,6 +3414,7 @@ fps ${(1 / Math.max(dt, 1e-3)).toFixed(0)}`;
     me.update(dt, { ...c, crouch: !!c.crouch && !pl.dead, aim: c.aim && cam_ok, zoom: cam_ok ? c.zoom : 0, ...(this.winning ? { slot: -1, wheel: 0, use: false, swap: false } : {}) }); // (la barra rápida y la rueda, como en el nivel 0, las lleva el Player)
     if (!cam_ok && me.aiming) (me.aiming = false), (me.zoom = 1);
     if (swim && !pl.dead) me.rig.root.visible = false;
+    if (this.mp?.replay) me.rig.root.visible = false; // (el cuerpo propio de una repeticion no es de nadie: ni tumbado ni siguiendo a la camara)
     if (c.fire && cam_ok && me.hand === 'camera' && me.aiming && this.t - this.picAt > 0.8) {
       this.picAt = this.t;
       this.picSnap = true;

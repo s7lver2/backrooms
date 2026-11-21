@@ -2,6 +2,7 @@ import type { ParkingInteraction, ParkingSnapshot } from './parking';
 /** Lo que comparten el cliente y el servidor: los puertos fijos, el protocolo de las salas y la lógica de la partida. */
 export * from './maze';
 export * from './pools';
+export * from './levelmap';
 export * from './suites';
 export * from './lockers';
 export * from './sim';
