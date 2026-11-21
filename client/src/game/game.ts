@@ -777,6 +777,8 @@ export class BackroomsGame {
   /** Vista aerea: la camara libre mirando hacia abajo desde `aerialH` metros. */
   aerial = false;
   private aerialH = 45;
+  /** La camara aerea sigue a quien se mira (arrastrar con el boton izquierdo o WASD lo suelta). */
+  followCam = true;
   private aerialLight?: THREE.AmbientLight;
   /** Ver las manos de quien se mira por sus ojos. */
   specHands = true;
@@ -3052,6 +3054,18 @@ export class BackroomsGame {
     else ((this.freePitch = -0.5), (this.freePos.y = Math.min(this.freePos.y, 3)), this.aerialOff());
   }
 
+  /** Arrastrar en la vista aerea: boton izquierdo desplaza (agarrando el mapa), derecho gira. */
+  private aerialDrag(button: number, dx: number, dy: number) {
+    if (button === 2) return void (this.freeYaw -= dx * 0.006);
+    if (button !== 0) return;
+    const cam = this.cam, mpp = (2 * this.aerialH * Math.tan(THREE.MathUtils.degToRad(cam.fov) / 2)) / Math.max(1, this.canvas.clientHeight);
+    const fx = -Math.sin(this.freeYaw), fz = -Math.cos(this.freeYaw), rx = Math.cos(this.freeYaw), rz = -Math.sin(this.freeYaw);
+    this.followCam = false;
+    this.freeVel.set(0, 0, 0);
+    this.freePos.x += fx * dy * mpp - rx * dx * mpp;
+    this.freePos.z += fz * dy * mpp - rz * dx * mpp;
+  }
+
   /** F (en la vista aerea): centra el mapa entero y sube lo justo para verlo todo. */
   replayFit() {
     if (!this.aerial) this.replayAerial(true);
@@ -3077,9 +3091,10 @@ export class BackroomsGame {
     const cam = this.cam, K = this.replayKeys, wheel = this.replayWheel;
     this.replayWheel = 0;
     for (const r of this.remotes.values()) r.setFirstPerson(false); // (al pasar de mirar por unos ojos a la cámara libre, su cabeza volvía a verse… o se quedaba sin ella)
-    this.freeYaw -= c.look.x;
+    if (!this.aerial) this.freeYaw -= c.look.x; // (en la vista aerea se gira con el boton derecho)
     const want = _want, sp = this.mapSpan();
     if (this.aerial) {
+      if (c.move.x || c.move.y) this.followCam = false;
       this.freePitch = -Math.PI / 2;
       this.aerialH = THREE.MathUtils.clamp(this.aerialH * Math.pow(1.18, wheel), 5, 700);
       const fx = -Math.sin(this.freeYaw), fz = -Math.cos(this.freeYaw), rx = Math.cos(this.freeYaw), rz = -Math.sin(this.freeYaw);
@@ -3096,6 +3111,8 @@ export class BackroomsGame {
     this.freeVel.lerp(want, 1 - Math.exp(-dt * 9));
     this.freePos.addScaledVector(this.freeVel, dt);
     if (this.aerial) {
+      const w = this.followCam ? this.remotes.get(this.watching) : undefined;
+      if (w) (this.freePos.x += (w.pos.x - this.freePos.x) * (1 - Math.exp(-dt * 8))), (this.freePos.z += (w.pos.z - this.freePos.z) * (1 - Math.exp(-dt * 8)));
       this.freePos.y += (this.aerialH - this.freePos.y) * (1 - Math.exp(-dt * 6));
       (this.freePos.x = THREE.MathUtils.clamp(this.freePos.x, sp.x0 - 20, sp.x1 + 20)), (this.freePos.z = THREE.MathUtils.clamp(this.freePos.z, sp.z0 - 20, sp.z1 + 20));
     } else if (this.pool instanceof PoolLevel) {
@@ -3404,6 +3421,7 @@ export class BackroomsGame {
       watching: this.specView === 'free' ? '' : this.watching,
       free: this.specView === 'free',
       aerial: this.aerial,
+      follow: this.followCam,
       hands: this.specHands,
       speed: this.freeSpeed,
       cam: { x: this.cam.position.x, z: this.cam.position.z },
@@ -3428,9 +3446,23 @@ export class BackroomsGame {
       else if (e.code === 'KeyB') this.specHands = !this.specHands;
     };
     const ku = (e: KeyboardEvent) => this.replayKeys.delete(e.code);
+    let drag: { b: number; x: number; y: number } | null = null;
+    const cvs = this.canvas;
+    const pd = (e: PointerEvent) => void (e.target === cvs && this.aerial && (drag = { b: e.button, x: e.clientX, y: e.clientY }));
+    const pm = (e: PointerEvent) => {
+      if (!drag || !this.aerial) return;
+      this.aerialDrag(drag.b, e.clientX - drag.x, e.clientY - drag.y);
+      (drag.x = e.clientX), (drag.y = e.clientY);
+    };
+    const pu = () => (drag = null);
+    const cm = (e: Event) => this.aerial && e.target === cvs && e.preventDefault();
     addEventListener('keydown', kd);
     addEventListener('keyup', ku);
-    this.replayKeyOff = () => (removeEventListener('keydown', kd), removeEventListener('keyup', ku), this.replayKeys.clear(), (this.aerial = false), (this.replayKeyOff = undefined));
+    addEventListener('pointerdown', pd);
+    addEventListener('pointermove', pm);
+    addEventListener('pointerup', pu);
+    addEventListener('contextmenu', cm);
+    this.replayKeyOff = () => (removeEventListener('keydown', kd), removeEventListener('keyup', ku), removeEventListener('pointerdown', pd), removeEventListener('pointermove', pm), removeEventListener('pointerup', pu), removeEventListener('contextmenu', cm), this.replayKeys.clear(), (this.aerial = false), (this.replayKeyOff = undefined));
     const clock = (this.replayClock = new ReplayClock(r.meta.durationMs));
     const src = new ReplaySource(r.chunks, clock);
     this.start(r.meta.seed, { sock: src.sock, id: src.id, replay: src, players: Math.max(1, r.meta.players.length), index: 0, level: r.meta.levelId, floor: r.meta.floor });

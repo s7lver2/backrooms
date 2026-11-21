@@ -387,7 +387,7 @@ export function ReplayBar({ game, onExit }: { game: Game; onExit: () => void }) 
           );
         })}
         <button type="button" className="rp-pl rp-pl--free" aria-pressed={view?.free && !view.aerial} onClick={() => (game.replayAerial(false), game.replayFree())}><b>{view?.free && !view.aerial ? '▶ ' : ''}FREE CAM</b><span className="rp-dim">C · WASD + E/Q · WHEEL = SPEED {view ? `×${view.speed.toFixed(0)}` : ''}</span></button>
-        <button type="button" className="rp-pl rp-pl--free" aria-pressed={view?.aerial} onClick={() => game.replayAerial()}><b>{view?.aerial ? '▶ ' : ''}AERIAL VIEW</b><span className="rp-dim">T · WASD PAN · WHEEL ZOOM · F FIT ALL</span></button>
+        <button type="button" className="rp-pl rp-pl--free" aria-pressed={view?.aerial} onClick={() => game.replayAerial()}><b>{view?.aerial ? '▶ ' : ''}AERIAL VIEW</b><span className="rp-dim">T · LEFT DRAG MOVE · RIGHT DRAG ROTATE · WHEEL ZOOM · F FIT</span></button>
         <div className="rp-tog">
           <button type="button" className="rp-btn" aria-pressed={invOpen} onClick={() => setInvOpen((o) => !o)}>INVENTORY · I</button>
           <button type="button" className="rp-btn" aria-pressed={view?.hands} onClick={() => (game.specHands = !game.specHands)} title="See their hands when looking through their eyes">HANDS · B</button>
@@ -395,7 +395,7 @@ export function ReplayBar({ game, onExit }: { game: Game; onExit: () => void }) 
       </div>
 
       <div className="rp-mapbox" data-big={big ? '1' : undefined}>
-        <MiniMap levelId={meta.levelId} seed={meta.seed} count={Math.max(1, meta.players.length)} floor={meta.floor} dots={dots} cam={view?.free ? view.cam : null} big={big} onPick={(id) => game.replayWatch(id)} onTeleport={(x, z, y) => game.replayGoto(x, z, y)} />
+        <MiniMap levelId={meta.levelId} seed={meta.seed} count={Math.max(1, meta.players.length)} floor={meta.floor} dots={dots} cam={view?.free ? view.cam : null} big={big} onPick={(id) => game.replayWatch(id)} onTeleport={(x, z, y) => game.replayGoto(x, z, y)} follow={view?.follow} onFollow={(on) => (game.followCam = on)} />
         <button type="button" className="rp-btn rp-mapbox__sz" onClick={() => setBig((b) => !b)}>{big ? 'SMALLER · M' : 'BIGGER · M'}</button>
       </div>
 

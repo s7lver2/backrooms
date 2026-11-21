@@ -10,14 +10,20 @@ import { TILE_COLOR } from './thumb';
  */
 export type Dot = { id: string; x: number; y: number; z: number; yaw: number; color: string; label: string; dead?: boolean; watched?: boolean; ent?: boolean };
 
-type Props = { levelId: string; seed: number; count: number; floor?: number; dots: Dot[]; cam?: { x: number; z: number } | null; onPick?: (id: string) => void; onTeleport?: (x: number, z: number, y: number) => void; big?: boolean };
+type Props = { levelId: string; seed: number; count: number; floor?: number; dots: Dot[]; cam?: { x: number; z: number } | null; onPick?: (id: string) => void; onTeleport?: (x: number, z: number, y: number) => void; big?: boolean; follow?: boolean; onFollow?: (on: boolean) => void };
 
-export function MiniMap({ levelId, seed, count, floor, dots, cam, onPick, onTeleport, big }: Props) {
+export function MiniMap({ levelId, seed, count, floor, dots, cam, onPick, onTeleport, big, follow: followIn, onFollow }: Props) {
   const map = useMemo(() => levelMap(levelId, seed, count, floor ?? 1), [levelId, seed, count, floor]);
   const cv = useRef<HTMLCanvasElement>(null);
   const out = useRef<HTMLSpanElement>(null);
   const [layer, setLayer] = useState<number | null>(null); // null: la de quien se mira
-  const [follow, setFollow] = useState(true);
+  const [followOwn, setFollowOwn] = useState(true);
+  const follow = followIn ?? followOwn;
+  const setFollow = (v: boolean | ((f: boolean) => boolean)) => {
+    const n = typeof v === 'function' ? v(follow) : v;
+    setFollowOwn(n);
+    onFollow?.(n);
+  };
   const [off, setOff] = useState<Set<MarkKind>>(() => new Set(['spawn', 'vent', 'hide']));
   const [legend, setLegend] = useState(false);
   const P = useRef({ map, dots, cam, layer, follow, off, big });
@@ -202,7 +208,7 @@ export function MiniMap({ levelId, seed, count, floor, dots, cam, onPick, onTele
           </>
         )}
         <span style={{ flex: 1 }} />
-        <button type="button" aria-pressed={follow} onClick={() => setFollow((f) => !f)} title="Keep the watched player centered">FOLLOW</button>
+        <button type="button" aria-pressed={follow} onClick={() => setFollow((f) => !f)} title="Keep the watched player centered (also the aerial camera)">FOLLOW</button>
         <button type="button" onClick={() => ((V.current.fit = true), setFollow(false))} title="Fit the whole level">FIT</button>
         <button type="button" aria-pressed={legend} onClick={() => setLegend((l) => !l)}>KEY</button>
       </div>
