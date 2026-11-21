@@ -15,6 +15,7 @@ import { MONEY_LIMIT, parseAdmin } from './admin';
 import { achievementsOf, statsOf as dbStats, avatarRef, deleteSave, loadoutOf, saveOf, savesOf, writeSave } from './db';
 import { award, count, hooks } from './progress';
 import { expirePickupReceipts, type PickupReceipt } from './pickup-receipts';
+import './telemetry'; // (informes de fallo del servidor a GlitchTip con SERVER_SENTRY_DSN: excepciones sin capturar y promesas rechazadas)
 
 /*
  * El servidor de las salas: crea y lista salas, reparte los estados de los jugadores (15 Hz) y lleva la
@@ -152,6 +153,7 @@ const openOf = (r: RoomState) => {
   const players = [...r.players.values()];
   const open = levelsOpen(players.map(p => p.ups));
   if (players.some(p => p.uid && achievementsOf(p.uid).deep_end !== undefined)) open.add('parking');
+  if (players.some(p => p.uid && isAdminName(p.name))) for (const id of Object.keys(LEVELS)) open.add(id); // (la cuenta de admin entra a cualquier nivel, aunque los demás no lo tengan)
   return open;
 };
 /** Guarda la sala (si es de una cuenta): ajustes, banco, ronda y lo de cada cuenta. Se llama con cada cambio en el lobby y al irse alguien. */
@@ -827,9 +829,9 @@ io.on('connection', (sock) => {
         return reply({ ok: true });
       case 'give':
         for (const p of targets) {
-          // (el admin no mira el sitio de la mochila: solo el tope de cada cosa)
+          // (el admin no mira ni el sitio de la mochila ni el tope de cada cosa: antes casi todo daba «no cabe» y no se daba)
           const rr = a.r ?? rollRarity(Math.random()), it = a.item;
-          const plus = (inv: Inventory): Inventory | undefined => (it === 'loot' ? ((inv.loot?.length ?? 0) < 20 ? { ...inv, loot: [...(inv.loot ?? []), { r: rr, w: 0 }] } : undefined) : canHold(inv, it) ? purchase(inv, it, rr) : undefined);
+          const plus = (inv: Inventory): Inventory | undefined => (it === 'loot' ? ((inv.loot?.length ?? 0) < 20 ? { ...inv, loot: [...(inv.loot ?? []), { r: rr, w: 0 }] } : undefined) : purchase(inv, it, rr));
           if (r.phase === 'lobby') {
             const n = plus(p.inv);
             if (n) (p.inv = n), io.to(p.id).emit('inv', p.inv);
@@ -1209,7 +1211,9 @@ io.on('connection', (sock) => {
     const reply = (ok: boolean, error?: string) => typeof cb === 'function' && cb({ ok, error });
     // (en Las Suites también en la partida, al Faceling de recepción: lo comprado va a lo que se lleva, `cap`)
     const inRun = !!r && r.phase === 'playing' && levelCaps(r.levelId).hotel && !!p && !p.dead && !p.boarded;
-    if (!r || !p || !it || (r.phase !== 'lobby' && !inRun)) return reply(false, 'NOT AVAILABLE');
+    if (!r || !p) return reply(false, 'NOT IN A ROOM: RELOAD THE PAGE');
+    if (!it) return reply(false, 'UNKNOWN ITEM');
+    if (r.phase !== 'lobby' && !inRun) return reply(false, r.phase === 'playing' || r.phase === 'starting' ? 'SHOP CLOSED DURING THE ROUND' : 'NOT AVAILABLE NOW');
     const now = Date.now();
     if (now - (p.lastBuy ?? 0) < 150) return reply(false, 'TOO FAST');
     p.lastBuy = now;

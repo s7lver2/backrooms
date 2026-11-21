@@ -1356,7 +1356,8 @@ export class PoolLevel implements Terrain {
       if (swim) {
         if (!w && g - py > 0.9) return false; // salir del agua a la cubierta: hasta 0,9 m
         if (w && py < g - (!f.layer && m.ramp[i] === PR.stairs ? 0.3 : 0.01)) return false; // en la escalera, un peldaño (0,22 m) no es una pared
-      } else if (g - py > (f.layer !== this.lay ? 0.3 : POOL_STEP)) return false; // (a otra planta solo se pasa a ras de ella: en lo alto de la escalera; antes, en las escaleras el suelo alto a 1 m contaba y se atravesaban sus paredes) // no se sube un escalón de más de 1 m (los peldaños son de 0,19)
+      } else if (!f.layer && m.ramp[i] === PR.slide && g - py > 0.05 && !(from >= 0 && (m.ramp[from] === PR.slide || (m.ya[from] === PY.tower && m.ramp[from] === PR.none)))) return false; // el tobogán es sólido: no se entra en él (por un costado, ni desde abajo) sino desde la torre o desde otro tramo
+      else if (g - py > (f.layer !== this.lay ? 0.3 : POOL_STEP)) return false; // (a otra planta solo se pasa a ras de ella: en lo alto de la escalera; antes, en las escaleras el suelo alto a 1 m contaba y se atravesaban sus paredes) // no se sube un escalón de más de 1 m (los peldaños son de 0,19)
     }
     // un tobogán solo se pisa desde la torre o desde otro tramo de tobogán (cuenta la celda del centro, no las esquinas)
     const ci = this.idx(x, z);

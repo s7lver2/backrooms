@@ -287,7 +287,7 @@ function Inventory({
     return n ?? (el?.dataset.where as Where | undefined);
   };
   // ¿sobre el fondo (el margen o el hueco entre columnas, no sobre una columna) y sin casilla cerca? La linterna de la mano no se suelta
-  const outside = (g: Item, x: number, y: number) => !!onDrop && !!DROP[g] && !whereAt(g, x, y) && !!document.elementFromPoint(x, y)?.matches('.br-inv, .iv');
+  const outside = (g: Item, x: number, y: number) => !!onDrop && !!DROP[g] && !whereAt(g, x, y) && !document.elementFromPoint(x, y)?.closest('button, a, input, select, [data-where]'); // (en cualquier parte de la pantalla que no sea una casilla ni un botón)
   const near = (g: Item, x: number, y: number) => {
     let best: Where | undefined, bd = 48;
     document.querySelectorAll<HTMLElement>('.iv-slot[data-where], .iv-cell[data-where]').forEach((n) => {

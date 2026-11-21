@@ -948,8 +948,10 @@ export class BackroomsGame {
   /** Nombre y foto de cada jugador de la sala (por puesto): van a las etiquetas de los casilleros. */
   lockerOwners: { name: string; avatar?: string }[] = [];
   setLockerOwners(list: { name: string; avatar?: string }[]) {
+    const changed = list.length !== this.lockerOwners.length || list.some((o, i) => o.name !== this.lockerOwners[i]?.name);
     this.lockerOwners = list;
     this.waiting?.setOwners(list);
+    if (changed && this.waiting) this.waitMp?.sock.emit('stashTake', -1); // (el puesto -y su casillero- cambia cuando entra o sale alguien: el servidor lo manda de nuevo)
   }
   waitBag = false;
   closeWaitBag() {
@@ -3581,10 +3583,11 @@ fps ${(1 / Math.max(dt, 1e-3)).toFixed(0)}`;
     this.poolSend += dt;
     if (this.poolSend >= 1 / 15) (this.poolSend = 0), this.sendState();
     const dExit = p.dead ? Infinity : Math.hypot(st.x - p.exit.x, st.z - p.exit.z), near = dExit < 2.2 && st.y < 1;
-    if (this.mission?.exit && dExit < 4) p.cab.open(); // la misión está hecha: se abre al acercarse
-    if (this.mission?.exit && dExit < 0.45 && st.y < 1 && !this.winning) {
+    const unlocked = !!(this.mission?.exit || this.mission?.done); // (misión cumplida: el cartel ya dice ELEVATOR OPEN, así que con `done` basta aunque `exit` llegue después)
+    if (unlocked && dExit < 4) p.cab.open(); // la misión está hecha: se abre al acercarse
+    if (unlocked && dExit < 0.45 && st.y < 1 && !this.winning) {
       this.win();
-    } else if (!this.mission?.exit && near && performance.now() > this.note.until) this.note = { text: 'THE DOOR IS SEALED · FINISH THE MISSION', until: performance.now() + 2500 };
+    } else if (!unlocked && near && performance.now() > this.note.until) this.note = { text: 'THE DOOR IS SEALED · FINISH THE MISSION', until: performance.now() + 2500 };
     if (this.winning) {
       if (p.cab.rideT > RIDE) this.black = Math.min(1, this.black + dt / 1.5);
       this.vhs.enabled = true;
