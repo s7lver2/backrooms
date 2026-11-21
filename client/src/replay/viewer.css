@@ -36,14 +36,18 @@
 .rp-vig { position: absolute; inset: 0; background: radial-gradient(ellipse at center, transparent 40%, rgb(0 0 0 / 0.75) 100%); animation: rp-in 0.6s ease-out both; }
 .rp-cap { position: absolute; left: 50%; top: 9%; transform: translateX(-50%); margin: 0; max-width: 60vw; text-align: center; font-size: clamp(18px, 2.6vw, 34px); font-weight: 700; text-shadow: 0 2px 0 #000, 0 0 18px #000; animation: rp-pop 0.5s cubic-bezier(0.2, 1.6, 0.4, 1) both; }
 .rp-feed[data-kind='clip'] .rp-cap { top: auto; bottom: 22%; }
-.rp-feed__l, .rp-feed__r { position: absolute; top: 50%; transform: translateY(-50%); animation: rp-in 0.5s ease-out 0.2s both; }
-.rp-feed__l { left: 16px; }
-.rp-feed__r { right: 16px; }
-.rp-card { width: 150px; display: grid; gap: 6px; padding: 8px; background: rgb(0 0 0 / 0.6); border-top: 3px solid var(--c); }
-.rp-card__banner { height: 44px; border: 1px dashed rgb(255 255 255 / 0.25); }
-.rp-card__badges { display: flex; gap: 6px; }
-.rp-card__badges i { width: 28px; height: 28px; border: 1px dashed rgb(255 255 255 / 0.25); border-radius: 50%; }
-.rp-card__layer { height: 40px; border: 1px dashed rgb(255 255 255 / 0.25); }
+.rp-feed__l, .rp-feed__r { position: absolute; top: 0; bottom: 0; width: clamp(150px, 15vw, 230px); animation: rp-in 0.5s ease-out 0.2s both; }
+.rp-feed__l { left: 0; }
+.rp-feed__r { right: 0; }
+/* la ficha ocupa todo el alto: el fondo (banner), una capa superior encima, las insignias en columna y el nombre abajo */
+.rp-card { position: relative; height: 100%; overflow: hidden; border-inline: 2px solid var(--c); background: linear-gradient(180deg, color-mix(in srgb, var(--c) 28%, #000) 0%, #000 120%); }
+.rp-card__bg { position: absolute; inset: 0; background-size: cover; background-position: center; opacity: 0.9; }
+.rp-card__top { position: absolute; inset: 0; background-size: cover; background-position: center; border: 1px dashed rgb(255 255 255 / 0.12); }
+.rp-card__badges { position: absolute; top: 16px; inset-inline: 0; display: flex; flex-direction: column; align-items: center; gap: 12px; }
+.rp-card__badges i { width: 44px; height: 44px; border: 1px dashed rgb(255 255 255 / 0.3); border-radius: 50%; background: rgb(0 0 0 / 0.3); }
+.rp-card__who { position: absolute; inset-inline: 0; bottom: 0; padding: 40px 10px 16px; display: grid; gap: 2px; text-align: center; background: linear-gradient(0deg, rgb(0 0 0 / 0.85), transparent); }
+.rp-card__who b { font-size: 16px; }
+.rp-card__who span { opacity: 0.65; font-size: 11px; }
 .rp-feed__bar { position: absolute; left: 0; right: 0; bottom: 28px; display: flex; gap: 12px; justify-content: center; align-items: center; }
 .rp-feed__bar span { background: rgb(0 0 0 / 0.6); padding: 4px 10px; }
 @keyframes rp-in { from { opacity: 0; } }

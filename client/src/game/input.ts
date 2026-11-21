@@ -94,6 +94,8 @@ export class Input {
   }
   /** Nadie captura el puntero (la votación de la misión): ni un clic, ni cerrar el chat, ni un pedido anterior que el navegador concede tarde. */
   noLock = false;
+  /** Sin puntero capturado (`noLock`), mirar arrastrando con un boton del raton sobre la imagen (el visor de repeticiones). */
+  dragLook = false;
   /** La ventana externa de admin está abierta: perder el foco al pasar a ella no pausa. */
   noPause = false;
   block(key: string) {
@@ -135,7 +137,7 @@ export class Input {
     });
     on('keyup', (e) => this.keys.delete(e.code));
     on('mousemove', (e) => {
-      if (!this.locked) return;
+      if (!this.locked && !(this.dragLook && e.buttons && e.target === this.el)) return;
       // los saltos falsos del ratón (Chrome da un golpe enorme al capturar el puntero y a veces después de un parón de la
       // página, sobre todo en equipos o conexiones lentas): se ignoran los 150 ms tras capturar y los deltas imposibles
       if (performance.now() - this.lockedAt < 150 || Math.abs(e.movementX) > SPIKE || Math.abs(e.movementY) > SPIKE) return;

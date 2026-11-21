@@ -1310,6 +1310,7 @@ export class BackroomsGame {
     this.audio?.power(1);
     this.bagOpen = false;
     this.input.suspend = false;
+    if (!mp?.replay) this.input.noLock = this.input.dragLook = false;
     this.hideIdx = -1;
     this.holding = this.inspected = false;
     this.noise = 0;
@@ -2956,7 +2957,7 @@ export class BackroomsGame {
     const live = [...this.remotes.values()].filter((r) => !r.dead);
     let t = this.remotes.get(this.watching);
     if (!t || (t.dead && !this.feed)) t = live[0];
-    this.watching = t?.id ?? '';
+    if (!this.feed) this.watching = t?.id ?? ''; // (en una grabacion se sigue mirando al elegido aunque aun no exista: no se cambia a otro)
     if (!t) return void (this.flash.intensity = 0);
     const cam = this.cam, eye = _spec.set(t.pos.x, t.pos.y + 1.62, t.pos.z);
     const chase = this.specView === 'chase';
@@ -3220,8 +3221,8 @@ export class BackroomsGame {
     const src = new ReplaySource(chunks, clock);
     const remap = (all: Record<string, unknown>) => Object.fromEntries(Object.entries(all).map(([id, v]) => [id === mp.id ? '__me__' : id, v]));
     const prev = { spectating: this.spectating, view: this.specView, watching: this.watching };
-    return new Promise<void>((done) => {
-      let over = false;
+    return new Promise<void>((done0) => {
+      let done = done0, over = false;
       const fin = () => {
         if (over) return;
         over = true;
@@ -3237,6 +3238,9 @@ export class BackroomsGame {
       };
       this.feedEnd = fin;
       this.offNet.push(fin);
+      // seguro: pase lo que pase (pestaña oculta, sin fotogramas...) la grabacion se cierra y se vuelve al juego
+      const dog = setTimeout(fin, ((to - from) / 0.3 + 3000) | 0);
+      done = () => (clearTimeout(dog), done0());
       src.on('players', (a) => this.playersIn?.(remap(a as Record<string, unknown>) as never));
       src.on('world', (w) => this.applyWorld(w as WorldSnapshot));
       src.onSeek = () => (this.resync = true);
@@ -3312,6 +3316,7 @@ export class BackroomsGame {
     const r = await loadReplay(id);
     if (!r) return false;
     this.replayData = { meta: r.meta, events: r.chunks.flatMap((c) => c.events).sort((a, b) => a.t - b.t) };
+    this.input.noLock = this.input.dragLook = this.input.noPause = true; // (el cursor libre para el visor; mirar arrastrando)
     const clock = (this.replayClock = new ReplayClock(r.meta.durationMs));
     const src = new ReplaySource(r.chunks, clock);
     this.start(r.meta.seed, { sock: src.sock, id: src.id, replay: src, players: Math.max(1, r.meta.players.length), index: 0, level: r.meta.levelId, floor: r.meta.floor });
@@ -3338,6 +3343,7 @@ export class BackroomsGame {
 
   private poolFrame(dt: number, c: Controls) {
     const pl = this.pool!, me = this.player;
+    if (this.mp?.replay && pl instanceof PoolLevel) pl.dead = true;
     if (this.mp) {
       if (c.pause) return this.pause();
       if (this.totemOpen && c.bag) (c.bag = false), this.closeTotem(); // Esc o E cierran el selector del Tótem (como en el nivel 0)

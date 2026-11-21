@@ -12,13 +12,15 @@ export type FeedUi = { kind: 'death' | 'clip'; caption: string; left?: ProfileCa
 function Card({ c, role }: { c: ProfileCard; role: string }) {
   return (
     <aside className="rp-card" style={{ ['--c' as string]: c.color }}>
-      <div className="rp-card__banner" data-slot="banner">{c.banner ?? ''}</div>
-      <b>{c.name}</b>
-      <span className="rp-dim">{role}</span>
+      <div className="rp-card__bg" data-slot="banner">{c.banner ?? ''}</div>
+      <div className="rp-card__top" data-slot="layer">{c.layer ?? ''}</div>
       <div className="rp-card__badges">
         {[0, 1, 2].map((i) => <i key={i} data-slot="badge">{c.badges[i] ?? ''}</i>)}
       </div>
-      <div className="rp-card__layer" data-slot="layer">{c.layer ?? ''}</div>
+      <div className="rp-card__who">
+        <b>{c.name}</b>
+        <span>{role}</span>
+      </div>
     </aside>
   );
 }

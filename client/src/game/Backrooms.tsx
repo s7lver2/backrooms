@@ -663,7 +663,7 @@ export default function Backrooms({ onQuit, onWin }: { onQuit: () => void; onWin
     if (!(await g.openReplay(id))) (setReplay(false), (g.input.noPause = false), setScreen('replays'));
   }, []);
   const leaveReplay = useCallback(() => {
-    if (game.current) ((game.current.input.noPause = false), game.current.stop());
+    if (game.current) ((game.current.input.noPause = game.current.input.noLock = game.current.input.dragLook = false), game.current.stop());
     started.current = false;
     setReplay(false);
     setScreen('replays');
