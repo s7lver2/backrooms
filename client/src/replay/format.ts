@@ -3,6 +3,8 @@
  * `v` cambia cuando cambia el formato; `build` es la version del juego con la que se grabo.
  */
 export const REPLAY_FORMAT = 1;
+/** Version del juego para las repeticiones: se sube a mano cuando cambian el generador de mapas o los modelos (una repeticion de otra version se avisa como antigua). */
+export const REPLAY_BUILD = 'r1';
 /** Cada cuanto se guarda un fotograma completo (clave) para poder saltar en la timeline, en ms. */
 export const KEY_EVERY = 5000;
 /** Tope de una partida comprimida: pasado esto se deja de grabar y se marca como truncada. */

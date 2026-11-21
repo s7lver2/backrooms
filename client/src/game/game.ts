@@ -48,6 +48,7 @@ import { holdStill } from './still';
 import { netStats, type Sock } from '../net';
 import { worldTl } from './interp';
 import { ANISO, FPS_CAPS, setSetting, settings } from '../settings';
+import { Recorder } from '../replay/recorder';
 import { loadTapes, saveTape } from './tapes';
 import { watchCanvas } from '../errlog';
 import { gearIcons } from './invIcons';
@@ -748,6 +749,8 @@ export class BackroomsGame {
   private lookOf = (id?: string) => this.looks.get(id ?? '') ?? this.myLook ?? DEFAULT_LOOK;
   private entMap = new Map<number, Entity>();
   private offNet: (() => void)[] = [];
+  /** La grabacion de esta ronda (repeticiones), si el ajuste esta activo. */
+  private rec?: Recorder;
   private sendT = 0;
   private lastFrame = 0;
   private spectating = false;
@@ -2636,6 +2639,11 @@ export class BackroomsGame {
   private wire(mp: Mp, items?: Items) {
     this.mp = mp;
     const s = mp.sock;
+    if (settings.recordReplays) {
+      const pl = this.pool instanceof PoolLevel ? this.pool : undefined;
+      const rec = (this.rec = new Recorder(s, { levelId: mp.level ?? (this.parking ? 'parking' : 'level0'), floor: mp.floor, seed: pl ? pl.seed : this.seed0 }));
+      this.offNet.push(() => (void rec.stop(), this.rec === rec && (this.rec = undefined)));
+    }
     worldTl.reset(100); // snapshots del mundo cada 100 ms
     const onPlayers = (all: Record<string, PlayerState & { name: string; dead: boolean }>) => {
       for (const id in all) this.hps[id] = all[id].hp ?? HP_MAX;
@@ -3009,6 +3017,7 @@ export class BackroomsGame {
     const at = pl ? pl.state : { x: this.caps.hotel ? wrapX(p.pos.x) : p.pos.x, y: p.pos.y, z: p.pos.z, yaw: p.yaw, pitch: p.pitch };
     if (Math.abs(at.x - this.sentX) > 10) this.tp++; // (un teletransporte —Uno Reverse, admin, bucle de Las Suites— se cuenta aparte: el servidor no lo recorta)
     this.sentX = at.x;
+    this.rec?.own(at.x, at.y, at.z, at.yaw, at.pitch);
     const socket = reliable ? this.mp.sock : this.mp.sock.volatile;
     socket.emit('state', { victory: emoteGate.victory, x: at.x, tp: this.tp, y: at.y, z: at.z, yaw: at.yaw, pitch: at.pitch, anim: 'Neutral Idle', dance: p.dancing || undefined, variant: p.variant || undefined, light: p.lightOn, duck: p.duck, tank: pl ? p.tankWorn : undefined, held: p.concealed || p.hand === 'watergun' ? 'none' : p.hand, jam: pl ? Math.round(pl.jam) : undefined, hiding: p.concealed, holding: this.holding, t: performance.now() });
   }
