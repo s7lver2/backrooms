@@ -1,5 +1,5 @@
 import {
-  Breath, levelCaps, seesXZ, CELL, DIFFICULTY, EEH_HOLD, HIT_DAMAGE, EntitySim, TV_REACH, centerOf, generateMaze, poolMaze, generatePools, PK, suitesMaze, hideStates, itemSpots, subOf, solidAt, tickHides, totemSpot, tvPoint, tvSites, NOISE_RUN, NOISE_SHOT, NOISE_DROP, SUITE_L, wrapX,
+  Breath, levelCaps, separate, seesXZ, CELL, DIFFICULTY, EEH_HOLD, HIT_DAMAGE, EntitySim, TV_REACH, centerOf, generateMaze, poolMaze, generatePools, PK, suitesMaze, hideStates, itemSpots, subOf, solidAt, tickHides, totemSpot, tvPoint, tvSites, NOISE_RUN, NOISE_SHOT, NOISE_DROP, SUITE_L, wrapX,
   type Difficulty, type Inventory, type Ups, type Look, type Mission, type HideState, type EntState, type ItemSpot, type Kind, type Maze, type Noise, type PlayerState, type SimTarget, type WorldSnapshot,
 } from '@backrooms/shared';
 import { ParkingMatch } from './parking-match';
@@ -412,6 +412,7 @@ export class Match {
     }
     const noises = this.age > this.grace ? this.noises : [];
     this.noises = [];
+    if (!this.frozen) separate(this.ents.map((e) => e.sim));
     for (const e of this.frozen ? [] : [...this.ents]) {
       if (!this.ents.includes(e)) continue; // (otra entidad, hechizada, acaba de matarla)
       e.sim.blind = fogAt(e.sim.x, e.sim.z);

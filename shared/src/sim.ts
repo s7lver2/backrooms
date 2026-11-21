@@ -227,6 +227,24 @@ export function solidAt(m: Maze, x: number, z: number, elevatorOpen = false) {
 }
 
 /** ¿Se ve (bx,bz) desde (ax,az) sin pared en medio? (pasos de 25 cm por la rejilla) */
+/**
+ * Que las entidades no se amontonen: a las que se pisan (cuerpos de `R` m de radio) se las separa a lo largo de la línea que las une, a medias;
+ * la que está inspeccionando un nicho o atacando no se mueve (la otra cede), y nada se empuja a una pared. Una vez por paso, antes de moverlas.
+ */
+export function separate(sims: EntitySim[], R = 0.4) {
+  const live = sims.filter((s) => s.alive && s.state !== 'dead');
+  for (let i = 0; i < live.length; i++)
+    for (let j = i + 1; j < live.length; j++) {
+      const a = live[i], b = live[j], dx = b.x - a.x, dz = b.z - a.z, d = Math.hypot(dx, dz);
+      if (d >= 2 * R) continue;
+      const ux = d > 1e-4 ? dx / d : 1, uz = d > 1e-4 ? dz / d : 0, over = 2 * R - d;
+      const fixed = (s: EntitySim) => s.state === 'inspect' || s.state === 'attack' || s.state === 'dance';
+      const wa = fixed(a) ? 0 : fixed(b) ? 1 : 0.5, wb = fixed(b) ? 0 : fixed(a) ? 1 : 0.5;
+      if (wa && !a.solid(a.x - ux * over * wa, a.z - uz * over * wa)) (a.x -= ux * over * wa), (a.z -= uz * over * wa);
+      if (wb && !b.solid(b.x + ux * over * wb, b.z + uz * over * wb)) (b.x += ux * over * wb), (b.z += uz * over * wb);
+    }
+}
+
 export function seesXZ(solid: (x: number, z: number) => boolean, ax: number, az: number, bx: number, bz: number) {
   const d = Math.hypot(bx - ax, bz - az), n = Math.min(Math.ceil(d / 0.25), 800); // (tope: una coordenada disparatada no cuelga el bucle)
   for (let i = 1; i < n; i++) {

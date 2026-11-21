@@ -86,6 +86,10 @@ export class Entity implements Target {
   balloon?: THREE.Object3D;
   /** La cabeza (solo en solitario). */
   private sim?: Brain;
+  /** Su IA del laberinto, si la lleva (para separarlas entre sí; ver `separate`). */
+  get maze_sim() {
+    return this.sim instanceof EntitySim ? this.sim : undefined;
+  }
   private facing = 0;
   /** Hp con el que empezó: la siguiente aguanta uno más. */
   readonly hp0: number;

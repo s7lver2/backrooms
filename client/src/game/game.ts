@@ -57,7 +57,7 @@ import { Epilogue, findSpot, type Actor, type Arena, type Stage } from './epilog
 import { POOL_CELL, WAIT_HALF, EMOTE_DEFS, type RoundResult, type Sold } from '@backrooms/shared';
 import { type LockerItem, RIFLE_MAG, canHold, ITEM_IDS, START_INV, type AdminFx, makeMission, missionLine, tvCount, type ActiveMission, type Inventory, type ItemId, type MissionKind, type Maze, type LevelCaps, levelCaps, NOISE_RUN, NOISE_SHOT, NOISE_PHOTO, type Noise } from '@backrooms/shared';
 import { Explosion } from './explosion';
-import { Breath, HEIGHT as ENT_HEIGHT, DEFAULT_LOOK, EEH_HOLD, HIT_DAMAGE, HP_MAX, MONSTER, PILLS, GLASSES, SUITE_FLOORS, REVIVE_IMMUNE, boostOf, totemSpot, type Look, hideStates, tickHides, startOffset, type HideState, type PlayerState, type RoomView, type ToolFx, type WorldSnapshot, FLIGHT_DT, flight } from '@backrooms/shared';
+import { separate, Breath, HEIGHT as ENT_HEIGHT, DEFAULT_LOOK, EEH_HOLD, HIT_DAMAGE, HP_MAX, MONSTER, PILLS, GLASSES, SUITE_FLOORS, REVIVE_IMMUNE, boostOf, totemSpot, type Look, hideStates, tickHides, startOffset, type HideState, type PlayerState, type RoomView, type ToolFx, type WorldSnapshot, FLIGHT_DT, flight } from '@backrooms/shared';
 import { parkingOptionsForMission, PARKING_HEIGHT, isEeh } from '@backrooms/shared';
 import { ITEMS, PARKING_ITEM_IDS, type ParkingItemId } from '@backrooms/shared';
 
@@ -1729,6 +1729,7 @@ export class BackroomsGame {
     if (p.speed > 2 && !p.concealed) this.noises.push({ x: p.pos.x, z: p.pos.z, r: NOISE_RUN });
     const noises = this.noises;
     this.noises = [];
+    if (!this.entFrozen) separate(this.entities.flatMap((e) => e.maze_sim ?? []));
     for (const e of this.entities) {
       if (!e.alive || this.entFrozen) continue;
       if (e.update(dt, p.pos, eye, torch, exposed, this.god, occ, p.concealed, p.duck, p.yaw, noises) && this.dying < 0) this.hurt(e);
