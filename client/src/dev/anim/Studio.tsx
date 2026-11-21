@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import * as THREE from 'three';
-import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
-import { MeshoptDecoder } from 'three/examples/jsm/libs/meshopt_decoder.module.js';
+import { gltfLoader } from '../../game/gltf';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { clone } from 'three/examples/jsm/utils/SkeletonUtils.js';
 import { Animator, TREE, VARIANTS, MANIFEST, guessCat, loadAnimations, type Cat } from '../../game/anim/animator';
@@ -124,7 +123,7 @@ export default function Studio() {
     scene.add(eye); // (los objetos de la mano cuelgan de esta cámara: sin esto no se ven desde fuera)
 
     let alive = true, raf = 0, last = performance.now();
-    const loader = new GLTFLoader().setMeshoptDecoder(MeshoptDecoder);
+    const loader = gltfLoader();
     const names = ['hazmat', 'flashlight', 'camcorder', 'gun', 'duct', 'radar', 'totem', 'water', 'vhs'] as const;
     Promise.all([...names.map((n) => loader.loadAsync(`/models/backrooms/${n}.glb`)), loadAnimations(), loadPoolKit(), loadItemModels()]).then(async (all) => {
       if (!alive) return;

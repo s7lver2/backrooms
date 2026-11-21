@@ -7,8 +7,8 @@ import { glow, lootModel, pulse } from './rarityFx';
 import { itemModel, loadItemModels } from './itemModels';
 import { perks } from './perks';
 import { loadLods } from './lods';
-import { GLTFLoader, type GLTF } from 'three/examples/jsm/loaders/GLTFLoader.js';
-import { MeshoptDecoder } from 'three/examples/jsm/libs/meshopt_decoder.module.js';
+import type { GLTF } from 'three/examples/jsm/loaders/GLTFLoader.js';
+import { gltfLoader } from './gltf';
 import { compileGently } from './compile';
 import { perf } from '../perf';
 import { emoteGate } from './emotes';
@@ -263,7 +263,7 @@ const paint = () =>
 const lateP = new Map<string, Promise<void>>();
 /** Baja modelos que la carga dejó para después y los pone en `assets.gltf` (una sola descarga por modelo). */
 export function loadModels(assets: Assets, names: readonly string[]): Promise<void> {
-  const loader = new GLTFLoader().setMeshoptDecoder(MeshoptDecoder);
+  const loader = gltfLoader();
   return Promise.all(
     names.map(
       (m) =>
@@ -287,7 +287,7 @@ export const ensureSuites = (assets: Assets) => loadModels(assets, SUITE_MODELS)
 /** Descarga todo, con el progreso en bytes (aproximado: lo que diga cada respuesta). */
 export async function loadAssets(progress: (f: number) => void): Promise<Assets> {
   perf.mark('assets:start');
-  const loader = new GLTFLoader().setMeshoptDecoder(MeshoptDecoder);
+  const loader = gltfLoader();
   const eager = MODELS.filter((m) => !SUITE_SET.has(m));
   const urls = [...eager.map((m) => DIR + m + '.glb'), ...TEXTURES.map((t) => DIR + 'tex/' + t + '.webp')];  const got = new Map<string, number>(), total = new Map<string, number>();
   const tick = () => {

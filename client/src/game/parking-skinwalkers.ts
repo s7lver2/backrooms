@@ -1,6 +1,6 @@
 import * as THREE from 'three';
-import { GLTFLoader, type GLTF } from 'three/examples/jsm/loaders/GLTFLoader.js';
-import { MeshoptDecoder } from 'three/examples/jsm/libs/meshopt_decoder.module.js';
+import type { GLTF } from 'three/examples/jsm/loaders/GLTFLoader.js';
+import { gltfLoader } from './gltf';
 import { HP_MAX, HIT_DAMAGE, parkingContains, type Look, type ParkingPoint } from '@backrooms/shared';
 import { Rig } from './rig';
 import { followPose } from './entity';
@@ -39,7 +39,7 @@ export class ParkingSkinwalkers {
     for(const agent of this.ai.agents){const h=new Rig(human),b=new Rig(beast),root=new THREE.Group(),owned=[...ownMaterials(h.root),...ownMaterials(b.root)],cos=new Cosmetics(h.root);cos.set(look);root.add(h.root,b.root);root.visible=cos.root.visible=false;this.group.add(root,cos.root);const particleMat=new THREE.PointsMaterial({color:0x69766b,size:.05,transparent:true,opacity:0,depthWrite:false,fog:true}),particles=new THREE.Points(geometry,particleMat);root.add(particles);this.resources.add(particleMat);h.play('Neutral Idle',0);h.update(0);b.play('idle',0);b.update(0);this.actors.push({agent,root,human:h,beast:b,cos,humanMats:materials(h.root),beastMats:materials(b.root),owned,particles,particleMat,attack:0,attackHold:0});}
   }
   static async load(level:ParkingLevel,look:Look,initial?:ParkingPoint,low=false,humanPrefab?:GLTF){
-    const loader=new GLTFLoader().setMeshoptDecoder(MeshoptDecoder);
+    const loader=gltfLoader();
     const [human,beast,smilerFace]=await Promise.all([
       humanPrefab ?? loader.loadAsync('/models/backrooms/hazmat.glb'),
       loader.loadAsync('/models/parking/skinwalker.glb'),

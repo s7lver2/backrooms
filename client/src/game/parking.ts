@@ -7,8 +7,8 @@ import { ParkingPuddles } from './parking-puddles';
 import { itemModel } from './itemModels';
 import type { Terrain } from './terrain';
 import { parkingLampState } from './parking-lighting';
-import { GLTFLoader, type GLTF } from 'three/examples/jsm/loaders/GLTFLoader.js';
-import { MeshoptDecoder } from 'three/examples/jsm/libs/meshopt_decoder.module.js';
+import type { GLTF } from 'three/examples/jsm/loaders/GLTFLoader.js';
+import { gltfLoader } from './gltf';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { DecalGeometry } from 'three/examples/jsm/geometries/DecalGeometry.js';
 import { PARKING_HEIGHT as H, PARKING_SLAB, parkingContains, parkingFits, parkingDoorBlocks, parkingLeafBlocks, parkingWorkbench, parkingArea, parkingFloorLabel, parkingGeneratorBounds, lockerItem, lockerLocked, ITEMS, type ItemId, type ParkingRoom, type ParkingMap, type ParkingFloor, type ParkingPoint, type ParkingRect, type WorldSnapshot } from '@backrooms/shared';
@@ -94,7 +94,7 @@ export class ParkingLevel {
   private material(options: THREE.MeshStandardMaterialParameters) { return this.own(new THREE.MeshStandardMaterial(options)); }
 
   async load(progress: (text: string) => void, prefabs?: { water: GLTF; flashlight: GLTF; vhs: GLTF }) {
-    const loader = new GLTFLoader().setMeshoptDecoder(MeshoptDecoder), tex = new THREE.TextureLoader();
+    const loader = gltfLoader(), tex = new THREE.TextureLoader();
     const names: Record<string, string> = {
       lamp: 'parking/fluorescent-kit.glb', pipe: 'parking/pipe-kit.glb', duct: 'parking/duct-detailed-kit.glb',
       car: 'parking/car.glb',

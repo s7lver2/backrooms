@@ -8,8 +8,7 @@ import { ElevatorCab } from './elevator';
 import { Reflector } from 'three/examples/jsm/objects/Reflector.js';
 import { RectAreaLightUniformsLib } from 'three/examples/jsm/lights/RectAreaLightUniformsLib.js';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
-import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
-import { MeshoptDecoder } from 'three/examples/jsm/libs/meshopt_decoder.module.js';
+import { gltfLoader } from './gltf';
 import type { Terrain } from './terrain';
 import { PickupField, type Pickup, type PickupHost, type PickupModel } from './pickups';
 import { inventoryModels, itemModel } from './itemModels';
@@ -61,7 +60,7 @@ export function tankFx(gun: THREE.Object3D) {
 }
 export function loadPoolKit(): Promise<PoolKit> {
   return (kitP ??= (async () => {
-    const loader = new GLTFLoader().setMeshoptDecoder(MeshoptDecoder), kit = kitDone;
+    const loader = gltfLoader(), kit = kitDone;
     // cada pieza con un máximo de espera (una descarga lenta o colgada no bloquea el nivel: se salta) y el kit se da por bueno pase lo que pase
     const wait = new Promise<void>((r) => setTimeout(r, KIT_WAIT));
     await Promise.race([

@@ -42,7 +42,7 @@ async function apply(key: string, gltf: { parser: Parser }, idx: { tex?: Index; 
   const p = gltf.parser, jobs: Promise<void>[] = [];
   const tex = idx.tex?.[key], nrm = idx.nrm?.[key];
   for (const [obj, a] of p.associations) {
-    if (tex && obj instanceof THREE.Texture && a.textures !== undefined) {
+    if (tex && obj instanceof THREE.Texture && !(obj as THREE.CompressedTexture).isCompressedTexture && a.textures !== undefined) { // (las texturas KTX2 no se sustituyen: el pack HD aún no está adaptado)
       const t = p.json.textures?.[a.textures], src = t?.extensions?.EXT_texture_webp?.source ?? t?.source, hd = src === undefined ? undefined : tex[String(src)];
       if (hd) jobs.push(img('/hd/' + hd).then((i) => void (i && ((obj.image = i), (obj.needsUpdate = true)))));
     } else if (nrm && obj instanceof THREE.MeshStandardMaterial && a.materials !== undefined && !obj.normalMap && nrm[String(a.materials)]) {

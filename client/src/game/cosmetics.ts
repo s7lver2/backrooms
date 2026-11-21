@@ -1,7 +1,6 @@
 import { DEV_LOCAL } from '../devGate';
 import * as THREE from 'three';
-import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
-import { MeshoptDecoder } from 'three/examples/jsm/libs/meshopt_decoder.module.js';
+import { gltfLoader } from './gltf';
 import { cosmetic, type Look } from '@backrooms/shared';
 import { fit } from './player';
 import raw from './pieces.json';
@@ -50,7 +49,7 @@ function strip(m: THREE.Mesh, s: { x: number; z: number; r: number; y: number })
   g.setIndex(keep);
 }
 
-const loader = new GLTFLoader().setMeshoptDecoder(MeshoptDecoder);
+const loader = gltfLoader();
 const cache = new Map<string, Promise<THREE.Object3D | undefined>>();
 /** El modelo de un accesorio (una sola descarga por pieza); undefined si no carga. */
 export const model = (id: string) => {

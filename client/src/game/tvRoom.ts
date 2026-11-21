@@ -1,6 +1,5 @@
 import * as THREE from 'three';
-import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
-import { MeshoptDecoder } from 'three/examples/jsm/libs/meshopt_decoder.module.js';
+import { gltfLoader } from './gltf';
 import { mergeGeometries, toCreasedNormals } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 
 /*
@@ -109,7 +108,7 @@ export class TvRoom {
     this.scene.add(cable, socket);
 
     // la tele (la de antena de la sala de vigilancia), en el suelo y mirando a la cámara
-    const gl = new GLTFLoader().setMeshoptDecoder(MeshoptDecoder);
+    const gl = gltfLoader();
     gl.load('/models/surveilance_room/antennatv.glb', (g) => {
       const tv = g.scene;
       tv.traverse((o) => {

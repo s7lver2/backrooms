@@ -1,6 +1,6 @@
 import * as THREE from 'three';
-import { GLTFLoader, type GLTF } from 'three/examples/jsm/loaders/GLTFLoader.js';
-import { MeshoptDecoder } from 'three/examples/jsm/libs/meshopt_decoder.module.js';
+import type { GLTF } from 'three/examples/jsm/loaders/GLTFLoader.js';
+import { gltfLoader } from './gltf';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { emoteGate } from './emotes';
 import { settings } from '../settings';
@@ -167,7 +167,7 @@ export class WaitingRoom {
 
   /** Descarga el ordenador y el botón (si no llegan, la sala sale con cajas en su lugar) y monta la sala. */
   static async load(assets: Assets, reduced: boolean) {
-    const gl = new GLTFLoader().setMeshoptDecoder(MeshoptDecoder);
+    const gl = gltfLoader();
     const get = (n: string) => gl.loadAsync(`/models/waiting/${n}.glb`).catch((e) => (console.warn('waiting model', n, e), undefined));
     const [pc, btn, chair, vend, wb, scale, tent, bench, jerry, beacon, firstaid, radio, extinguisher, rack, c64, lockerx, crates, skeleton, barrels, generator, body] = await Promise.all([get('computer'), get('button'), get('chair50'), get('vending'), get('whiteboard'), get('scale'), get('tent'), get('labbench'), get('jerrycan'), get('beacon'), get('firstaid'), get('radio'), get('extinguisher'), get('rack'), get('c64'), get('lockerd'), get('crate2'), get('skeleton'), get('barrel'), get('generator'), get('body')]);
     return new WaitingRoom(assets, reduced, pc, btn, { chair, tent, bench, jerry, beacon, firstaid, radio, extinguisher, rack, c64, lockerx, crates, skeleton, barrels, generator, body }, vend, wb, scale);
