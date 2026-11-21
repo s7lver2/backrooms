@@ -258,6 +258,16 @@ export class GameAudio {
     if (this.open > 0.55) for (const [t, k] of [[0.11, 0.35], [0.23, 0.15]]) this.burst(0.12, (run ? 0.22 : 0.15) * k * this.open * vol, 220, 0.7, 'lowpass', t, dest);
   }
 
+  /** El paso pesado de quien te persigue: un golpe grave con su retumbo; más fuerte cuanto más cerca (`d`, metros). */
+  stomp(d: number) {
+    const v = Math.max(0, Math.min(1, 1 - d / 18));
+    if (v < 0.04) return;
+    this.burst(0.14, 0.7 * v, 130, 0.9, 'lowpass');
+    this.tone(70, 0.22, 0.45 * v, 'sine', 0, 38);
+    this.burst(0.05, 0.12 * v, 900, 1.2, 'bandpass');
+    if (this.open > 0.55) this.burst(0.2, 0.3 * v * this.open, 200, 0.7, 'lowpass', 0.14);
+  }
+
   /** Poolrooms: un paso por el agua o una brazada (chapoteo suave). */
   wade(run = false) {
     this.burst(0.22, run ? 0.16 : 0.1, 900, 0.7, 'lowpass');

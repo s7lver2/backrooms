@@ -776,6 +776,7 @@ export class BackroomsGame {
   private hides: HideState[] = [];
   private hideIdx = -1;
   private breath = new Breath();
+  private stompT = new WeakMap<Entity, number>();
   private holding = false;
   private inspected = false;
   private noise = 0;
@@ -1732,6 +1733,15 @@ export class BackroomsGame {
       if (!e.alive || this.entFrozen) continue;
       if (e.update(dt, p.pos, eye, torch, exposed, this.god, occ, p.concealed, p.duck, p.yaw, noises) && this.dying < 0) this.hurt(e);
       near[e.kind] = Math.min(near[e.kind], e.pos.distanceTo(p.pos));
+      // el que te persigue: pasos pesados al ritmo de su carrera y la cámara tiembla un poco, más cuanto más cerca
+      if (e.kind === 'faceling' && e.state === 'chase') {
+        const d = e.pos.distanceTo(p.pos), t = (this.stompT.get(e) ?? 0) + dt;
+        if (t >= 0.32) {
+          this.stompT.set(e, t - 0.32);
+          this.audio?.stomp(d);
+          if (d < 18) this.shake = Math.max(this.shake, 0.004 + 0.016 * (1 - d / 18));
+        } else this.stompT.set(e, t);
+      }
     }
     if (this.dying < 0) {
       this.audio?.near('bacteria', near.bacteria);
