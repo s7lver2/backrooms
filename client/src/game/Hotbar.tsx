@@ -1,12 +1,12 @@
 import { useMemo } from 'react';
 import type { Assets, Inv } from './game';
 import { HOT, HOT_SLOTS } from './quickslots';
-import { gearIcons } from './invIcons';
+import { useIcons } from './invIcons';
 import { perks } from './perks';
 
 /** La barra de acceso rápido, abajo en el HUD: 1–4 con la rueda para elegir, el número (o un clic/toque) para usar. */
 export default function Hotbar({ inv, assets, onUse }: { inv: Inv; assets: Assets; onUse: (i: number) => void }) {
-  const icons = gearIcons(assets); // (sin memo: lo que falló al capturarse se reintenta)
+  const icons = useIcons(assets); // (sin memo: lo que falló al capturarse se reintenta)
   return (
     <div className="hb" role="toolbar" aria-label="Quick access">
       {Array.from({ length: Math.min(HOT_SLOTS, perks.stats.hot) }, (_, i) => {

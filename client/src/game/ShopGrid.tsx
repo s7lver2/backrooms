@@ -3,7 +3,7 @@ import { INV_MAX, ITEMS, canHold, facelingStock, type ShopItem, type Inventory, 
 import type { Sock } from '../net';
 import { sound } from './audio';
 import type { Assets } from './game';
-import { gearIcons } from './invIcons';
+import { useIcons } from './invIcons';
 import { perks } from './perks';
 import './shopgrid.css';
 
@@ -15,7 +15,7 @@ import './shopgrid.css';
 const COLS = 5, HOLD_MS = 650; // una cuadrícula cuadrada de casillas cuadradas
 
 export default function ShopGrid({ bank, inv, sock, assets, open, seed, floor, onBought }: { seed: number; floor?: number; bank: number; inv: Inventory | null; sock?: Sock; assets?: Assets; open?: ReadonlySet<string>; onBought?: (id: ItemId) => void }) {
-  const icons = assets ? gearIcons(assets) : null; // (sin memo: lo que falló al capturarse se reintenta, y lo hecho sale de la caché)
+  const icons = useIcons(assets); // (sin memo: lo que falló al capturarse se reintenta, y lo hecho sale de la caché)
   const key = open ? [...open].sort().join() : '';
   const stock = useMemo(() => facelingStock(seed, floor ?? 1, open), [seed, floor, key]); // eslint-disable-line react-hooks/exhaustive-deps
   // dónde va cada producto: casillas al azar (distintas en cada visita) de la cuadrícula

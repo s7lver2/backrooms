@@ -307,7 +307,7 @@ export async function loadAssets(progress: (f: number) => void): Promise<Assets>
   const gltf = {} as Assets['gltf'], tex = {} as Assets['tex'];
   const tl = new THREE.TextureLoader();
   await Promise.all([
-    __PHOENYX__ ? loadLods(MODELS) : Promise.resolve(), // (three no usa los LOD)
+    loadLods(MODELS),
     ...eager.map((m) => loader.loadAsync(DIR + m + '.glb', on(DIR + m + '.glb')).then((g) => void ((g.scene.userData.model = m), (gltf[m] = g)))),
     ...TEXTURES.map((t) =>
       tl.loadAsync(DIR + 'tex/' + t + '.webp').then((x) => {

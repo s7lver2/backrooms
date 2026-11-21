@@ -1,5 +1,4 @@
 import * as THREE from 'three';
-import * as REAL from 'three-real'; // el WebGL de verdad: con Phoenyx el render es asíncrono y drawImage copiaba un lienzo vacío
 import { fit } from './player';
 import { model } from './cosmetics';
 
@@ -42,9 +41,11 @@ function dummy(hex: string | null, own: THREE.Material[]) {
 }
 
 export class Thumbs {
-  private r?: REAL.WebGLRenderer;
-  private scene = new REAL.Scene();
-  private cam = new REAL.PerspectiveCamera(30, 1, 0.1, 20);
+  private r?: THREE.WebGLRenderer;
+  /** El renderer de Phoenyx arranca la GPU de forma asíncrona: hasta `ready` no se dibuja (las cajitas se pintan en cuanto llega). */
+  private ok = false;
+  private scene = new THREE.Scene();
+  private cam = new THREE.PerspectiveCamera(30, 1, 0.1, 20);
   private entries = new Map<HTMLCanvasElement, Entry>();
   private raf = 0;
   private visible = true;
@@ -58,8 +59,8 @@ export class Thumbs {
   constructor(private reduced: boolean, watch?: Element | null) {
     this.cam.position.set(0, 0.45, 3.3);
     this.cam.lookAt(0, 0, 0);
-    this.scene.add(new REAL.HemisphereLight(0xfff1c4, 0x3a2c0c, 1.7));
-    const key = new REAL.DirectionalLight(0xfff0d0, 2.4);
+    this.scene.add(new THREE.HemisphereLight(0xfff1c4, 0x3a2c0c, 1.7));
+    const key = new THREE.DirectionalLight(0xfff0d0, 2.4);
     key.position.set(2, 3, 3);
     this.scene.add(key);
     if (watch && 'IntersectionObserver' in window) {
@@ -114,13 +115,19 @@ export class Thumbs {
   private draw(e: Entry, angle: number) {
     if (!e.obj) return;
     const r = (this.r ??= (() => {
-      const x = new REAL.WebGLRenderer({ antialias: true, alpha: true });
-      x.outputColorSpace = REAL.SRGBColorSpace;
-      x.toneMapping = REAL.ACESFilmicToneMapping;
+      const x = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+      x.outputColorSpace = THREE.SRGBColorSpace;
+      x.toneMapping = THREE.ACESFilmicToneMapping;
       x.setPixelRatio(1);
       x.setSize(SIZE, SIZE, false);
+      void ((x as unknown as { ready?: Promise<void> }).ready ?? Promise.resolve()).then(() => {
+        if (this.dead) return;
+        this.ok = true;
+        for (const e of this.entries.values()) if (e.obj && !this.pending.includes(e)) this.pending.push(e); // (lo que no se pudo pintar antes)
+      });
       return x;
     })());
+    if (!this.ok) return;
     const ctx = e.cv.getContext('2d');
     if (!ctx) return;
     e.obj.rotation.y = angle;

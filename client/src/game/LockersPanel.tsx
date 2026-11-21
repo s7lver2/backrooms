@@ -4,7 +4,7 @@ import { ITEMS, ITEM_IDS, hasItem, rarity, type Inventory, type ItemId, type Sta
 import type { Sock } from '../net';
 import { sound } from './audio';
 import type { Assets } from './game';
-import { gearIcons } from './invIcons';
+import { useIcons } from './invIcons';
 import './shopgrid.css';
 import './lockers.css';
 
@@ -21,7 +21,7 @@ export default function LockersPanel({ sock, inv, assets, onClose }: { sock: Soc
   const [mineIdx, setMineIdx] = useState(0);
   const [note, setNote] = useState<{ t: string; bad: boolean }>({ t: '', bad: false });
   const [sel, setSel] = useState<string>('');
-  const icons = assets ? gearIcons(assets) : null;
+  const icons = useIcons(assets);
   useEffect(() => {
     const on = (l: (Stashed | null)[], m: number) => (setSlots(l), setMineIdx(m));
     sock.on('stash', on);

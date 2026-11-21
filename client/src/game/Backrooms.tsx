@@ -921,7 +921,7 @@ export default function Backrooms({ onQuit, onWin }: { onQuit: () => void; onWin
       {screen === 'menu' && (
         <nav className="br-menu" aria-label="Backrooms">
           <p className="br-menu__ch">CH 03</p>
-          {__PHOENYX__ && (
+          {(
             <a className="br-built" href="https://github.com/s7lver2/phoenyx" target="_blank" rel="noreferrer" aria-label="Built with Phoenyx">
               <img
                 src="/brand/phoenyx-64.png"

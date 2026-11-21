@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type PointerEvent as RPE } from 'react';
 import { ITEMS, ITEM_IDS, LEVELS, UPGRADES, UP_IDS, boughtBefore, upCost, upLevel, type ItemId, type UpId, type Ups } from '@backrooms/shared';
 import type { Assets } from './game';
-import { gearIcons } from './invIcons';
+import { useIcons } from './invIcons';
 import ItemView from './ItemView';
 import type { Sock } from '../net';
 import { sound } from './audio';
@@ -72,7 +72,7 @@ const unlocks = (id: UpId): ItemId[] => {
 };
 
 export default function Upgrades({ bank, ups, sock, assets }: { bank: number; ups: Ups; sock?: Sock; assets?: Assets }) {
-  const icons = assets ? gearIcons(assets) : undefined;
+  const icons = useIcons(assets);
   const [sel, setSel] = useState<NodeKey>(NODES[0].key);
   const [hover, setHover] = useState<NodeKey | null>(null);
   const [msg, setMsg] = useState<{ t: string; bad: boolean }>({ t: '', bad: false });

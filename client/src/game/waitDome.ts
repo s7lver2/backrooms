@@ -166,7 +166,7 @@ export class Dome {
     this.light.position.y = -0.6;
     g.add(this.light);
     // con Phoenyx (Lux): además, un foco que baja por la cúpula con sombras (el cielo ilumina y los muebles proyectan), en vez de solo el punto
-    if (__PHOENYX__) {
+    {
       const spot = new THREE.SpotLight(0xe8f0d0, reduced ? 40 : 90, WAIT_H * 2.2, Math.atan((DOME_R * 1.5) / WAIT_H), 0.7, 1.5);
       spot.position.set(0, 0.4, 0);
       spot.target.position.set(0, -WAIT_H, 0);

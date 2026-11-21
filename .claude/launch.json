@@ -39,18 +39,9 @@
       "runtimeExecutable": "cmd",
       "runtimeArgs": [
         "/c",
-        "set RENDERER=phoenyx&& set SERVER_PORT=5199&& npx vite client --port 5192 --strictPort"
+        "set SERVER_PORT=5199&& npx vite client --port 5192 --strictPort"
       ],
       "port": 5192
-    },
-    {
-      "name": "client-three-5193",
-      "runtimeExecutable": "cmd",
-      "runtimeArgs": [
-        "/c",
-        "set SERVER_PORT=5199&& npx vite client --port 5193 --strictPort"
-      ],
-      "port": 5193
     }
   ]
 }

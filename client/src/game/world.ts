@@ -477,7 +477,6 @@ export class World implements Terrain {
   private cwBlock = -1;
   private cwCells = new Map<number, boolean>();
   get cw(): CollisionWorld | undefined {
-    if (!__PHOENYX__) return undefined;
     if (!this.cwOwn) this.buildCollide();
     return this.cwOwn;
   }

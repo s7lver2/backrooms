@@ -256,7 +256,7 @@ export class WaitingRoom {
       fixture.position.set(TUBE_X[i], HEIGHT - 0.035, z);
       panel.position.set(TUBE_X[i], HEIGHT - 0.03, z);
       this.tubes[i].position.set(TUBE_X[i], HEIGHT - 0.5, z);
-      if (__PHOENYX__) {
+      {
         // Lux: el fluorescente es un tubo de luz de verdad (RectAreaLight → tubo) mirando al suelo, y no solo un panel brillante
         const rect = new THREE.RectAreaLight(0xfff1c4, 6, 1.2, 0.6);
         rect.position.set(TUBE_X[i], HEIGHT - 0.07, z);

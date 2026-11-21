@@ -3,7 +3,7 @@ import { AMMO_PACK, INV_MAX, ITEMS, SHOP, canHold, itemOpen, type Inventory, typ
 import type { Sock } from '../net';
 import { sound } from './audio';
 import type { Assets } from './game';
-import { gearIcons } from './invIcons';
+import { useIcons } from './invIcons';
 import { perks } from './perks';
 
 /*
@@ -12,7 +12,7 @@ import { perks } from './perks';
  */
 
 export default function Shop({ bank, inv, sock, assets, open, onBought }: { bank: number; inv: Inventory | null; sock?: Sock; assets?: Assets; open?: ReadonlySet<string>; onBought?: (id: ItemId) => void }) {
-  const icons = assets ? gearIcons(assets) : null; // (sin memo: lo que falló al capturarse se reintenta, y lo hecho sale de la caché)
+  const icons = useIcons(assets); // (sin memo: lo que falló al capturarse se reintenta, y lo hecho sale de la caché)
   const [msg, setMsg] = useState<{ t: string; bad: boolean }>({ t: '', bad: false });
   const [busy, setBusy] = useState(false);
   const buy = (id: ItemId, name: string) => {

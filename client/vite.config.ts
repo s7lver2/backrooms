@@ -151,7 +151,14 @@ const sourceless = (): Plugin => {
     },
     closeBundle() {
       if (!existsSync(join(out, 'index.html'))) return;
-      for (const e of readdirSync(out)) if (e.endsWith('.zip')) rmSync(join(out, e));
+      const zips = (d: string) => {
+        for (const e of readdirSync(d, { withFileTypes: true })) {
+          const f = join(d, e.name);
+          if (e.isDirectory()) zips(f);
+          else if (e.name.endsWith('.zip')) rmSync(f);
+        }
+      };
+      zips(out); // (también los de subcarpetas: models/pool, other)
       rmSync(join(out, 'animations/player'), { recursive: true, force: true });
     },
   };
@@ -178,17 +185,12 @@ const packs = (): Plugin => {
   };
 };
 
-// RENDERER=phoenyx: `three` se sustituye por Phoenyx (E:/phoenix, motor Rust + WebGPU con la misma API); sin la variable, three de siempre
-const PHOENYX = process.env.RENDERER === 'phoenyx';
+// Phoenyx (E:/phoenix, motor Rust + WebGPU con la API de three.js) es el único motor: `three` se sustituye por él (ver docs/superpowers/specs/2026-11-21-carga-y-migracion-phoenyx-design.md)
 const PHOENYX_DIR = (process.env.PHOENYX_DIR ?? 'E:/phoenix').replaceAll('\\', '/');
-// `three-real`: el three de verdad, siempre (los iconos del inventario se pintan de forma sincrona con un WebGLRenderer pequeño; el renderer de Phoenyx arranca la GPU de forma asincrona)
-const REAL_THREE = fileURLToPath(new URL('../node_modules/three/build/three.module.js', import.meta.url)).replaceAll('\\', '/');
-const phoenyxAlias = PHOENYX
-  ? [
-      { find: /^three\/examples\/jsm\/(.*)$/, replacement: `${PHOENYX_DIR}/packages/phoenyx/src/jsm/$1` },
-      { find: /^three$/, replacement: `${PHOENYX_DIR}/packages/phoenyx/src/index.ts` },
-    ]
-  : [];
+const phoenyxAlias = [
+  { find: /^three\/examples\/jsm\/(.*)$/, replacement: `${PHOENYX_DIR}/packages/phoenyx/src/jsm/$1` },
+  { find: /^three$/, replacement: `${PHOENYX_DIR}/packages/phoenyx/src/index.ts` },
+];
 
 // la voz del motor (phoenyx-voice): vive en el repo de Phoenyx (con o sin el renderer Phoenyx)
 const VOICE = `${PHOENYX_DIR}/packages/phoenyx-voice/src/index.ts`;
@@ -201,10 +203,10 @@ const proxy = {
 
 // el juego pregunta por process.env.NODE_ENV (avisos y atajos de desarrollo): se define a mano
 export default defineConfig(({ mode }) => ({
-  plugins: [react(), gripsSaver(), animPack(), packs(), sourceless(), ...(PHOENYX ? [bakeLods()] : [])],
-  cacheDir: PHOENYX ? 'node_modules/.vite-phoenyx' : undefined, // (cada variante con su cache: si no, dos servidores a la vez se pisan las dependencias optimizadas)
-  resolve: { alias: [{ find: /^@phoenyx\/voice$/, replacement: VOICE }, { find: /^three-real$/, replacement: REAL_THREE }, { find: /^@phoenyx\/collide$/, replacement: PHOENYX ? `${PHOENYX_DIR}/packages/phoenyx/src/collide.ts` : fileURLToPath(new URL('./src/game/collideStub.ts', import.meta.url)).replaceAll('\\', '/') }, ...phoenyxAlias] },
-  define: { __PHOENYX__: JSON.stringify(PHOENYX), 'process.env.NODE_ENV': JSON.stringify(mode === 'production' ? 'production' : 'development') },
+  plugins: [react(), gripsSaver(), animPack(), packs(), sourceless(), bakeLods()],
+  cacheDir: 'node_modules/.vite-phoenyx',
+  resolve: { alias: [{ find: /^@phoenyx\/voice$/, replacement: VOICE }, { find: /^@phoenyx\/collide$/, replacement: `${PHOENYX_DIR}/packages/phoenyx/src/collide.ts` }, ...phoenyxAlias] },
+  define: { 'process.env.NODE_ENV': JSON.stringify(mode === 'production' ? 'production' : 'development') },
   // the game server goes through the same port as the page (one forwarded port or tunnel is enough, no mixed content over https)
   // fs.strict: el servidor de desarrollo (y /@fs) solo sirve archivos del proyecto; no lo desactives mientras haya un túnel abierto
   server: { port: CLIENT_PORT, strictPort: true, host: true, allowedHosts: true, proxy, fs: { strict: true, allow: ['..', PHOENYX_DIR] } },

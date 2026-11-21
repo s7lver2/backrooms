@@ -30,5 +30,6 @@ salvo donde se indica. Las marcas de `perf.ts` solo existen en desarrollo; en pr
 - Frames largos: umbral de 80 ms (no 100) al pulsar NORMAL. Los bytes «antes del menú» (hasta ENTER) son solo JS+CSS (741 KB + 146 KB en Phoenyx).
 - Sin medir: carga de un nivel (ronda) en Phoenyx, Firefox.
 
-## Decisión sobre shaders (Tareas 6 y 7)
+## Decisión sobre shaders (Tareas 6 y 7) — provisional
+**Aviso de la revisión:** `pipeline_count()` solo cuenta los pipelines normales y de sombra, no los de `ShaderMaterial` (`user_pls`), de post-proceso (`post_pls`) ni el de cómputo del culling; y Parking y Poolrooms (agua, niebla, transparencias) no se midieron. La decisión se confirma al medir esos niveles con todos los efectos activos (Tareas 10–11).
 En Phoenyx hay 6–8 pipelines frente a los 163 programas de three, y entrar en una sala no crea ninguno. El problema de compilar shaders era de la ruta de three, que se elimina (Tarea 12): un `warm()` en el motor y unificar materiales para reducir variantes no aportarían nada medible. Se sustituyen por vigilar `pipeline_count` en cada nivel durante las Tareas 10–11.

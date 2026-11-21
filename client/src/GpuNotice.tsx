@@ -69,7 +69,7 @@ const Row = ({ icon, tag, cls, i, children }: { icon: string; tag: string; cls: 
  * En desarrollo, /?capture (las capturas de fidelidad) no la muestra.
  */
 export default function GpuNotice({ children }: { children: ReactNode }) {
-  const skip = !__PHOENYX__ || (DEV_LOCAL && location.search.includes('capture'));
+  const skip = (DEV_LOCAL && location.search.includes('capture'));
   const [state, setState] = useState<'check' | 'none' | 'ask' | 'leave' | 'ok'>(skip ? 'ok' : 'check');
   const info = useRef<Record<string, unknown>>({});
   const [why, setWhy] = useState<'api' | 'adapter'>('adapter');

@@ -5,7 +5,7 @@ import { perks } from './perks';
 import { lootIcon } from './rarityFx';
 import type { Assets, Inv, MissionHud } from './game';
 import { FITS, type Gear, type Slot } from './player';
-import { gearIcons, type IconKey } from './invIcons';
+import { useIcons, type IconKey } from './invIcons';
 import { HOT, HOT_SLOTS } from './quickslots';
 import InvAvatar from './InvAvatar';
 import ItemView from './ItemView';
@@ -163,7 +163,7 @@ function Inventory({
   const dragged = useRef(false); // un arrastre no cuenta como clic
   const api = useRef({ mv: (_e: PointerEvent) => {}, end: (_e: PointerEvent, _abort: boolean) => {} });
 
-  const icons = gearIcons(assets); // (sin memo: lo que falló al capturarse se reintenta, y lo hecho sale de la caché)
+  const icons = useIcons(assets); // (sin memo: lo que falló al capturarse se reintenta, y lo hecho sale de la caché)
   const st = perks.stats; // lo que dan mis mejoras: casillas, ranuras de la barra y la espalda
   const hotIn = inv.hot.slice(0, st.hot); // lo que de verdad está en la barra: una ranura cerrada no guarda nada (lo suyo va a la mochila)
   const at: Record<Slot, Gear | 'none'> = { left: inv.left, right: inv.hand === 'watergun' ? 'none' : inv.hand, belt: inv.belt };

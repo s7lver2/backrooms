@@ -32,7 +32,7 @@ function gather() {
   try {
     const n = navigator as Navigator & { deviceMemory?: number; connection?: { effectiveType?: string; downlink?: number; rtt?: number; saveData?: boolean } };
     Object.assign(env, {
-      engine: __PHOENYX__ ? 'phoenyx (WebGPU)' : 'three.js (WebGL)',
+      engine: 'phoenyx (WebGPU)',
       host: location.hostname,
       ua: n.userAgent,
       platform: (n as unknown as { userAgentData?: { platform?: string } }).userAgentData?.platform ?? n.platform,
@@ -91,7 +91,7 @@ export function initTelemetry(force = false) {
       tracesSampleRate: 0,
       release: import.meta.env.VITE_RELEASE as string | undefined,
       environment: location.hostname === 'backrooms.s7lver.xyz' ? 'phoenyx' : 'legacy',
-      initialScope: { tags: { engine: __PHOENYX__ ? 'phoenyx' : 'three' } },
+      initialScope: { tags: { engine: 'phoenyx' } },
       integrations: (d) => d.filter((i) => i.name !== 'Breadcrumbs'), // (sin migas de pan: llevan URLs y entradas del jugador)
       beforeSend(e) {
         try {

@@ -7,7 +7,6 @@ Run with no arguments for the interactive menu, or pass flags to skip the questi
   python tools/build.py dev|release              start servers (client :5180, server :5181)
   python tools/build.py --build                  production client build (client/dist)
   python tools/build.py --check                  typecheck client and server
-  --renderer three|phoenyx                       graphics engine (default: phoenyx)
   --phoenyx-dir PATH                             Phoenyx repo (default: E:/phoenix)
   --tunnel cloudflared|ngrok|localtunnel         expose the client publicly
   --issues [N]                                   list the latest N (default 20) GlitchTip issues
@@ -364,7 +363,6 @@ def parse() -> argparse.Namespace:
     p.add_argument("--build", action="store_true")
     p.add_argument("--check", action="store_true")
     p.add_argument("--release", action="store_true")
-    p.add_argument("--renderer", choices=["three", "phoenyx"])
     p.add_argument("--phoenyx-dir")
     p.add_argument("--tunnel", choices=list(TUNNELS))
     p.add_argument("--yes", action="store_true")
@@ -409,15 +407,11 @@ def main() -> int:
 
     env = dict(os.environ)
     if task in ("dev", "release", "build"):
-        renderer = a.renderer or (ask("Engine", [("phoenyx", "phoenyx"), ("three", "three")]) if interactive else "phoenyx")
-        if renderer == "phoenyx":
-            pdir = ensure_phoenyx(a.phoenyx_dir)
-            if not pdir:
-                print(f"{paint('err', '✗')} Phoenyx not found and the clone failed.")
-                return 1
-            env["RENDERER"], env["PHOENYX_DIR"] = "phoenyx", pdir
-        else:
-            env.pop("RENDERER", None)
+        pdir = ensure_phoenyx(a.phoenyx_dir)
+        if not pdir:
+            print(f"{paint('err', '✗')} Phoenyx not found and the clone failed.")
+            return 1
+        env["PHOENYX_DIR"] = pdir
 
     if not (ROOT / "node_modules").exists() and step("npm install", "npm install"):
         return 1
@@ -448,13 +442,13 @@ def main() -> int:
         procs.append(Proc("issues", "", env, ROOT, TAGCOL[1], auto=False, oneshot=True))  # GlitchTip issues tab (no process: Dashboard.gt reads the API)
         urls = [("client", f"http://localhost:{CLIENT_PORT}"), ("server", f"http://localhost:{SERVER_PORT}")]
         branch = subprocess.run("git rev-parse --abbrev-ref HEAD", shell=True, cwd=ROOT, capture_output=True, text=True).stdout.strip()
-        dash = Dashboard("backrooms", f"{task} · {env.get('RENDERER', 'three')}", procs, urls, branch, [(k, TUNNELS[k][1]) for k in available_tunnels()])
+        dash = Dashboard("backrooms", f"{task} · phoenyx", procs, urls, branch, [(k, TUNNELS[k][1]) for k in available_tunnels()])
         dash.gt = GlitchTip()
         return dash.run()
     if tunnel:
         specs.append(("tunnel", TUNNELS[tunnel][1]))
     popens = [subprocess.Popen(c, shell=True, cwd=ROOT, env=env) for _, c in specs]
-    return serve(popens, task, env.get("RENDERER", "three"), tunnel)
+    return serve(popens, task, "phoenyx", tunnel)
 
 
 if __name__ == "__main__":
