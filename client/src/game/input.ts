@@ -94,6 +94,8 @@ export class Input {
   }
   /** Nadie captura el puntero (la votación de la misión): ni un clic, ni cerrar el chat, ni un pedido anterior que el navegador concede tarde. */
   noLock = false;
+  /** La ventana externa de admin está abierta: perder el foco al pasar a ella no pausa. */
+  noPause = false;
   block(key: string) {
     this.ext.add(key);
   }
@@ -185,8 +187,8 @@ export class Input {
     doc('pointerlockerror', () => ((this.asked = -1e9), this.fail()));
     // salir de pantalla completa (Escape con el inventario abierto, el gesto de atrás en el móvil): pausa
     doc('fullscreenchange', () => !document.fullscreenElement && this.active && this.pulses.add('pause'));
-    on('blur', () => this.active && this.pulses.add('pause'));
-    doc('visibilitychange', () => document.hidden && this.active && this.pulses.add('pause'));
+    on('blur', () => this.active && !this.noPause && this.pulses.add('pause')); // (con la ventana de admin abierta, pasar a ella no pausa el juego)
+    doc('visibilitychange', () => document.hidden && this.active && !this.noPause && this.pulses.add('pause'));
     on('popstate', () => {
       if (!this.active) return;
       this.pulses.add('pause');

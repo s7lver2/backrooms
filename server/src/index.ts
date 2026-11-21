@@ -820,6 +820,9 @@ io.on('connection', (sock) => {
         else return reply({ ok: false, error: 'ROUND ENDING' });
         return reply({ ok: true });
       }
+      case 'kick':
+        for (const p of targets) if (p.id !== sock.id) io.sockets.sockets.get(p.id)?.disconnect(true);
+        return reply({ ok: true });
       case 'lobby':
         if (r.phase === 'playing' || r.phase === 'starting') (r.tok = (r.tok ?? 0) + 1), backToLobby(r, [...r.players.values()]);
         return reply({ ok: true });

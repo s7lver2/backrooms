@@ -269,7 +269,7 @@ export type AdminAction =
   | { a: 'level'; id: string; seed?: number }
   | { a: 'run'; t: string }
   | { a: 'lobby' }
-  | { a: 'kill' | 'revive' | 'heal'; t: string }
+  | { a: 'kill' | 'revive' | 'heal' | 'kick'; t: string }
   | { a: 'god'; t: string; on: boolean }
   | { a: 'ammo'; t: string; on: boolean }
   | { a: 'tp'; t: string; to: 'start' | 'elevator' | 'player'; who?: string }

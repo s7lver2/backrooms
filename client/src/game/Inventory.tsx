@@ -662,7 +662,7 @@ function Inventory({
       )}
       {held && (
         <div ref={ghostEl} className="iv-ghost" data-drop={out || undefined} style={{ transform: `translate(${pos.current.x}px, ${pos.current.y}px)` }} aria-hidden="true">
-          <img src={icons[held.g as IconKey]} alt="" />
+          <img src={held.g === 'loot' ? lootIcon(qual(held.g, held.from)?.r) : icons[held.g as IconKey]} alt="" />
           {out && <span className="iv-ghost__drop">DROP</span>}
         </div>
       )}

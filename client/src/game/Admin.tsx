@@ -1,28 +1,28 @@
-import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react';
-import { ACHIEVEMENTS, ENTITIES, ITEMS, ITEM_IDS, LEVELS, RARITIES, UPGRADES, UP_IDS, upLevel, type AdminAction, type AdminFx, type AdminInfo, type ItemId, type Kind, type RoomView } from '@backrooms/shared';
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
+import { createPortal } from 'react-dom';
+import { ACHIEVEMENTS, ENTITIES, ITEMS, ITEM_IDS, LEVELS, RARITIES, UPGRADES, UP_IDS, upLevel, type AdminAction, type AdminInfo, type ItemId, type Kind, type RoomView } from '@backrooms/shared';
 import type { BackroomsGame } from './game';
 import type { Sock } from '../net';
 import { netStats } from '../net';
 import { copyText, errClear, errList, errReport, errSubscribe, errTotal, errVersion } from '../errlog';
 import { dlogClear, dlogLines, dlogSubscribe, dlogVersion } from '../dlog';
-import './admin.css';
-import { Circle, Star } from 'lucide-react';
-import { ic } from './ic';
+import css from './adminwin.css?inline';
 
 /*
- * Consola de admin (tecla ` o F9). OJO: que se vea es solo cosmético (Me.admin de /api/me); el servidor vuelve a comprobar la cuenta en
- * cada evento `admin` (server/src/index.ts) y rechaza a cualquiera que no sea ADMIN_USER. En una sala los trucos de partida van al servidor;
- * los del propio cliente (velocidad, salto, aguante y cordura infinitos, luz total...) se aplican aquí. Con la consola abierta el puntero
- * queda suelto y el juego no recibe teclas: se hace con una llave propia de Input (`block('admin')`), que lo que haga el juego con
- * `suspend` (inventario, ordenador, tótem...) no pisa ni deja colgada.
+ * Consola de admin (tecla ` o F9): una VENTANA EXTERNA del navegador (window.open) en la que se hace clic en todo; el juego sigue vivo en su pestaña
+ * (pasar a la ventana no lo pausa). Se pinta con un portal de React en esa ventana, así comparte el estado del juego sin ningún puente.
+ * Si el navegador bloquea la ventana, se muestra encima del juego como panel flotante (y entonces sí toma las teclas).
+ * OJO: que se vea es solo cosmético (Me.admin de /api/me); el servidor vuelve a comprobar la cuenta en cada evento `admin` (server/src/index.ts).
  *
- * Las listas salen de las tablas de shared, no de botones escritos a mano: las entidades de ENTITIES, los objetos de ITEMS (más el botín), las
- * rarezas de RARITIES, las mejoras de UPGRADES, los niveles de LEVELS y los logros de ACHIEVEMENTS. Una entrada nueva en cualquiera de ellas
- * aparece aquí sola (y el servidor la valida contra la misma tabla).
+ * Las listas salen de las tablas de shared (ENTITIES, ITEMS, LEVELS, UPGRADES, ACHIEVEMENTS, RARITIES): una entrada nueva aparece aquí sola.
+ * Todas las acciones son «órdenes» (`cmds`): las pestañas las reparten por grupos y el buscador de la cabecera las filtra todas a la vez.
  */
 const name = (k: string) => k.replace(/([a-z])([A-Z])/g, '$1 $2').toUpperCase();
-/** Lo que se puede dar: todo ITEMS y una pieza de botín. */
 const GIVE: { id: ItemId | 'loot'; name: string }[] = [...ITEM_IDS.map((id) => ({ id, name: ITEMS[id].name })), { id: 'loot', name: 'ARTIFACT (LOOT)' }];
+const NL = '\n';
+const TABS = ['OVERVIEW', 'PLAYER', 'WORLD', 'ENTITIES', 'ITEMS', 'ECONOMY', 'DEBUG'] as const;
+type Tab = (typeof TABS)[number];
+
 interface Props {
   game: React.RefObject<BackroomsGame | undefined>;
   sock?: Sock;
@@ -31,128 +31,125 @@ interface Props {
   /** Lanza la pantalla de victoria (el final de ronda) sin acabar la ronda. */
   onVictory?: () => void;
 }
+interface Cmd {
+  group: Tab;
+  sub: string;
+  label: string;
+  run: () => void;
+  on?: boolean;
+  danger?: boolean;
+  /** Solo en una sala / solo en solitario. */
+  only?: 'room' | 'solo';
+}
 
-const POS = 'br-adm-pos';
-const NL = '\n';
-const TABS = ['PLAYER', 'WORLD', 'ENTITIES', 'ITEMS', 'ROOM', 'DEBUG'] as const;
-type Tab = (typeof TABS)[number];
-
-const B = ({ children, run, on, wide }: { children: React.ReactNode; run: () => void; on?: boolean; wide?: boolean }) => (
-  <button
-    type="button"
-    className="br-adm__b"
-    data-on={on || undefined}
-    data-wide={wide || undefined}
-    onClick={(e) => (run(), e.currentTarget.blur())} // sin foco: Espacio o Intro no repiten el último botón
-  >
-    {children}
+const Btn = ({ c }: { c: Cmd }) => (
+  <button type="button" className="b" data-on={c.on || undefined} data-danger={c.danger || undefined} onClick={(e) => (c.run(), e.currentTarget.blur())}>
+    {c.label}
   </button>
 );
-
 const Slider = ({ label, v, min, max, step, set, fmt }: { label: string; v: number; min: number; max: number; step: number; set: (n: number) => void; fmt?: (n: number) => string }) => (
-  <label className="br-adm__sl">
+  <label className="sl">
     <span>{label}</span>
-    <input type="range" min={min} max={max} step={step} value={v} onChange={(e) => set(Number(e.target.value))} onMouseUp={(e) => e.currentTarget.blur()} />
+    <input type="range" min={min} max={max} step={step} value={v} onChange={(e) => set(Number(e.target.value))} />
     <b>{fmt ? fmt(v) : v}</b>
   </label>
 );
+const Card = ({ title, aside, children }: { title: string; aside?: React.ReactNode; children: React.ReactNode }) => (
+  <section className="card">
+    <h3>
+      {title}
+      {aside && <span>{aside}</span>}
+    </h3>
+    {children}
+  </section>
+);
 
 export default function AdminConsole({ game, sock, room, me, onVictory }: Props) {
-  const [open, setOpen] = useState(false);
-  const [tab, setTab] = useState<Tab>('PLAYER');
+  const [host, setHost] = useState<{ el: HTMLElement; win?: Window } | null>(null);
+  const [tab, setTab] = useState<Tab>('OVERVIEW');
   const [t, setT] = useState('me'); // el objetivo: 'me', 'all' o el id de un jugador
-  const [msg, setMsg] = useState('');
+  const [q, setQ] = useState('');
   const [info, setInfo] = useState<AdminInfo | null>(null);
+  const [solo, setSolo] = useState<ReturnType<BackroomsGame['adminInfo']> | null>(null);
   const [tog, setTog] = useState({ noclip: false, light: true, god: false, ammo: false, stamina: false, sanity: false, bright: false, minimap: false, speed: 1, jump: 1, slow: 1 });
   const [marks, setMarks] = useState<({ x: number; z: number; yaw: number } | null)[]>([null, null, null]);
-  const [shot, setShot] = useState('');
   const [fx, setFx] = useState({ ao: false, smaa: false, sun: false });
-  const [find, setFind] = useState('');
   const [count, setCount] = useState(1);
   const [rar, setRar] = useState(-1); // la rareza de lo que se da (-1: al azar)
-  useSyncExternalStore(dlogSubscribe, dlogVersion); // el registro de eventos (dlog.ts)
-  useSyncExternalStore(errSubscribe, errVersion); // los errores de render que van saliendo (errlog.ts): el contador de la cabecera y del botón
+  const [seed, setSeed] = useState('');
+  const [money, setMoney] = useState('1000');
+  const [log, setLog] = useState<{ at: string; m: string; ok: boolean }[]>([]);
+  const [shot, setShot] = useState('');
+  useSyncExternalStore(dlogSubscribe, dlogVersion);
+  useSyncExternalStore(errSubscribe, errVersion);
   const inRoom = !!sock && !!room;
-  const openRef = useRef(open);
-  openRef.current = open;
-  // abierta, la consola es una ventana que se arrastra por la cabecera (la posición se recuerda) y, en vivo (por defecto), no pide el puntero ni se traga las teclas:
-  // se sigue jugando con ella abierta (un clic en el juego recaptura el ratón). Con el modo en vivo apagado es modal, como antes
-  const [live, setLive] = useState(true);
-  const liveRef = useRef(live);
-  liveRef.current = live;
-  const box = useRef<HTMLDivElement>(null);
-  const [at, setAt] = useState<{ x: number; y: number } | null>(() => {
-    try {
-      return JSON.parse(localStorage.getItem(POS) ?? 'null');
-    } catch {
-      return null;
+  const hostRef = useRef(host);
+  hostRef.current = host;
+  const g = game.current;
+  const note = useCallback((m: string, ok = true) => setLog((l) => [{ at: new Date().toLocaleTimeString(), m, ok }, ...l].slice(0, 60)), []);
+
+  const close = useCallback(() => {
+    const h = hostRef.current;
+    if (!h) return;
+    game.current && ((game.current.input.noPause = false), game.current.input.unblock('admin'));
+    if (h.win) h.win.close();
+    else h.el.remove();
+    setHost(null);
+  }, [game]);
+
+  const open = useCallback(() => {
+    const h = hostRef.current;
+    if (h?.win && !h.win.closed) return void h.win.focus();
+    if (h) return void close();
+    const gm = game.current;
+    const w = window.open('', 'br-admin', 'popup=yes,width=1100,height=800');
+    let el: HTMLElement, win: Window | undefined;
+    if (w) {
+      win = w;
+      w.document.title = 'Backrooms · Admin';
+      const meta = w.document.createElement('meta');
+      meta.setAttribute('charset', 'utf-8');
+      w.document.head.append(meta);
+      const st = w.document.createElement('style');
+      st.textContent = css;
+      w.document.head.append(st);
+      el = w.document.createElement('div');
+      el.id = 'adm-root';
+      w.document.body.append(el);
+      const stop = () => (gm && (gm.input.noPause = false), setHost(null));
+      w.addEventListener('pagehide', stop);
+      w.addEventListener('keydown', (e) => (e.code === 'F9' || e.code === 'Backquote') && !(e.target as HTMLElement | null)?.matches('input') && (e.preventDefault(), w.close()));
+      addEventListener('pagehide', () => w.close());
+      if (gm) gm.input.noPause = true;
+      w.focus();
+    } else {
+      // ventana bloqueada: panel flotante sobre el juego (el juego no recibe teclas mientras esté)
+      const st = document.createElement('style');
+      st.textContent = css + '#adm-root.inline{position:fixed;inset:16px;z-index:60;box-shadow:0 0 0 9999px #000a}';
+      el = document.createElement('div');
+      el.id = 'adm-root';
+      el.className = 'inline';
+      el.append(st);
+      document.body.append(el);
+      if (gm) gm.input.block('admin'), gm.input.unlock();
     }
-  });
-  const drag = (e: React.PointerEvent) => {
-    const b = box.current;
-    if ((e.target as HTMLElement).closest('button') || !b) return;
-    const r = b.getBoundingClientRect(), dx = e.clientX - r.left, dy = e.clientY - r.top;
-    let pos = { x: r.left, y: r.top };
-    const mv = (m: PointerEvent) => {
-      pos = { x: Math.max(0, Math.min(innerWidth - 60, m.clientX - dx)), y: Math.max(0, Math.min(innerHeight - 30, m.clientY - dy)) };
-      setAt(pos);
-    };
-    const up = () => {
-      removeEventListener('pointermove', mv);
-      removeEventListener('pointerup', up);
-      try {
-        localStorage.setItem(POS, JSON.stringify(pos));
-      } catch {}
-    };
-    addEventListener('pointermove', mv);
-    addEventListener('pointerup', up);
-    e.preventDefault();
-  };
+    if (gm) setTog(gm.adminState());
+    setHost({ el, win });
+  }, [game, close]);
 
-
-  const toggle = useCallback(
-    (on: boolean) => {
-      const g = game.current;
-      setOpen(on);
-      if (!g) return;
-      if (on) {
-        if (!liveRef.current || g.inParking) g.input.clear();
-        g.input.block('admin');
-        g.input.unlock();
-        setTog(g.adminState()); // el juego pudo reiniciarse: el panel muestra lo que hay de verdad
-      } else {
-        g.input.unblock('admin');
-        g.input.clear();
-        if (!g.input.suspend) g.input.lock(true); // (con Esc el navegador no da el puntero: sale «click to continue» y basta un clic)
-      }
-    },
-    [game, inRoom],
-  );
-
-  // la tecla: en captura y antes que nadie. Abierta, se traga todas (el juego no las recibe), 1–6 cambian de pestaña y Esc o la misma tecla la cierran
+  // la tecla: en el juego abre la ventana (o la trae al frente); con ella abierta, otra vez la cierra
   useEffect(() => {
     const key = (e: KeyboardEvent) => {
-      const typing = (e.target as HTMLElement | null)?.tagName === 'INPUT' && (e.target as HTMLInputElement).type === 'text';
-      const mine = e.code === 'Backquote' || e.code === 'F9';
-      if (!openRef.current) return void (mine && !typing && !e.repeat && (e.preventDefault(), e.stopPropagation(), toggle(true)));
-      if (!liveRef.current || typing) e.stopPropagation(); // en vivo, el juego sigue recibiendo las teclas (salvo escribiendo en el filtro)
-      if (mine || e.code === 'Escape') return void (e.preventDefault(), !e.repeat && (typing && e.code === 'Escape' ? (e.target as HTMLElement).blur() : toggle(false)));
-      const n = /^Digit([1-6])$/.exec(e.code);
-      if (n && !typing && !liveRef.current && !game.current?.inParking) setTab(TABS[Number(n[1]) - 1]);
+      if (e.code !== 'Backquote' && e.code !== 'F9') return;
+      if ((e.target as HTMLElement | null)?.tagName === 'INPUT' && (e.target as HTMLInputElement).type === 'text') return;
+      e.preventDefault();
+      e.stopPropagation();
+      if (!e.repeat) open();
     };
-    const up = (e: KeyboardEvent) => openRef.current && !liveRef.current && e.stopPropagation();
-    // en vivo, un clic fuera de la consola vuelve a capturar el ratón para seguir jugando
-    const click = (e: MouseEvent) => openRef.current && liveRef.current && e.button === 0 && !box.current?.contains(e.target as Node) && game.current?.input.lock(true);
     addEventListener('keydown', key, true);
-    addEventListener('keyup', up, true);
-    addEventListener('mousedown', click, true);
-    return () => {
-      removeEventListener('mousedown', click, true);
-      removeEventListener('keydown', key, true);
-      removeEventListener('keyup', up, true);
-      if (openRef.current) game.current?.input.unblock('admin');
-    };
-  }, [toggle, game]);
+    return () => removeEventListener('keydown', key, true);
+  }, [open]);
+  useEffect(() => () => void (hostRef.current && close()), []); // eslint-disable-line react-hooks/exhaustive-deps
 
   // el objetivo desaparece de la sala: vuelve a ME
   useEffect(() => {
@@ -163,295 +160,363 @@ export default function AdminConsole({ game, sock, room, me, onVictory }: Props)
     (a: AdminAction, then?: (i?: AdminInfo) => void) => {
       if (!sock) return;
       sock.emit('admin', a, (r) => {
-        if (r.ok) (setMsg('OK'), then?.(r.info));
-        else setMsg(r.error ?? 'ERROR');
+        note(`${a.a}${'t' in a ? ' → ' + a.t : ''}${'id' in a ? ' ' + a.id : ''}${'item' in a ? ' ' + a.item : ''}${'kind' in a && a.kind ? ' ' + a.kind : ''}: ${r.ok ? 'OK' : (r.error ?? 'ERROR')}`, r.ok);
+        if (r.ok) then?.(r.info);
       });
     },
-    [sock],
+    [sock, note],
   );
 
-  // información de depuración: en la sala la da el servidor; solo, el cliente
-  const [solo, setSolo] = useState<ReturnType<BackroomsGame['adminInfo']> | null>(null);
+  // información de la partida: en la sala la da el servidor; solo, el cliente
   useEffect(() => {
-    if (!open || tab !== 'DEBUG') return;
-    const ask = () => (inRoom ? send({ a: 'info' }, (i) => i && setInfo(i)) : setSolo(game.current?.adminInfo() ?? null));
+    if (!host || (tab !== 'OVERVIEW' && tab !== 'DEBUG')) return;
+    const ask = () => {
+      if (!inRoom) return setSolo(game.current?.adminInfo() ?? null);
+      sock!.emit('admin', { a: 'info' }, (r) => r.ok && r.info && setInfo(r.info));
+    };
     ask();
     const id = setInterval(ask, 1000);
     return () => clearInterval(id);
-  }, [open, tab, inRoom, send, game]);
+  }, [host, tab, inRoom, sock, game]);
 
-  if (!open) return null;
-  const g = game.current;
   const one = t !== 'me' && t !== 'all';
+  const mine = t === 'me' || !inRoom;
   const others = room?.players.filter((p) => p.id !== me) ?? [];
-  const solo1 = (op: Parameters<BackroomsGame['adminSolo']>[0]) => g?.adminSolo(op);
-  // cargar un nivel en solitario reinicia el juego: la llave del panel sigue puesta, solo se vuelve a soltar el puntero
-  const hold = (f: () => void) => (f(), g?.input.unlock());
+  const solo1 = (op: Parameters<BackroomsGame['adminSolo']>[0]) => game.current?.adminSolo(op);
+  const hold = (f: () => void) => (f(), game.current?.input.unlock());
+  const nErr = errList().length;
+  const ups = room?.players.find((p) => p.id === (one ? t : me))?.ups;
+
   const flipLocal = (k: 'noclip' | 'light' | 'god') => {
     const on = !tog[k];
     setTog({ ...tog, [k]: on });
-    g?.adminToggle(k, on);
+    game.current?.adminToggle(k, on);
   };
   const flipCheat = (k: 'stamina' | 'sanity' | 'bright' | 'ammo' | 'minimap') => {
     const on = !tog[k];
     setTog({ ...tog, [k]: on });
-    g?.adminCheat(k, on);
+    game.current?.adminCheat(k, on);
   };
-  // modo dios: inmortal, sin cansancio ni locura, atravesando paredes y con el doble de velocidad; otra vez lo apaga todo
   const godMode = !!(tog.god && tog.stamina && tog.sanity && tog.noclip);
   const flipGodMode = () => {
-    const on = !godMode;
+    const on = !godMode, gm = game.current;
     setTog({ ...tog, god: on, stamina: on, sanity: on, noclip: on, speed: on ? 2 : 1 });
-    g?.adminToggle('god', on);
-    g?.adminToggle('noclip', on);
-    g?.adminCheat('stamina', on);
-    g?.adminCheat('sanity', on);
-    g?.adminCheat('speed', on ? 2 : 1);
+    gm?.adminToggle('god', on);
+    gm?.adminToggle('noclip', on);
+    gm?.adminCheat('stamina', on);
+    gm?.adminCheat('sanity', on);
+    gm?.adminCheat('speed', on ? 2 : 1);
     if (inRoom) send({ a: 'god', t: 'me', on });
   };
-  const val = (k: 'speed' | 'jump' | 'slow', n: number) => (setTog({ ...tog, [k]: n }), g?.adminCheat(k, n));
+  const val = (k: 'speed' | 'jump' | 'slow', n: number) => (setTog({ ...tog, [k]: n }), game.current?.adminCheat(k, n));
   const give = (id: ItemId | 'loot') => (inRoom ? send({ a: 'give', t, item: id, ...(rar >= 0 ? { r: rar } : {}) }) : id !== 'loot' && solo1({ item: id }));
   const spawn = (kind: Kind) => Array.from({ length: count }).forEach(() => (inRoom ? send({ a: 'ent', op: 'spawn', kind, near: t === 'all' ? 'me' : t }) : solo1({ spawn: kind })));
-  // las mejoras del objetivo (las de ME cuando es ALL)
-  const ups = room?.players.find((p) => p.id === (one ? t : me))?.ups;
-  const mine = t === 'me' || !inRoom;
-  const nErr = errList().length;
-  // los errores de render al portapapeles, con la sala y la GPU, para pegarlos tal cual (sin errores copia igualmente el contexto)
+  const seedN = /^\d+$/.test(seed.trim()) && Number(seed) >= 1 && Number(seed) < 2 ** 31 ? Number(seed) : undefined;
+  const loadLevel = (id: string) => (inRoom ? send({ a: 'level', id, seed: seedN }) : hold(() => game.current?.adminLevel0(seedN)));
   const copyErrs = async () => {
     const where = inRoom ? `room ${room!.code}  ${room!.phase}  round ${room!.round}  ${room!.levelId}  players ${room!.players.length}` : 'solo';
-    const txt = [`${new Date().toISOString()}  ${where}`, g?.adminDiag(), '', errReport()].filter((l) => l !== undefined).join('\n');
-    setMsg((await copyText(txt)) ? `COPIED · ${nErr ? `${nErr} RENDER ERRORS (${errTotal()}×)` : 'NO ERRORS RECORDED'}` : 'COPY FAILED');
+    const txt = [`${new Date().toISOString()}  ${where}`, game.current?.adminDiag(), '', errReport()].filter((l) => l !== undefined).join('\n');
+    note((await copyText(txt)) ? `COPIED · ${nErr ? `${nErr} RENDER ERRORS (${errTotal()}×)` : 'NO ERRORS RECORDED'}` : 'COPY FAILED', true);
   };
 
-  return (
-    <div ref={box} className="br-adm" role="dialog" aria-label="Admin console" style={at ? { left: at.x, top: at.y, right: 'auto' } : undefined} onContextMenu={(e) => e.stopPropagation()}>
-      <header className="br-adm__h" onPointerDown={drag} title="Drag to move">
-        <span><Circle {...ic} fill="currentColor" /> ADMIN{nErr > 0 && <b className="br-adm__err"> · {nErr} RENDER ERR</b>}</span>
-        <span className="br-adm__dim">{inRoom ? `ROOM ${room!.code}` : 'SOLO'} · DRAG HERE · ` / F9 / ESC CLOSE</span>
-      </header>
-      <div className="br-adm__row">
-        <B on={live} run={() => setLive(!live)}>{live ? 'LIVE: KEEP PLAYING' : 'LIVE OFF: INPUT PAUSED'}</B>
-        <B on={nErr > 0} run={() => void copyErrs()}>{nErr ? `COPY RENDER ERRORS · ${nErr}` : 'COPY RENDER ERRORS'}</B>
-        {nErr > 0 && <B run={() => (errClear(), setMsg('ERRORS CLEARED'))}>CLEAR</B>}
-        {at && <B run={() => (setAt(null), localStorage.removeItem(POS))}>RESET POSITION</B>}
-      </div>
-      <nav className="br-adm__tabs">
-        {TABS.filter((x) => x !== 'ROOM' || inRoom).map((x) => (
-          <button key={x} type="button" data-on={tab === x || undefined} onClick={(e) => (setTab(x), e.currentTarget.blur())}>
-            {TABS.indexOf(x) + 1} {x}
+  // todas las órdenes, con su grupo: las pestañas las reparten y el buscador las filtra
+  const cmds = useMemo(() => {
+    const c: Cmd[] = [];
+    const add = (group: Tab, sub: string, label: string, run: () => void, extra: Partial<Cmd> = {}) => c.push({ group, sub, label, run, ...extra });
+    add('PLAYER', 'STATE', 'GOD MODE', flipGodMode, { on: godMode });
+    add('PLAYER', 'STATE', 'FULL HEAL', () => (inRoom ? send({ a: 'heal', t }) : solo1('heal')));
+    add('PLAYER', 'STATE', 'KILL', () => (inRoom ? send({ a: 'kill', t }) : solo1('kill')), { danger: true });
+    add('PLAYER', 'STATE', 'REVIVE', () => send({ a: 'revive', t }), { only: 'room' });
+    add('PLAYER', 'STATE', 'GOD', () => (inRoom && !mine ? send({ a: 'god', t, on: true }) : flipLocal('god')), { on: tog.god });
+    add('PLAYER', 'STATE', 'GOD OFF', () => send({ a: 'god', t, on: false }), { only: 'room' });
+    add('PLAYER', 'STATE', 'INF AMMO', () => (inRoom ? (send({ a: 'ammo', t, on: mine ? !tog.ammo : true }), mine && setTog({ ...tog, ammo: !tog.ammo })) : flipCheat('ammo')), { on: tog.ammo });
+    add('PLAYER', 'STATE', 'AMMO OFF', () => send({ a: 'ammo', t, on: false }), { only: 'room' });
+    add('PLAYER', 'CHEATS · THIS CLIENT', 'NOCLIP', () => flipLocal('noclip'), { on: tog.noclip });
+    add('PLAYER', 'CHEATS · THIS CLIENT', 'INF STAMINA', () => flipCheat('stamina'), { on: tog.stamina });
+    add('PLAYER', 'CHEATS · THIS CLIENT', 'INF SANITY', () => flipCheat('sanity'), { on: tog.sanity });
+    add('PLAYER', 'CHEATS · THIS CLIENT', 'FULLBRIGHT', () => flipCheat('bright'), { on: tog.bright });
+    add('PLAYER', 'CHEATS · THIS CLIENT', 'MINIMAP', () => flipCheat('minimap'), { on: tog.minimap });
+    add('PLAYER', 'CHEATS · THIS CLIENT', 'LIGHTS OFF', () => flipLocal('light'), { on: !tog.light });
+    add('PLAYER', 'TELEPORT', 'ELEVATOR', () => (inRoom ? send({ a: 'tp', t, to: 'elevator' }) : solo1('elevator')));
+    add('PLAYER', 'TELEPORT', 'START', () => (inRoom ? send({ a: 'tp', t, to: 'start' }) : solo1('start')));
+    if (one) add('PLAYER', 'TELEPORT', 'BRING TO ME', () => send({ a: 'tp', t, to: 'player', who: 'me' }), { only: 'room' });
+    if (one) add('PLAYER', 'TELEPORT', 'GO TO PLAYER', () => send({ a: 'tp', t: 'me', to: 'player', who: t }), { only: 'room' });
+    for (const l of Object.values(LEVELS)) add('WORLD', 'LEVELS · SEED BELOW (EMPTY: NEW)', `${l.id === 'parking' ? l.title : l.name}`, () => loadLevel(l.id), { only: l.id === 'level0' ? undefined : 'room' });
+    add('WORLD', 'ROUND', 'RUN FOR YOUR LIFE', () => (inRoom ? send({ a: 'run', t }) : hold(() => game.current?.adminRun())));
+    add('WORLD', 'ROUND', 'WAITING ROOM', () => send({ a: 'lobby' }), { only: 'room' });
+    add('WORLD', 'ROUND', 'COMPLETE MISSION', () => (inRoom ? send({ a: 'mission' }) : solo1('mission')));
+    add('WORLD', 'ROUND', 'TVS OFF', () => (inRoom ? send({ a: 'tvs' }) : solo1('tvs')));
+    add('WORLD', 'ROUND', 'END · SUCCESS', () => send({ a: 'end', ok: true }), { only: 'room' });
+    add('WORLD', 'ROUND', 'END · FAILURE', () => send({ a: 'end', ok: false }), { only: 'room', danger: true });
+    if (onVictory) add('WORLD', 'ROUND', 'VICTORY SCREEN', () => (close(), onVictory()));
+    for (const k of Object.keys(ENTITIES) as Kind[]) add('ENTITIES', `SPAWN × ${count}`, `+ ${name(k)}`, () => spawn(k));
+    add('ENTITIES', 'CONTROL', 'CLEAR ALL', () => (inRoom ? send({ a: 'ent', op: 'clear' }) : solo1('clear')), { danger: true });
+    add('ENTITIES', 'CONTROL', 'FREEZE', () => (inRoom ? send({ a: 'ent', op: 'freeze' }) : solo1('freeze')));
+    add('ENTITIES', 'CONTROL', 'THAW', () => (inRoom ? send({ a: 'ent', op: 'thaw' }) : solo1('thaw')));
+    add('ITEMS', 'GIVE', 'GIVE ALL', () => GIVE.forEach((s) => give(s.id)), { danger: true });
+    for (const s of GIVE) add('ITEMS', 'GIVE', s.name, () => give(s.id), { only: s.id === 'loot' ? 'room' : undefined });
+    for (const n of [100, 1000, 10000]) add('ECONOMY', 'BANK', `+${n}`, () => send({ a: 'money', mode: 'add', n }), { only: 'room' });
+    add('ECONOMY', 'BANK', 'SET 0', () => send({ a: 'money', mode: 'set', n: 0 }), { only: 'room' });
+    add('ECONOMY', 'BANK', 'SET 5000', () => send({ a: 'money', mode: 'set', n: 5000 }), { only: 'room' });
+    add('ECONOMY', 'UPGRADES', 'MAX ALL', () => send({ a: 'ups', t, id: '*', lv: 99 }), { only: 'room' });
+    add('ECONOMY', 'UPGRADES', 'RESET ALL', () => send({ a: 'ups', t, id: '*', lv: 0 }), { only: 'room', danger: true });
+    add('ECONOMY', 'ACHIEVEMENTS · TARGET NEEDS AN ACCOUNT', 'AWARD ALL', () => send({ a: 'award', t, key: '*' }), { only: 'room' });
+    for (const x of ACHIEVEMENTS) add('ECONOMY', 'ACHIEVEMENTS · TARGET NEEDS AN ACCOUNT', x.name, () => send({ a: 'award', t, key: x.key }), { only: 'room' });
+    return c.filter((x) => !x.only || (x.only === 'room') === inRoom);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [inRoom, t, one, mine, tog, godMode, count, rar, seed, tab, sock, room?.code]);
+
+  const groups = (group: Tab, list: Cmd[] = cmds) => {
+    const subs = [...new Set(list.filter((x) => x.group === group).map((x) => x.sub))];
+    return subs.map((sub) => (
+      <Card key={sub} title={sub}>
+        <div className="row">{list.filter((x) => x.group === group && x.sub === sub).map((x) => <Btn key={x.label} c={x} />)}</div>
+        {group === 'ITEMS' && sub === 'GIVE' && null}
+      </Card>
+    ));
+  };
+
+  if (!host) return null;
+
+  const hits = q.trim() ? cmds.filter((x) => `${x.group} ${x.sub} ${x.label}`.toLowerCase().includes(q.trim().toLowerCase())) : null;
+  const players = inRoom ? (info?.players ?? room!.players.map((p) => ({ id: p.id, name: p.name, hp: NaN, dead: false, god: false }))) : [];
+
+  const panel = (
+    <div className="adm">
+      <header className="top">
+        <div className="brand">
+          <i /> ADMIN
+        </div>
+        <input className="search" type="text" placeholder="Search every action…  (heal, spawn, seed, give…)" value={q} onChange={(e) => setQ(e.target.value)} spellCheck={false} autoFocus />
+        <div className="meta">
+          {inRoom ? `ROOM ${room!.code} · ${room!.levelId.toUpperCase()} · ${room!.phase.toUpperCase()}` : 'SOLO'} · PING {netStats.rtt}ms
+        </div>
+        {host.win ? null : (
+          <button type="button" className="b" onClick={close}>
+            CLOSE
           </button>
-        ))}
-      </nav>
-      {msg && <p className="br-adm__msg">{msg}</p>}
+        )}
+      </header>
 
-      {inRoom && (tab === 'PLAYER' || tab === 'ITEMS' || tab === 'ENTITIES') && (
-        <section>
-          <h3>TARGET</h3>
-          <div className="br-adm__row">
-            <B on={t === 'me'} run={() => setT('me')}>ME</B>
-            <B on={t === 'all'} run={() => setT('all')}>ALL</B>
+      <div className="target">
+        <span>TARGET</span>
+        {inRoom ? (
+          <>
+            <button type="button" className="chip" data-on={t === 'me' || undefined} onClick={() => setT('me')}>
+              ME
+            </button>
+            <button type="button" className="chip" data-on={t === 'all' || undefined} onClick={() => setT('all')}>
+              ALL
+            </button>
             {others.map((p) => (
-              <B key={p.id} on={t === p.id} run={() => setT(p.id)}>{p.name.slice(0, 12)}</B>
+              <button key={p.id} type="button" className="chip" data-on={t === p.id || undefined} onClick={() => setT(p.id)}>
+                {p.name.slice(0, 14)}
+              </button>
             ))}
-          </div>
-        </section>
-      )}
+          </>
+        ) : (
+          <em>solo run: everything applies to you</em>
+        )}
+      </div>
 
-      {tab === 'PLAYER' && (
-        <>
-          <section>
-            <h3>STATE</h3>
-            <div className="br-adm__row">
-              <B wide on={godMode} run={flipGodMode}><Star {...ic} /> GOD MODE</B>
-              <B run={() => (inRoom ? send({ a: 'heal', t }) : solo1('heal'))}>FULL HEAL</B>
-              <B run={() => (inRoom ? send({ a: 'kill', t }) : solo1('kill'))}>KILL</B>
-              {inRoom && <B run={() => send({ a: 'revive', t })}>REVIVE</B>}
-              <B on={tog.god} run={() => (inRoom && !mine ? send({ a: 'god', t, on: true }) : flipLocal('god'))}>GOD</B>
-              {inRoom && !mine && <B run={() => send({ a: 'god', t, on: false })}>GOD OFF</B>}
-              <B on={tog.ammo} run={() => (inRoom ? (send({ a: 'ammo', t, on: mine ? !tog.ammo : true }), mine && setTog({ ...tog, ammo: !tog.ammo })) : flipCheat('ammo'))}>INF AMMO</B>
-              {inRoom && !mine && <B run={() => send({ a: 'ammo', t, on: false })}>AMMO OFF</B>}
-            </div>
-          </section>
-          {inRoom && (
-            <section>
-              <h3>ACHIEVEMENTS · TARGET NEEDS AN ACCOUNT</h3>
-              <div className="br-adm__row">
-                <B run={() => send({ a: 'award', t, key: '*' })}>AWARD ALL</B>
-              </div>
-              <div className="br-adm__row">
-                {ACHIEVEMENTS.map((x) => (
-                  <B key={x.key} run={() => send({ a: 'award', t, key: x.key })}>{x.name}</B>
-                ))}
-              </div>
-            </section>
-          )}
-          <section>
-            <h3>CHEATS · THIS CLIENT</h3>
-            <div className="br-adm__row">
-              <B on={tog.noclip} run={() => flipLocal('noclip')}>NOCLIP</B>
-              <B on={tog.stamina} run={() => flipCheat('stamina')}>INF STAMINA</B>
-              <B on={tog.sanity} run={() => flipCheat('sanity')}>INF SANITY</B>
-              <B on={tog.bright} run={() => flipCheat('bright')}>FULLBRIGHT</B>
-              <B on={tog.minimap} run={() => flipCheat('minimap')}>MINIMAP</B>
-              <B on={!tog.light} run={() => flipLocal('light')}>LIGHTS OFF</B>
-            </div>
-            <Slider label="SPEED" v={tog.speed} min={0.5} max={6} step={0.5} set={(n) => val('speed', n)} fmt={(n) => `x${n}`} />
-            <Slider label="JUMP" v={tog.jump} min={1} max={4} step={0.5} set={(n) => val('jump', n)} fmt={(n) => `x${n}`} />
-            {!inRoom && <Slider label="TIME" v={tog.slow} min={0.1} max={1} step={0.1} set={(n) => val('slow', n)} fmt={(n) => `x${n.toFixed(1)}`} />}
-          </section>
-          <section>
-            <h3>TELEPORT</h3>
-            <div className="br-adm__row">
-              <B run={() => (inRoom ? send({ a: 'tp', t, to: 'elevator' }) : solo1('elevator'))}>ELEVATOR</B>
-              <B run={() => (inRoom ? send({ a: 'tp', t, to: 'start' }) : solo1('start'))}>START</B>
-              {inRoom && one && <B run={() => send({ a: 'tp', t, to: 'player', who: 'me' })}>BRING TO ME</B>}
-              {inRoom && one && <B run={() => send({ a: 'tp', t: 'me', to: 'player', who: t })}>GO TO PLAYER</B>}
-            </div>
-            {!inRoom && (
-              <div className="br-adm__row">
-                {marks.map((m, i) => (
-                  <span key={i} className="br-adm__mark">
-                    <B run={() => setMarks(marks.map((x, j) => (j === i ? (g?.adminPos() ?? null) : x)))}>SAVE {i + 1}</B>
-                    {m && <B run={() => g?.adminGoto(m)}>GO {i + 1}</B>}
-                  </span>
-                ))}
-              </div>
-            )}
-          </section>
-        </>
-      )}
-
-      {tab === 'WORLD' && (
-        <>
-          <section>
-            <h3>LEVELS</h3>
-            <div className="br-adm__row">
-              {Object.values(LEVELS).filter((l) => inRoom || l.id === 'level0').map((l) => (
-                <B key={l.id} run={() => (inRoom ? send({ a: 'level', id: l.id }) : hold(() => g?.adminLevel0()))}>{l.id === 'parking' ? l.title : l.name} · NEW SEED</B>
-              ))}
-              <B run={() => (inRoom ? send({ a: 'run', t }) : hold(() => g?.adminRun()))}>RUN FOR YOUR LIFE</B>
-              {inRoom && <B run={() => send({ a: 'lobby' })}>WAITING ROOM</B>}
-            </div>
-          </section>
-          <section>
-            <h3>ROUND</h3>
-            <div className="br-adm__row">
-              <B run={() => (inRoom ? send({ a: 'mission' }) : solo1('mission'))}>COMPLETE MISSION</B>
-              <B run={() => (inRoom ? send({ a: 'tvs' }) : solo1('tvs'))}>TVS OFF</B>
-              {inRoom && <B run={() => send({ a: 'end', ok: true })}>END · SUCCESS</B>}
-              {inRoom && <B run={() => send({ a: 'end', ok: false })}>END · FAILURE</B>}
-            </div>
-          </section>
-        </>
-      )}
-
-      {tab === 'ENTITIES' && (
-        <section>
-          <h3>SPAWN × {count}</h3>
-          <Slider label="COUNT" v={count} min={1} max={8} step={1} set={setCount} />
-          <div className="br-adm__row">
-            {(Object.keys(ENTITIES) as Kind[]).map((k) => (
-              <B key={k} run={() => spawn(k)}>+ {name(k)}</B>
-            ))}
-          </div>
-          <div className="br-adm__row">
-            <B run={() => (inRoom ? send({ a: 'ent', op: 'clear' }) : solo1('clear'))}>CLEAR ALL</B>
-            <B run={() => (inRoom ? send({ a: 'ent', op: 'freeze' }) : solo1('freeze'))}>FREEZE</B>
-            <B run={() => (inRoom ? send({ a: 'ent', op: 'thaw' }) : solo1('thaw'))}>THAW</B>
-          </div>
-        </section>
-      )}
-
-      {tab === 'ITEMS' && (
-        <section>
-          <h3>GIVE ITEM</h3>
-          {inRoom && (
-            <div className="br-adm__row">
-              <B on={rar < 0} run={() => setRar(-1)}>RANDOM</B>
-              {RARITIES.map((x, i) => (
-                <B key={x.name} on={rar === i} run={() => setRar(i)}>{x.name}</B>
-              ))}
-            </div>
-          )}
-          <div className="br-adm__row">
-            <B run={() => GIVE.forEach((s) => give(s.id))}>GIVE ALL</B>
-          </div>
-          <input className="br-adm__find" type="text" placeholder="FILTER…" value={find} onChange={(e) => setFind(e.target.value)} spellCheck={false} />
-          <div className="br-adm__row">
-            {GIVE.filter((s) => (inRoom || s.id !== 'loot') && s.name.toLowerCase().includes(find.trim().toLowerCase())).map((s) => (
-              <B key={s.id} run={() => give(s.id)}>{s.name}</B>
-            ))}
-          </div>
-        </section>
-      )}
-
-      {tab === 'ROOM' && inRoom && (
-        <section>
-          <h3>UPGRADES · {t === 'all' ? 'ALL' : one ? 'TARGET' : 'ME'}</h3>
-          <div className="br-adm__row">
-            {(['me', 'all', ...others.map((p) => p.id)] as string[]).map((id) => (
-              <B key={id} on={t === id} run={() => setT(id)}>{id === 'me' ? 'ME' : id === 'all' ? 'ALL' : (others.find((p) => p.id === id)?.name ?? '').slice(0, 12)}</B>
-            ))}
-          </div>
-          <div className="br-adm__row">
-            <B run={() => send({ a: 'ups', t, id: '*', lv: 99 })}>MAX ALL</B>
-            <B run={() => send({ a: 'ups', t, id: '*', lv: 0 })}>RESET ALL</B>
-          </div>
-          {UP_IDS.map((id) => (
-            <Slider key={id} label={UPGRADES[id].name} v={upLevel(ups, id)} min={0} max={UPGRADES[id].cost.length} step={1} set={(n) => send({ a: 'ups', t, id, lv: n })} fmt={(n) => UPGRADES[id].fmt(UPGRADES[id].val[n])} />
+      <div className="body">
+        <nav className="side">
+          {TABS.map((x) => (
+            <button key={x} type="button" data-on={(!hits && tab === x) || undefined} onClick={() => (setQ(''), setTab(x))}>
+              {x}
+              {x === 'DEBUG' && nErr > 0 && <b>{nErr}</b>}
+            </button>
           ))}
-        </section>
-      )}
-      {tab === 'ROOM' && inRoom && (
-        <section>
-          <h3>MONEY · BANK ${room!.bank}</h3>
-          <div className="br-adm__row">
-            <B run={() => send({ a: 'money', mode: 'add', n: 100 })}>+100</B>
-            <B run={() => send({ a: 'money', mode: 'add', n: 1000 })}>+1000</B>
-            <B run={() => send({ a: 'money', mode: 'add', n: 10000 })}>+10000</B>
-            <B run={() => send({ a: 'money', mode: 'set', n: 0 })}>SET 0</B>
-            <B run={() => send({ a: 'money', mode: 'set', n: 5000 })}>SET 5000</B>
-          </div>
-        </section>
-      )}
+        </nav>
 
+        <main className="main">
+          {hits ? (
+            <Card title={`RESULTS · ${hits.length}`}>
+              <div className="row">{hits.map((x) => <Btn key={x.group + x.label} c={{ ...x, label: `${x.label}` }} />)}</div>
+              {!hits.length && <p className="dim">Nothing matches.</p>}
+            </Card>
+          ) : (
+            <>
+              {tab === 'OVERVIEW' && (
+                <>
+                  <Card title="STATUS">
+                    {inRoom && info ? (
+                      <dl className="kv">
+                        <dt>SEED</dt><dd>{info.seed}</dd>
+                        <dt>LEVEL</dt><dd>{info.levelId}</dd>
+                        <dt>ROUND</dt><dd>{info.round} · {info.phase}</dd>
+                        <dt>TIME</dt><dd>{info.elapsed}s</dd>
+                        <dt>ENTITIES</dt><dd>{info.ents}{info.frozen ? ' (frozen)' : ''}</dd>
+                        <dt>BANK</dt><dd>${info.bank}</dd>
+                        <dt>MISSION</dt><dd>{info.mission}</dd>
+                      </dl>
+                    ) : solo ? (
+                      <dl className="kv">
+                        <dt>SEED</dt><dd>{solo.seed}</dd>
+                        <dt>LEVEL</dt><dd>{solo.level}</dd>
+                        <dt>TIME</dt><dd>{solo.t}s</dd>
+                        <dt>ENTITIES</dt><dd>{solo.ents}</dd>
+                        <dt>HP</dt><dd>{solo.hp}</dd>
+                        <dt>MISSION</dt><dd>{solo.mission}</dd>
+                      </dl>
+                    ) : (
+                      <p className="dim">Loading…</p>
+                    )}
+                  </Card>
+                  {inRoom && (
+                    <Card title={`PLAYERS · ${players.length}`}>
+                      <table className="pl">
+                        <tbody>
+                          {players.map((p) => (
+                            <tr key={p.id} data-me={p.id === me || undefined}>
+                              <td className="nm">{p.name}{p.id === me ? ' (you)' : ''}</td>
+                              <td className="hp"><span className="bar"><i style={{ width: `${Number.isFinite(p.hp) ? Math.max(0, Math.min(100, p.hp)) : 0}%` }} /></span></td>
+                              <td className="st">{p.dead ? 'DEAD' : p.god ? 'GOD' : Number.isFinite(p.hp) ? Math.round(p.hp) : ''}</td>
+                              <td className="ac">
+                                <button type="button" onClick={() => send({ a: 'heal', t: p.id })}>HEAL</button>
+                                <button type="button" onClick={() => send({ a: 'kill', t: p.id })}>KILL</button>
+                                <button type="button" onClick={() => send({ a: 'revive', t: p.id })}>REVIVE</button>
+                                <button type="button" onClick={() => send({ a: 'god', t: p.id, on: !p.god })}>{p.god ? 'GOD OFF' : 'GOD'}</button>
+                                {p.id !== me && <button type="button" onClick={() => send({ a: 'tp', t: p.id, to: 'player', who: 'me' })}>BRING</button>}
+                                {p.id !== me && <button type="button" onClick={() => send({ a: 'tp', t: 'me', to: 'player', who: p.id })}>GO TO</button>}
+                                {p.id !== me && <button type="button" data-danger onClick={() => send({ a: 'kick', t: p.id })}>KICK</button>}
+                                <button type="button" data-on={t === p.id || undefined} onClick={() => setT(p.id)}>TARGET</button>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </Card>
+                  )}
+                  <Card title="QUICK">
+                    <div className="row">
+                      {cmds.filter((x) => ['GOD MODE', 'FULL HEAL', 'NOCLIP', 'COMPLETE MISSION', 'ELEVATOR', 'CLEAR ALL', 'FREEZE', 'THAW', 'WAITING ROOM'].includes(x.label)).map((x) => <Btn key={x.label} c={x} />)}
+                    </div>
+                  </Card>
+                </>
+              )}
 
-      {tab === 'DEBUG' && (
-        <section>
-          <h3>INFO</h3>
-          <div className="br-adm__row">
-            <B wide run={() => void g?.adminShot().then((t) => setShot(t))}>SCREENSHOT + SEED + POS → CLIPBOARD</B>
-          </div>
-          <div className="br-adm__row">
-            {(['ao', 'smaa', 'sun'] as const).map((k) => (
-              <B key={k} run={() => g && setFx(g.adminPerf(k))}>{`${k === 'sun' ? 'SUN SHADOW' : k.toUpperCase()} ${fx[k] ? 'ON' : 'OFF'}`}</B>
-            ))}
-            <B run={() => g && setFx(g.adminPerf())}>REFRESH</B>
-          </div>
-          {onVictory && (
-            <div className="br-adm__row">
-              <B wide run={() => (toggle(false), onVictory())}>VICTORY SCREEN (END OF ROUND)</B>
-            </div>
+              {tab === 'PLAYER' && (
+                <>
+                  {groups('PLAYER')}
+                  <Card title="MOVEMENT">
+                    <Slider label="SPEED" v={tog.speed} min={0.5} max={6} step={0.5} set={(n) => val('speed', n)} fmt={(n) => `x${n}`} />
+                    <Slider label="JUMP" v={tog.jump} min={1} max={4} step={0.5} set={(n) => val('jump', n)} fmt={(n) => `x${n}`} />
+                    {!inRoom && <Slider label="TIME" v={tog.slow} min={0.1} max={1} step={0.1} set={(n) => val('slow', n)} fmt={(n) => `x${n.toFixed(1)}`} />}
+                  </Card>
+                  {!inRoom && (
+                    <Card title="SAVED POSITIONS">
+                      <div className="row">
+                        {marks.map((m, i) => (
+                          <span key={i} className="pair">
+                            <button type="button" className="b" onClick={() => setMarks(marks.map((x, j) => (j === i ? (game.current?.adminPos() ?? null) : x)))}>SAVE {i + 1}</button>
+                            {m && <button type="button" className="b" onClick={() => game.current?.adminGoto(m)}>GO {i + 1}</button>}
+                          </span>
+                        ))}
+                      </div>
+                    </Card>
+                  )}
+                </>
+              )}
+
+              {tab === 'WORLD' && (
+                <>
+                  <Card title="SEED">
+                    <div className="row">
+                      <input className="field" type="text" inputMode="numeric" placeholder="seed (1 – 2147483647), empty = random" value={seed} onChange={(e) => setSeed(e.target.value)} spellCheck={false} />
+                      <button type="button" className="b" onClick={() => setSeed(String((Math.random() * 2 ** 31) | 0 || 1))}>RANDOM</button>
+                      {inRoom && info && <button type="button" className="b" onClick={() => setSeed(String(info.seed))}>CURRENT</button>}
+                    </div>
+                    {seed.trim() && seedN === undefined && <p className="dim">Not a valid seed: a number from 1 to 2147483647.</p>}
+                  </Card>
+                  {groups('WORLD')}
+                </>
+              )}
+
+              {tab === 'ENTITIES' && (
+                <>
+                  <Card title="AMOUNT">
+                    <Slider label="COUNT" v={count} min={1} max={12} step={1} set={setCount} />
+                  </Card>
+                  {groups('ENTITIES')}
+                </>
+              )}
+
+              {tab === 'ITEMS' && (
+                <>
+                  {inRoom && (
+                    <Card title="RARITY">
+                      <div className="row">
+                        <button type="button" className="b" data-on={rar < 0 || undefined} onClick={() => setRar(-1)}>RANDOM</button>
+                        {RARITIES.map((x, i) => <button key={x.name} type="button" className="b" data-on={rar === i || undefined} onClick={() => setRar(i)}>{x.name}</button>)}
+                      </div>
+                    </Card>
+                  )}
+                  {groups('ITEMS')}
+                </>
+              )}
+
+              {tab === 'ECONOMY' && (
+                <>
+                  {inRoom && (
+                    <Card title="CUSTOM AMOUNT" aside={`BANK $${room!.bank}`}>
+                      <div className="row">
+                        <input className="field" type="text" inputMode="numeric" value={money} onChange={(e) => setMoney(e.target.value)} spellCheck={false} />
+                        <button type="button" className="b" onClick={() => Number.isInteger(Number(money)) && send({ a: 'money', mode: 'add', n: Number(money) })}>ADD</button>
+                        <button type="button" className="b" onClick={() => Number.isInteger(Number(money)) && send({ a: 'money', mode: 'set', n: Number(money) })}>SET</button>
+                      </div>
+                    </Card>
+                  )}
+                  {groups('ECONOMY')}
+                  {inRoom && (
+                    <Card title={`UPGRADES · ${t === 'all' ? 'ALL' : one ? 'TARGET' : 'ME'}`}>
+                      {UP_IDS.map((id) => (
+                        <Slider key={id} label={UPGRADES[id].name} v={upLevel(ups, id)} min={0} max={UPGRADES[id].cost.length} step={1} set={(n) => send({ a: 'ups', t, id, lv: n })} fmt={(n) => UPGRADES[id].fmt(UPGRADES[id].val[n])} />
+                      ))}
+                    </Card>
+                  )}
+                </>
+              )}
+
+              {tab === 'DEBUG' && (
+                <>
+                  <Card title="CAPTURE">
+                    <div className="row">
+                      <button type="button" className="b" onClick={() => void game.current?.adminShot().then((s) => (setShot(s), note('SCREENSHOT + SEED + POS COPIED')))}>SCREENSHOT + SEED + POS → CLIPBOARD</button>
+                      <button type="button" className="b" data-on={nErr > 0 || undefined} onClick={() => void copyErrs()}>{nErr ? `COPY RENDER ERRORS · ${nErr}` : 'COPY RENDER ERRORS'}</button>
+                      {nErr > 0 && <button type="button" className="b" onClick={() => (errClear(), note('ERRORS CLEARED'))}>CLEAR ERRORS</button>}
+                    </div>
+                    {shot && <pre className="pre">{shot}</pre>}
+                  </Card>
+                  <Card title="RENDER">
+                    <div className="row">
+                      {(['ao', 'smaa', 'sun'] as const).map((k) => (
+                        <button key={k} type="button" className="b" data-on={fx[k] || undefined} onClick={() => game.current && setFx(game.current.adminPerf(k))}>{`${k === 'sun' ? 'SUN SHADOW' : k.toUpperCase()} ${fx[k] ? 'ON' : 'OFF'}`}</button>
+                      ))}
+                      <button type="button" className="b" onClick={() => game.current && setFx(game.current.adminPerf())}>REFRESH</button>
+                    </div>
+                  </Card>
+                  <Card title="GAME LOG">
+                    <div className="row">
+                      <button type="button" className="b" onClick={() => void copyText(dlogLines().join(NL)).then(() => note('LOG COPIED'))}>COPY LOG</button>
+                      <button type="button" className="b" onClick={() => void copyText((game.current?.adminDump() ?? '') + NL + NL + dlogLines().slice(-60).join(NL)).then(() => note('STATE + LOG COPIED'))}>COPY STATE + LOG</button>
+                      <button type="button" className="b" onClick={dlogClear}>CLEAR</button>
+                    </div>
+                    <pre className="pre">{game.current?.adminDump()}</pre>
+                    <pre className="pre tall">{dlogLines().slice(-60).join(NL) || '(no events yet)'}</pre>
+                  </Card>
+                </>
+              )}
+            </>
           )}
-          <h3>GAME LOG</h3>
-          <div className="br-adm__row">
-            <B run={() => void copyText(dlogLines().join(NL)).then(() => setMsg('LOG COPIED'))}>COPY LOG</B>
-            <B run={() => void copyText((g?.adminDump() ?? '') + NL + NL + dlogLines().slice(-60).join(NL)).then(() => setMsg('STATE + LOG COPIED'))}>COPY STATE + LOG</B>
-            <B run={dlogClear}>CLEAR</B>
-          </div>
-          <pre className="br-adm__info">{g?.adminDump()}</pre>
-          <pre className="br-adm__info" style={{ maxHeight: 180, overflow: 'auto' }}>{dlogLines().slice(-40).join(NL) || '(no events yet)'}</pre>
-          {shot && <pre className="br-adm__info">{`COPIED
-${shot}`}</pre>}
-          {inRoom && info && (
-            <pre className="br-adm__info">
-              {`SEED ${info.seed}  LEVEL ${info.levelId}  ROUND ${info.round}  ${info.phase.toUpperCase()}\nT ${info.elapsed}s  ENTS ${info.ents}${info.frozen ? ' (FROZEN)' : ''}  PING ${netStats.rtt}ms\nMISSION ${info.mission}\n`}
-              {info.players.map((p) => `${p.name.slice(0, 12)} HP ${Math.round(p.hp)}${p.dead ? ' DEAD' : ''}${p.god ? ' GOD' : ''}`).join('\n')}
-            </pre>
-          )}
-          {!inRoom && solo && <pre className="br-adm__info">{`SEED ${solo.seed}  LEVEL ${solo.level}  T ${solo.t}s\nENTS ${solo.ents}  HP ${solo.hp}\nMISSION ${solo.mission}`}</pre>}
-        </section>
-      )}
+        </main>
+      </div>
+
+      <footer className="log">
+        {log.length ? log.slice(0, 5).map((l, i) => <div key={i} data-bad={!l.ok || undefined}><time>{l.at}</time> {l.m}</div>) : <div className="dim">Results of your actions show here.</div>}
+      </footer>
     </div>
   );
+
+  return createPortal(panel, host.el);
 }

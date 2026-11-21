@@ -16,7 +16,7 @@ export function parseAdmin(x: unknown): AdminAction | null {
       const seed = o.seed === undefined ? undefined : Number.isInteger(o.seed) && (o.seed as number) >= 1 && (o.seed as number) < 2 ** 31 ? (o.seed as number) : null;
       return lv && seed !== null ? { a: 'level', id: lv, seed } : null;
     }
-    case 'run': case 'kill': case 'revive': case 'heal':
+    case 'run': case 'kill': case 'revive': case 'heal': case 'kick':
       return { a: o.a, t };
     case 'lobby': case 'mission': case 'tvs': case 'info':
       return { a: o.a };

@@ -349,6 +349,11 @@ export class PoolLevel implements Terrain {
   private wells: Well[] = [];
   private well?: Well;
   private wellLock = false;
+  private okX?: number;
+  private okY?: number;
+  private okZ?: number;
+  private okLay?: 0 | 1;
+  private stuckT = 0;
   /** La salida (centro de su celda): una puerta de ascensor con luz; se sube al acercarse con la misión cumplida. */
   readonly exit = { x: 0, z: 0 };
   get exitModel() { return this.cab.group; }
@@ -1444,10 +1449,12 @@ export class PoolLevel implements Terrain {
       const D = [[1, 0], [-1, 0], [0, 1], [0, -1], [0.7, 0.7], [-0.7, 0.7], [0.7, -0.7], [-0.7, -0.7]];
       out: for (const d of [0.04, 0.08, 0.16, 0.3, 0.5]) for (const [a, b] of D) if (this.canMove(this.px + a * d, this.pz + b * d, this.py, this.swim, from)) { (this.px += a * d), (this.pz += b * d), (stuck = false); break out; }
     }
+    // el último sitio bueno: si el cuerpo se queda metido en algo y no sale (antes, «atrapado» se andaba libre y atravesaba paredes: noclip), se vuelve a él
+    if (!inside) (this.okX = this.px), (this.okY = this.py), (this.okZ = this.pz), (this.okLay = this.lay), (this.stuckT = 0);
+    else if (stuck && !dw && this.okX !== undefined && (this.stuckT += dt) > 0.5) (this.px = this.okX), (this.pz = this.okZ!), (this.py = this.okY!), (this.lay = this.okLay!), (this.vy = 0), (this.stuckT = 0), (stuck = false);
     if (dw) (this.px = Math.max(dw.x0 + 0.35, Math.min(dw.x1 - 0.35, this.px + mx))), (this.pz = Math.max(dw.z0 + 0.35, Math.min(dw.z1 - 0.35, this.pz + mz))); // dentro del pozo, sus cuatro paredes
     else {
-      if (stuck) (this.px += mx), (this.pz += mz);
-      else if (OLD_COLLIDE) {
+      if (OLD_COLLIDE) {
         if (this.canMove(this.px + mx, this.pz, this.py, this.swim, from)) this.px += mx;
         if (this.canMove(this.px, this.pz + mz, this.py, this.swim, from)) this.pz += mz;
       } else {
