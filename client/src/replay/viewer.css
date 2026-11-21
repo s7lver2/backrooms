@@ -1,0 +1,31 @@
+/* el visor de repeticiones: encima del juego (el render es el real), en la misma letra y tono que el resto de menus */
+.rp-list { padding: 1rem 0; display: grid; gap: 0.75rem; }
+.rp-list ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 0.5rem; }
+.rp-list__bar { display: flex; gap: 1rem; align-items: center; }
+.rp-dim { opacity: 0.6; font-size: 0.8em; }
+.rp-row { display: flex; gap: 0.5rem; align-items: stretch; }
+.rp-row__main { flex: 1; display: grid; gap: 0.15rem; text-align: left; padding: 0.6rem 0.8rem; background: rgb(255 255 255 / 0.04); border: 1px solid rgb(255 255 255 / 0.12); color: inherit; font: inherit; cursor: pointer; }
+.rp-row__main:hover, .rp-row__main:focus-visible { background: rgb(255 255 255 / 0.09); }
+.rp-ico { min-width: 2.2rem; background: rgb(255 255 255 / 0.04); border: 1px solid rgb(255 255 255 / 0.12); color: inherit; font: inherit; cursor: pointer; }
+.rp-ico:hover, .rp-ico:focus-visible { background: rgb(255 255 255 / 0.12); }
+.rp-ico[aria-pressed='true'] { color: #e9a23b; }
+
+.rp-hud { position: fixed; inset: 0; z-index: 30; pointer-events: none; font: 12px/1.3 ui-monospace, Menlo, Consolas, monospace; color: #e8e4d0; }
+.rp-hud button, .rp-hud select, .rp-hud .rp-tl, .rp-hud canvas { pointer-events: auto; }
+.rp-top { position: absolute; top: 12px; left: 12px; right: 12px; display: flex; justify-content: space-between; align-items: center; }
+.rp-top span { background: rgb(0 0 0 / 0.55); padding: 4px 10px; }
+.rp-side { position: absolute; top: 56px; left: 12px; display: grid; gap: 8px; width: 220px; }
+.rp-map { background: rgb(0 0 0 / 0.55); border: 1px solid rgb(255 255 255 / 0.15); width: 220px; height: 220px; }
+.rp-layers, .rp-who { display: flex; flex-wrap: wrap; gap: 4px; }
+.rp-layers button, .rp-who button, .rp-hud select { background: rgb(0 0 0 / 0.6); border: 1px solid rgb(255 255 255 / 0.2); color: inherit; font: inherit; padding: 3px 8px; cursor: pointer; }
+.rp-who button { border-left-width: 4px; }
+.rp-layers button[aria-pressed='true'], .rp-who button[aria-pressed='true'] { background: #6b5a1e; color: #fff; }
+.rp-bottom { position: absolute; left: 12px; right: 12px; bottom: 34px; display: flex; gap: 8px; align-items: center; background: rgb(0 0 0 / 0.6); padding: 8px 10px; }
+.rp-bottom .rp-ico { min-width: 2.2rem; padding: 3px 6px; background: transparent; }
+.rp-tl { position: relative; flex: 1; height: 12px; background: #3a382c; cursor: pointer; touch-action: none; }
+.rp-tl__fill { position: absolute; inset: 0 auto 0 0; background: #6b5a1e; pointer-events: none; }
+.rp-mk { position: absolute; top: -4px; width: 3px; height: 20px; margin-left: -1px; pointer-events: auto; }
+.rp-mk[data-k='death'] { background: #d9534f; }
+.rp-mk[data-k='near'] { background: #e9a23b; }
+.rp-time { min-width: 8ch; text-align: right; }
+.rp-help { position: absolute; left: 12px; right: 12px; bottom: 10px; margin: 0; opacity: 0.6; font-size: 11px; }

@@ -91,3 +91,43 @@ export async function loadReplay(id: string): Promise<{ meta: ReplayMeta; chunks
     return null;
   }
 }
+
+const b64 = (b: Blob) => new Promise<string>((ok, no) => {
+  const r = new FileReader();
+  r.onload = () => ok(String(r.result).split(',')[1] ?? '');
+  r.onerror = () => no(r.error);
+  r.readAsDataURL(b);
+});
+
+/** La partida como un archivo `.replay` (JSON con los bloques gzip en base64) para compartirla a mano. */
+export async function exportReplay(id: string): Promise<Blob | null> {
+  try {
+    const t = await tx(['meta', 'chunks'], 'readonly');
+    const meta = await done(t.objectStore('meta').get(id));
+    if (!meta) return null;
+    const keys = (await done(t.objectStore('chunks').getAllKeys(IDBKeyRange.bound(`${id}:`, `${id}:￿`)))) as string[];
+    keys.sort((a, b) => Number(a.split(':')[1]) - Number(b.split(':')[1]));
+    const chunks = await Promise.all(keys.map(async (k) => b64((await done(t.objectStore('chunks').get(k))) as Blob)));
+    return new Blob([JSON.stringify({ meta, chunks })], { type: 'application/json' });
+  } catch {
+    return null;
+  }
+}
+
+/** Mete un `.replay` en la lista (con id nuevo). `null` si el archivo no vale. */
+export async function importReplay(file: File): Promise<ReplayMeta | null> {
+  try {
+    const o = JSON.parse(await file.text()) as { meta?: ReplayMeta; chunks?: string[] };
+    if (!o.meta || o.meta.v !== REPLAY_FORMAT || !Array.isArray(o.chunks)) return null;
+    const meta: ReplayMeta = { ...o.meta, id: `${Date.now().toString(36)}i${Math.random().toString(36).slice(2, 5)}`, starred: false };
+    for (const [i, c] of o.chunks.entries()) {
+      const bin = atob(c), u = new Uint8Array(bin.length);
+      for (let j = 0; j < bin.length; j++) u[j] = bin.charCodeAt(j);
+      await putChunk(meta.id, i, new Blob([u]));
+    }
+    await putMeta(meta);
+    return meta;
+  } catch {
+    return null;
+  }
+}

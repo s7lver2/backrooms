@@ -52,6 +52,7 @@ import { Recorder } from '../replay/recorder';
 import { ReplayClock } from '../replay/clock';
 import { ReplaySource } from '../replay/source';
 import { loadReplay } from '../replay/store';
+import type { ReplayEvent, ReplayMeta } from '../replay/format';
 import { loadTapes, saveTape } from './tapes';
 import { watchCanvas } from '../errlog';
 import { gearIcons } from './invIcons';
@@ -3173,13 +3174,37 @@ export class BackroomsGame {
   }
 
   /** Desarrollo (`?pool`): el cuarto de prueba del agua de las Poolrooms (pool.ts). Sin VHS ni sala. */
-  /** La repeticion que se esta viendo: su reloj (pausa, velocidad, saltos). */
+  /** La repeticion que se esta viendo: su reloj (pausa, velocidad, saltos) y sus datos (metadatos y eventos para los marcadores). */
   replayClock?: ReplayClock;
+  replayData?: { meta: ReplayMeta; events: ReplayEvent[] };
+
+  /** A quien se mira: su punto de vista (ojos o desde detras), o la camara libre. */
+  replayWatch(id: string, view: 'eyes' | 'chase' = 'eyes') {
+    if (this.specView === 'free') this.specView = this.specBack;
+    this.watching = id;
+    this.specView = view;
+  }
+  replayFree() {
+    if (this.specView !== 'free') this.toggleFree();
+  }
+  /** Lo que pinta el mapa del visor: el plano (si el nivel tiene laberinto), los jugadores y las entidades, ahora. */
+  replayView() {
+    const m = this.world?.maze;
+    return {
+      map: m ? { w: m.w, h: m.h, open: m.open } : null,
+      watching: this.specView === 'free' ? '' : this.watching,
+      free: this.specView === 'free',
+      cam: { x: this.cam.position.x, z: this.cam.position.z },
+      players: [...this.remotes.values()].map((r) => ({ id: r.id, x: r.pos.x, y: r.pos.y, z: r.pos.z, yaw: r.yaw, dead: r.dead })),
+      ents: this.entities.map((e) => ({ x: e.pos.x, y: e.pos.y, z: e.pos.z })),
+    };
+  }
 
   /** Abre una repeticion guardada: monta el nivel con su semilla y la mira como espectador (cámara libre, ojos y chase de siempre). */
   async openReplay(id: string): Promise<boolean> {
     const r = await loadReplay(id);
     if (!r) return false;
+    this.replayData = { meta: r.meta, events: r.chunks.flatMap((c) => c.events).sort((a, b) => a.t - b.t) };
     const clock = (this.replayClock = new ReplayClock(r.meta.durationMs));
     const src = new ReplaySource(r.chunks, clock);
     this.start(r.meta.seed, { sock: src.sock, id: src.id, replay: src, players: Math.max(1, r.meta.players.length), index: 0, level: r.meta.levelId, floor: r.meta.floor });

@@ -1,5 +1,6 @@
 'use client';
 import { listReplays } from '../replay/store';
+import { ReplayBar, ReplayList } from '../replay/Viewer';
 import { setCrashContext } from '../telemetry';
 import { DEV_LOCAL } from '../devGate';
 import DownloadToast from './DownloadToast';
@@ -54,7 +55,7 @@ import { ic } from './ic';
  * cámara, la pausa y el cuelgue falso. El juego en sí (game.ts) no sabe de React.
  */
 
-type Screen = 'load' | 'menu' | 'settings' | 'achv' | 'friends' | 'epilogue' | 'play' | 'pause' | 'dead' | 'crash' | 'lobby' | 'wait' | 'waitpause' | 'over';
+type Screen = 'load' | 'menu' | 'settings' | 'achv' | 'friends' | 'epilogue' | 'play' | 'pause' | 'replays' | 'dead' | 'crash' | 'lobby' | 'wait' | 'waitpause' | 'over';
 type WaitHud = BackroomsGame['waitHud'];
 const NO_WAIT: WaitHud = { ready: false, hint: null, label: '', notice: '', computer: false, board: false, entering: false, locked: false, free: true };
 
@@ -316,6 +317,8 @@ export default function Backrooms({ onQuit, onWin }: { onQuit: () => void; onWin
   const [crashFrame] = useState(() => 1000 + ((Math.random() * 90000) | 0));
   // la sala: el socket solo existe mientras se está en el multijugador
   const [mp, setMp] = useState(false);
+  // repeticiones: mirando una (el visor va encima del juego)
+  const [replay, setReplay] = useState(false);
   const net = useNet(mp);
   const acct = useAccount();
   const [acctOpen, setAcctOpen] = useState(false); // el popup de la cuenta (SIGN IN / REGISTER / SIGN OUT)
@@ -490,7 +493,7 @@ export default function Backrooms({ onQuit, onWin }: { onQuit: () => void; onWin
         else if (alive) setScreen('menu');
         if (alive && (dev?.has('pool') || dev?.has('poolmap'))) (setScreen('play'), g.devPool(dev.has('poolmap')));
         else if (alive && dev?.has('suites')) (setScreen('play'), g.devSuites());
-        else if (alive && dev?.has('replay')) void (async () => (((id) => id && (setScreen('play'), g.openReplay(id)))(dev.get('replay') || (await listReplays())[0]?.id)))(); // desarrollo: ?replay[=id] abre una repeticion guardada (la ultima si no hay id)
+        else if (alive && dev?.has('replay')) void (async () => (((id) => id && (setScreen('play'), setReplay(true), (g.input.noPause = true), g.openReplay(id)))(dev.get('replay') || (await listReplays())[0]?.id)))(); // desarrollo: ?replay[=id] abre una repeticion guardada (la ultima si no hay id)
         else if (alive && dev?.has('runlevel')) (setScreen('play'), g.devRun()); // desarrollo: ?runlevel arranca «Run for your life» sin sala
       })
       .catch((e) => (console.error('load failed', e), alive && setFailed(true)))
@@ -537,7 +540,7 @@ export default function Backrooms({ onQuit, onWin }: { onQuit: () => void; onWin
 
   // Esc: en la pantalla de título vuelve al escritorio; en las salas, los logros y los ajustes, a la pantalla de título (sin un popup abierto)
   useEffect(() => {
-    if (!['menu', 'lobby', 'achv', 'friends', 'settings'].includes(screen) || authMode || acctOpen || welcome) return;
+    if (!['menu', 'lobby', 'achv', 'friends', 'settings', 'replays'].includes(screen) || authMode || acctOpen || welcome) return;
     const key = (e: KeyboardEvent) => {
       if (e.key !== 'Escape') return;
       if (screen === 'menu') return quitRef.current();
@@ -640,6 +643,22 @@ export default function Backrooms({ onQuit, onWin }: { onQuit: () => void; onWin
     setResult(r);
     setScreen('over');
   };
+
+  // repeticiones: abrir una de la lista, y salir de ella (vuelve a la lista)
+  const openReplay = useCallback(async (id: string) => {
+    const g = game.current;
+    if (!g) return;
+    setScreen('play');
+    setReplay(true);
+    g.input.noPause = true; // (soltar el ratón para usar el visor no pausa nada)
+    if (!(await g.openReplay(id))) (setReplay(false), (g.input.noPause = false), setScreen('replays'));
+  }, []);
+  const leaveReplay = useCallback(() => {
+    if (game.current) ((game.current.input.noPause = false), game.current.stop());
+    started.current = false;
+    setReplay(false);
+    setScreen('replays');
+  }, []);
 
   // salir de la partida (la pausa, EXIT): directo a la pantalla de título
   const leaveMp = useCallback(() => {
@@ -961,6 +980,11 @@ export default function Backrooms({ onQuit, onWin }: { onQuit: () => void; onWin
               </button>
             </li>
             <li>
+              <button type="button" className="br-opt" onClick={() => setScreen('replays')}>
+                REPLAYS
+              </button>
+            </li>
+            <li>
               <button type="button" className="br-opt" onClick={() => setScreen('settings')}>
                 SETTINGS
               </button>
@@ -985,6 +1009,8 @@ export default function Backrooms({ onQuit, onWin }: { onQuit: () => void; onWin
           <p className="br-lobby__dim">TESTING THIS SETTING ON A REAL LEVEL · ESC TO CANCEL</p>
         </div>
       )}
+      {screen === 'replays' && <ReplayList onBack={() => setScreen('menu')} onOpen={(id) => void openReplay(id)} />}
+      {replay && (screen === 'play' || screen === 'pause') && game.current && <ReplayBar game={game.current} onExit={leaveReplay} />}
       {screen === 'achv' && <AchievementsScreen acct={acct} onSignIn={() => openAuth('signin')} onBack={() => setScreen('menu')} />}
       {screen === 'friends' && <FriendsScreen acct={acct} assets={game.current?.assets} onSignIn={() => openAuth('signin')} onBack={() => setScreen('menu')} />}
       {screen === 'settings' && (
