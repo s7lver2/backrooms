@@ -972,7 +972,7 @@ function buildPools(seed: number): PoolMap {
       let ok = true;
       for (let j = y - 1; j <= y + 2 && ok; j++) for (let i = x - 1; i <= x + 2; i++) {
         const k = at(i, j);
-        if (a.kind[k] !== PK.floor || a.water[k] !== 2 || !m.swim[l][k] || Math.abs(a.ya[k] - (l ? PY.upDeep : PY.deep)) > 0.01 || (l === 0 && (tun[k] || rooms[roomAt[k]]?.type === 'hub'))) { ok = false; break; }
+        if (a.kind[k] !== PK.floor || a.water[k] !== 2 || !m.swim[l][k] || Math.abs(a.ya[k] - (l ? PY.upDeep : PY.deep)) > 0.01 || (l === 0 && (tun[k] || rooms[roomAt[k]]?.type === 'hub')) || (l === 1 && kind[k] !== PK.wall)) { ok = false; break; } // (arriba, solo sobre macizo: si justo debajo hay una sala, el pozo la atravesaría)
       }
       if (ok) blocks.push({ x, y, l });
     }
