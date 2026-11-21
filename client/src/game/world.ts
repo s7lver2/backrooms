@@ -1697,20 +1697,19 @@ export class World implements Terrain {
   }
   /** Hueco al vacío en ese punto. */
   voidAt(x: number, z: number) {
-    const w = this.maze.w, E = PIT_EDGE;
+    // generoso: el borde de un hueco no se come el suelo que se ve. Hay que estar GRACE m dentro del hueco para caer (si no, se pisa aire a ras del borde), y en las salas de pozos la franja
+    // de la pasarela que cuenta como hueco es PIT_EDGE - 0,12 m (el suelo se recorta igual, pero se cae más adentro de lo que se ve)
+    const w = this.maze.w, GRACE = 0.1, E = PIT_EDGE - 0.12;
     const at = (dx: number, dz: number) => {
       const c = this.cellAt(x + dx, z + dz);
       return c.y * w + c.x;
     };
-    if (this.voidSet.has(at(0, 0))) return true;
-    // los huecos de las salas de pozos invaden la pasarela PIT_EDGE (el suelo está recortado igual): se cae si el centro pisa ese borde
+    if (this.voidSet.has(at(0, 0))) return [[GRACE, 0], [-GRACE, 0], [0, GRACE], [0, -GRACE]].every(([dx, dz]) => this.voidSet.has(at(dx, dz)));
     for (const dx of [-E, 0, E]) for (const dz of [-E, 0, E]) {
       const i = at(dx, dz);
       if (this.voidSet.has(i) && this.maze.zone[i] === ZONE.pits) return true;
     }
-    // el resto: solo se cae al pisar el borde de verdad (5 cm; antes 20 y el hueco «se comía» el suelo visible)
-    const M = 0.05;
-    return [[M, 0], [-M, 0], [0, M], [0, -M]].some(([dx, dz]) => this.voidSet.has(at(dx, dz)));
+    return false;
   }
   /** Las cuatro lámparas encendidas más cercanas (para las cuatro luces que se mueven con el jugador), con lo que dan ahora (0–1). */
   lightsNear(p: THREE.Vector3, n = 4) {

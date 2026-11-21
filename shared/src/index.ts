@@ -49,6 +49,8 @@ export const HP_MAX = 100;
 /** Almond Water: la fracción (0–1) de vida, aguante y cordura que devuelve una lata. */
 export const WATER_HEAL = 0.4;
 export const HIT_DAMAGE = 60;
+/** Tras un golpe que no mata, los segundos en que otro golpe de una entidad no cuenta: tiempo para respirar y huir. */
+export const HIT_GRACE = 2.5;
 /** Tótem de la vida: ms de inmunidad al volver y lo mínimo (ms) que puede tardar en acabarse el nivel «Run for your life» (anti-trampas). */
 export const REVIVE_IMMUNE = 3000;
 export const REVIVE_MIN = 30000;

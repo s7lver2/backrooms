@@ -1,5 +1,5 @@
 import {
-  Breath, levelCaps, separate, seesXZ, CELL, DIFFICULTY, EEH_HOLD, HIT_DAMAGE, EntitySim, TV_REACH, centerOf, generateMaze, poolMaze, generatePools, PK, suitesMaze, hideStates, itemSpots, subOf, solidAt, tickHides, totemSpot, tvPoint, tvSites, NOISE_RUN, NOISE_SHOT, NOISE_DROP, SUITE_L, wrapX,
+  Breath, levelCaps, HIT_GRACE, separate, seesXZ, CELL, DIFFICULTY, EEH_HOLD, HIT_DAMAGE, EntitySim, TV_REACH, centerOf, generateMaze, poolMaze, generatePools, PK, suitesMaze, hideStates, itemSpots, subOf, solidAt, tickHides, totemSpot, tvPoint, tvSites, NOISE_RUN, NOISE_SHOT, NOISE_DROP, SUITE_L, wrapX,
   type Difficulty, type Inventory, type Ups, type Look, type Mission, type HideState, type EntState, type ItemSpot, type Kind, type Maze, type Noise, type PlayerState, type SimTarget, type WorldSnapshot,
 } from '@backrooms/shared';
 import { ParkingMatch } from './parking-match';
@@ -37,6 +37,8 @@ export interface Player {
   totem: number;
   reviving?: { by: string; at: number };
   immuneUntil?: number;
+  /** Hasta cuándo (ms) un golpe de entidad no cuenta: acaba de recibir uno y sigue vivo. */
+  hitUntil?: number;
   /** Admin: munición infinita (el servidor se lo ordena al cliente y lo recuerda entre rondas). */
   infAmmo?: boolean;
   /** Listo en la sala de espera (informativo). */
@@ -463,11 +465,18 @@ export class Match {
       }
       const p = players.find((q) => q.id === id);
       if (!p || p.dead || p.boarded) continue;
+      if ((p.hitUntil ?? 0) > Date.now()) {
+        e.sim.state = 'attack'; // (acaba de recibir un golpe: este no cuenta, que respire; la entidad ataca en el vacío y sigue)
+        continue;
+      }
       if (e.sim.kind === 'faceling') console.log(`[staff] un Faceling mata a ${p.id}: enraged=${e.sim.enraged} roused=${e.sim.roused} vengeance=${this.vengeance} eehOn=${this.eehOn} estado=${e.sim.state} mision=${this.mission?.kind}`);
       // un golpe quita vida; muere con la vida a cero o si lo pillan en un nicho (sin salida)
       p.hp = (p.hide ?? -1) >= 0 || e.sim.kind === 'faceling' ? 0 : Math.max(0, p.hp - HIT_DAMAGE * this.dmg); // (el personal no deja heridos)
       e.sim.state = 'attack'; // ataca y vuelve a lo suyo (ver recover)
-      if (p.hp > 0) continue; // sigue vivo
+      if (p.hp > 0) {
+        p.hitUntil = Date.now() + HIT_GRACE * 1000;
+        continue; // sigue vivo
+      }
       p.dead = true;
       caught(p, e.id);
     }

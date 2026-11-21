@@ -57,7 +57,7 @@ import { Epilogue, findSpot, type Actor, type Arena, type Stage } from './epilog
 import { POOL_CELL, WAIT_HALF, EMOTE_DEFS, type RoundResult, type Sold } from '@backrooms/shared';
 import { type LockerItem, RIFLE_MAG, canHold, ITEM_IDS, START_INV, type AdminFx, makeMission, missionLine, tvCount, type ActiveMission, type Inventory, type ItemId, type MissionKind, type Maze, type LevelCaps, levelCaps, NOISE_RUN, NOISE_SHOT, NOISE_PHOTO, type Noise } from '@backrooms/shared';
 import { Explosion } from './explosion';
-import { separate, Breath, HEIGHT as ENT_HEIGHT, DEFAULT_LOOK, EEH_HOLD, HIT_DAMAGE, HP_MAX, MONSTER, PILLS, GLASSES, SUITE_FLOORS, REVIVE_IMMUNE, boostOf, totemSpot, type Look, hideStates, tickHides, startOffset, type HideState, type PlayerState, type RoomView, type ToolFx, type WorldSnapshot, FLIGHT_DT, flight } from '@backrooms/shared';
+import { HIT_GRACE, separate, Breath, HEIGHT as ENT_HEIGHT, DEFAULT_LOOK, EEH_HOLD, HIT_DAMAGE, HP_MAX, MONSTER, PILLS, GLASSES, SUITE_FLOORS, REVIVE_IMMUNE, boostOf, totemSpot, type Look, hideStates, tickHides, startOffset, type HideState, type PlayerState, type RoomView, type ToolFx, type WorldSnapshot, FLIGHT_DT, flight } from '@backrooms/shared';
 import { parkingOptionsForMission, PARKING_HEIGHT, isEeh } from '@backrooms/shared';
 import { ITEMS, PARKING_ITEM_IDS, type ParkingItemId } from '@backrooms/shared';
 
@@ -776,6 +776,7 @@ export class BackroomsGame {
   private hides: HideState[] = [];
   private hideIdx = -1;
   private breath = new Breath();
+  private hitUntil = 0;
   private stompT = new WeakMap<Entity, number>();
   private holding = false;
   private inspected = false;
@@ -1283,6 +1284,7 @@ export class BackroomsGame {
     this.holding = this.inspected = false;
     this.noise = 0;
     this.breath.reset();
+    this.hitUntil = 0;
     this.vhs.uniforms.uCorrupt.value = 0;
     this.hides = []; // (las Poolrooms no tienen nichos; sin esto quedan los de la ronda anterior)
     this.caps = mp?.caps ?? levelCaps(mp?.level ?? this.devLevel ?? 'level0');
@@ -1866,7 +1868,9 @@ export class BackroomsGame {
   /** Una entidad te alcanza (en solitario; en una sala lo decide el servidor): quita vida y, si queda, sigue; sin vida, o escondido (sin salida), te pillan. */
   private hurt(e: Entity) {
     const p = this.player!;
+    if (performance.now() < this.hitUntil) return; // (acaba de recibir uno: este no cuenta, que respire)
     p.hp = p.concealed ? 0 : Math.max(0, p.hp - HIT_DAMAGE);
+    if (p.hp > 0) this.hitUntil = performance.now() + HIT_GRACE * 1000;
     this.audio?.cue('hurt');
     if (p.hp <= 0) this.die(e);
   }
