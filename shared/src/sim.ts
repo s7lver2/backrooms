@@ -321,35 +321,78 @@ export class EntitySim {
     return { x: Math.floor(x / CELL), y: Math.floor(z / CELL) };
   }
 
-  /** Camino por la rejilla hasta `to` (centros de celda), evitando huecos y el ascensor. */
+  /**
+   * Camino por la rejilla hasta `to` (centros de celda), evitando huecos, el ascensor y lo que `solid` cierra ahora (puertas): A* con distancia
+   * Manhattan, que mira solo las celdas que hacen falta (antes, un BFS de todo el mapa cada vez). Si `to` no se alcanza (una puerta cerrada,
+   * una sala sin entrada), el camino lleva a la celda alcanzable más cercana a él: se planta ante la puerta en vez de quedarse parada o saltar.
+   */
   route(to: Cell) {
-    // la celda propia nunca cuenta como bloqueada: si una persecución la dejó sobre un hueco, que salga
-    const m = this.maze, from = this.cellOf(this.x, this.z), own = from.y * m.w + from.x;
-    const blocked = this.blocked.has(own) ? new Set([...this.blocked].filter((i) => i !== own)) : this.blocked;
-    const d = bfs(m, to, blocked);
-    if (d[from.y * m.w + from.x] < 0) {
-      // sin ruta desde donde está (se quedó sobre una celda que no se pisa —un escalón, el borde de una columna— o encerrada): sale hacia la celda pisable más cercana
-      // desde la que sí hay camino, en vez de quedarse parada para siempre
-      for (let r = 1; r <= 6; r++)
-        for (let y = from.y - r; y <= from.y + r; y++)
-          for (let x = from.x - r; x <= from.x + r; x++) {
-            const k = y * m.w + x;
-            if (x < 0 || y < 0 || x >= m.w || y >= m.h || !m.open[k] || blocked.has(k) || d[k] < 0) continue;
-            return [centerOf({ x, y })];
-          }
-      return [];
+    const m = this.maze, W = m.w, from = this.cellOf(this.x, this.z), start = from.y * W + from.x, goal = to.y * W + to.x, n = W * m.h;
+    if (from.x < 0 || from.y < 0 || from.x >= W || from.y >= m.h || to.x < 0 || to.y < 0 || to.x >= W || to.y >= m.h) return [];
+    const A = (this.astar ??= { g: new Float32Array(n), par: new Int32Array(n), seen: new Int32Array(n), done: new Int32Array(n), stamp: 0 });
+    const stamp = ++A.stamp, h = (k: number) => Math.abs((k % W) - to.x) + Math.abs(((k / W) | 0) - to.y);
+    // montículo binario de (f, celda)
+    const heap: number[] = [], fs: number[] = [];
+    const push = (k: number, f: number) => {
+      let i = heap.push(k) - 1;
+      fs.push(f);
+      while (i > 0) {
+        const pI = (i - 1) >> 1;
+        if (fs[pI] <= fs[i]) break;
+        [heap[pI], heap[i]] = [heap[i], heap[pI]];
+        [fs[pI], fs[i]] = [fs[i], fs[pI]];
+        i = pI;
+      }
+    };
+    const pop = () => {
+      const top = heap[0], lk = heap.pop()!, lf = fs.pop()!;
+      if (heap.length) {
+        heap[0] = lk;
+        fs[0] = lf;
+        for (let i = 0; ; ) {
+          const l = 2 * i + 1, r = l + 1;
+          let c = i;
+          if (l < heap.length && fs[l] < fs[c]) c = l;
+          if (r < heap.length && fs[r] < fs[c]) c = r;
+          if (c === i) break;
+          [heap[c], heap[i]] = [heap[i], heap[c]];
+          [fs[c], fs[i]] = [fs[i], fs[c]];
+          i = c;
+        }
+      }
+      return top;
+    };
+    A.g[start] = 0;
+    A.par[start] = -1;
+    A.seen[start] = stamp;
+    push(start, h(start));
+    let best = start, bestH = h(start), expanded = 0;
+    while (heap.length && expanded++ < 6000) {
+      const c = pop();
+      if (A.done[c] === stamp) continue;
+      A.done[c] = stamp;
+      const hc = h(c);
+      if (hc < bestH || (hc === bestH && A.g[c] < A.g[best])) (best = c), (bestH = hc);
+      if (c === goal) break;
+      const x = c % W, y = (c / W) | 0;
+      for (const [dx, dy] of DIRS) {
+        const nx = x + dx, ny = y + dy;
+        if (nx < 0 || ny < 0 || nx >= W || ny >= m.h) continue;
+        const k = ny * W + nx;
+        // (el destino cuenta aunque sea un sillón o un nicho: se quiere ir hasta él; una puerta cerrada, nunca)
+        if (A.done[k] === stamp || (k !== goal && (!m.open[k] || this.blocked.has(k))) || this.solid((nx + 0.5) * CELL, (ny + 0.5) * CELL)) continue;
+        const g = A.g[c] + 1;
+        if (A.seen[k] === stamp && g >= A.g[k]) continue;
+        (A.seen[k] = stamp), (A.g[k] = g), (A.par[k] = c);
+        push(k, g + h(k));
+      }
     }
-    // se baja por las distancias desde el destino: cada paso, al vecino más cerca de él
+    // se baja por los padres desde el destino (o desde lo más cerca que se llegó)
     const out: { x: number; z: number }[] = [];
-    let c = from;
-    for (let i = 0; i < 400 && (c.x !== to.x || c.y !== to.y); i++) {
-      const nb = DIRS.map(([dx, dy]) => ({ x: c.x + dx, y: c.y + dy })).filter((n) => n.x >= 0 && n.y >= 0 && n.x < m.w && n.y < m.h && d[n.y * m.w + n.x] >= 0);
-      c = nb.sort((a, b) => d[a.y * m.w + a.x] - d[b.y * m.w + b.x])[0];
-      if (!c) break;
-      out.push(centerOf(c));
-    }
-    return this.smooth(out);
+    for (let k = best; k !== start && k >= 0 && out.length < 800; k = A.par[k]) out.push(centerOf({ x: k % W, y: (k / W) | 0 }));
+    return this.smooth(out.reverse());
   }
+  private astar?: { g: Float32Array; par: Int32Array; seen: Int32Array; done: Int32Array; stamp: number };
 
   /** ¿Cabe un cuerpo (0,6 m) yendo en línea recta de a a b, sin pared, hueco ni sillón? */
   clear(ax: number, az: number, bx: number, bz: number) {
