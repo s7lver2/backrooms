@@ -107,7 +107,6 @@ async function pass() {
     while (want) {
       const g = want.gltf;
       want = undefined;
-      await setup();
       const jobs: [string, THREE.Object3D | undefined, number, number][] = [
         ['watergun', poolPart('watergun'), -0.5, 0.3],
         ['tank', poolPart('tank'), -0.6, 0.3],
@@ -137,6 +136,7 @@ async function pass() {
   } catch (e) {
     console.warn('icons', e);
     release();
+    rigP = undefined;
   }
 }
 
@@ -167,8 +167,12 @@ export async function cosmeticIcon(id: string): Promise<string | undefined> {
   if (!m) return undefined;
   return exclusive(async () => {
     if (cache.has(k)) return cache.get(k);
-    await setup();
-    cache.set(k, shoot(m, -0.6, 0.25));
+    try {
+      await setup();
+      cache.set(k, shoot(m, -0.6, 0.25));
+    } catch (e) {
+      console.warn('icon', e);
+    }
     release();
     return cache.get(k);
   });
