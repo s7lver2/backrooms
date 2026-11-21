@@ -17,6 +17,8 @@ import css from './adminwin.css?inline';
  * Las listas salen de las tablas de shared (ENTITIES, ITEMS, LEVELS, UPGRADES, ACHIEVEMENTS, RARITIES): una entrada nueva aparece aquí sola.
  * Todas las acciones son «órdenes» (`cmds`): las pestañas las reparten por grupos y el buscador de la cabecera las filtra todas a la vez.
  */
+type Host = { el: HTMLElement; win?: Window };
+let HOST: Host | null = null;
 const name = (k: string) => k.replace(/([a-z])([A-Z])/g, '$1 $2').toUpperCase();
 const GIVE: { id: ItemId | 'loot'; name: string }[] = [...ITEM_IDS.map((id) => ({ id, name: ITEMS[id].name })), { id: 'loot', name: 'ARTIFACT (LOOT)' }];
 const NL = '\n';
@@ -65,7 +67,9 @@ const Card = ({ title, aside, children }: { title: string; aside?: React.ReactNo
 );
 
 export default function AdminConsole({ game, sock, room, me, onVictory }: Props) {
-  const [host, setHost] = useState<{ el: HTMLElement; win?: Window } | null>(null);
+  // la ventana vive fuera del componente: si React lo desmonta y vuelve a montar (cambio de pantalla, recarga de la sala), no se pierde ni se cierra sola
+  const [host, setHostS] = useState<Host | null>(() => (HOST?.win?.closed ? null : HOST));
+  const setHost = useCallback((h: Host | null) => ((HOST = h), setHostS(h)), []);
   const [tab, setTab] = useState<Tab>('OVERVIEW');
   const [t, setT] = useState('me'); // el objetivo: 'me', 'all' o el id de un jugador
   const [q, setQ] = useState('');
@@ -95,7 +99,7 @@ export default function AdminConsole({ game, sock, room, me, onVictory }: Props)
     if (h.win) h.win.close();
     else h.el.remove();
     setHost(null);
-  }, [game]);
+  }, [game, setHost]);
 
   const open = useCallback(() => {
     const h = hostRef.current;
@@ -134,7 +138,7 @@ export default function AdminConsole({ game, sock, room, me, onVictory }: Props)
     }
     if (gm) setTog(gm.adminState());
     setHost({ el, win });
-  }, [game, close]);
+  }, [game, close, setHost]);
 
   // la tecla: en el juego abre la ventana (o la trae al frente); con ella abierta, otra vez la cierra
   useEffect(() => {
@@ -148,7 +152,6 @@ export default function AdminConsole({ game, sock, room, me, onVictory }: Props)
     addEventListener('keydown', key, true);
     return () => removeEventListener('keydown', key, true);
   }, [open]);
-  useEffect(() => () => void (hostRef.current && close()), []); // eslint-disable-line react-hooks/exhaustive-deps
 
   // el objetivo desaparece de la sala: vuelve a ME
   useEffect(() => {
