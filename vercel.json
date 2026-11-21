@@ -4,7 +4,7 @@
   "outputDirectory": "client/dist",
   "rewrites": [
     {
-      "source": "/((?!assets/|models/).*)",
+      "source": "/((?!assets/|models/|admin.html).*)",
       "destination": "/index.html"
     }
   ],
