@@ -39,6 +39,7 @@ const HINGE_X = -DOOR_W / 2;
 const TUBE = [12, 8]; // lo que alumbra cada fluorescente (cd)
 const SEAT = { x: H.x - 0.6, z: H.z - 0.6, yaw: Math.PI / 4 }; // el sillón: dónde se sienta uno y hacia dónde mira
 const FOG0 = new THREE.Color(0x17130a), HAZE = new THREE.Color(0x8c7634);
+const DREAD = new THREE.Color(0x060403), ALARM = new THREE.Color(0x3a0805);
 /** Cuánto dura cada emote con tiempo (s). */
 const EMOTE_LEN = [0, ...EMOTE_DEFS.map((e) => e.len)];
 
@@ -315,7 +316,7 @@ export class WaitingRoom {
     this.own.push(this.strip);
 
     // lo que hay detrás: el pasillo de las backrooms (waitCorridor.ts)
-    this.corridor = new Corridor(bag, { wall: sh(assets.tex.wall), ceiling: sh(assets.tex.ceiling), carpet: sh(assets.tex.carpet) }, wallMat, floorMat);
+    this.corridor = new Corridor(bag, { wall: sh(assets.tex.wall), ceiling: sh(assets.tex.ceiling), carpet: sh(assets.tex.carpet) }, wallMat, floorMat, assets.gltf);
     add(this.corridor.group);
 
     // una placa sobre la pared, junto a la puerta
@@ -866,6 +867,8 @@ export class WaitingRoom {
 
   /** Lo encendido que está cada fluorescente (0–1). */
   private p: [number, number] = [1, 1];
+  /** La variante de esta entrada: cuándo falla el reencendido de los tubos (tras apagarse), si hay un apagón corto extra y si el segundo tubo resiste un poco más. */
+  private fail = { relight: 1, flash: -1, spare: 0 };
 
   private lights(dt: number) {
     void dt;
@@ -881,7 +884,13 @@ export class WaitingRoom {
       const u = s.t;
       const go = (off: number, seed: number) => (u < 0.3 ? 1 : u > off ? 0 : hash(Math.floor(u * 20) + seed) < 0.3 + (u / off) * 0.65 ? 0.08 : 0.9);
       l1 = go(D.off1, 0);
-      l2 = go(D.off2, 90);
+      l2 = go(D.off2 + this.fail.spare * 0.6, 90);
+      if (!this.reduced) {
+        // fallos que cambian en cada entrada: un apagón corto de más y un reencendido que no cuaja
+        if (this.fail.flash > 0 && u > this.fail.flash && u < this.fail.flash + 0.22) l1 = l2 = 0.05;
+        const r = u - D.off1 - this.fail.relight;
+        if (r > 0 && r < 0.55 && hash(Math.floor(u * 22) + 400) < 0.55) l1 = Math.max(l1, 0.45 + 0.4 * hash(Math.floor(u * 22)));
+      }
     }
     this.p = [l1, l2];
     this.power = Math.max(l1, l2 * 0.6);
@@ -898,8 +907,11 @@ export class WaitingRoom {
     // la niebla se aclara a amarillo con la puerta abierta (si no, el pasillo se hundiría en negro)
     const fog = this.scene.fog as THREE.Fog, bg = this.scene.background as THREE.Color;
     bg.copy(FOG0).lerp(HAZE, open);
+    // el aire se carga: la niebla se oscurece al morir las luces y se tiñe de rojo con la alarma
+    const dread = s && !this.reduced ? smooth((s.t - 1) / Math.max(0.2, D.off1 - 1)) * (1 - smooth((s.t - D.doorB) / 1.2)) : 0;
+    if (dread > 0) bg.lerp(DREAD, dread * 0.75).lerp(ALARM, al > 0 ? Math.min(0.5, al / 32) : 0);
     fog.color.copy(bg);
-    fog.near = 6 - 2 * open;
+    fog.near = 6 - 2 * open - 2.5 * dread;
     fog.far = 20 + 14 * open;
   }
 
@@ -916,6 +928,8 @@ export class WaitingRoom {
     this.hint = null;
     const from = this.camera.position.clone(), fromQ = this.camera.quaternion.clone();
     this.seq = { t: 0, from, fromQ };
+    this.corridor.reseed();
+    this.fail = { relight: 0.7 + Math.random() * 0.9, flash: Math.random() < 0.7 ? 1.2 + Math.random() * 1.6 : -1, spare: Math.random() < 0.5 ? 1 : 0 };
     if (!this.pressed) this.press();
     this.sfx?.('click');
     if (!this.reduced) {
