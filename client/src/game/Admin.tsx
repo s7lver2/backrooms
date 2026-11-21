@@ -203,7 +203,7 @@ export default function AdminConsole({ game, sock, room, me, onVictory }: Props)
     if (!host || !['OVERVIEW', 'MAP', 'HISTORY', 'DEBUG', 'WORLD', 'LOGS'].includes(tab)) return;
     const ask = () => {
       if (!inRoom) return setSolo(game.current?.adminInfo() ?? null);
-      sock!.emit('admin', { a: 'info' }, (r) => r.ok && r.info && setInfo(r.info));
+      sock!.emit('admin', { a: 'info' }, (r) => r.ok && r.info && setInfo({ ...r.info, players: r.info.players ?? [], ents2: r.info.ents2 ?? [], hist: r.info.hist ?? [] }) /* (un servidor mas viejo que el cliente no manda todos los campos) */);
       if (tab === 'LOGS' && lsrc === 'SERVER') sock!.emit('admin', { a: 'logs' }, (r) => r.ok && r.logs && setSlog(r.logs));
     };
     ask();
