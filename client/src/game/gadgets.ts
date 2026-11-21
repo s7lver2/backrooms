@@ -261,4 +261,9 @@ export class Gadgets {
     (this.mesh.material as THREE.MeshStandardMaterial).dispose();
     this.holo.dispose();
   }
+
+  /** Apaga el holograma del radar (el final de ronda deja de actualizarlo y se quedaba flotando en pantalla). */
+  hideHolo() {
+    this.holo.root.visible = false;
+  }
 }

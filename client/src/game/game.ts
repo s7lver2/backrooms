@@ -2113,6 +2113,7 @@ export class BackroomsGame {
     pk?.enemies?.hide();
     const ep = new Epilogue(stage, this.assets, from, yaw, actors, kinds);
     this.epi = { floor, ep, self, lv, pk: !!pk };
+    this.gadgets?.hideHolo();
     if (lv) {
       // el mundo de las Poolrooms deja la cámara donde está el cuerpo: se lleva ahí (de pie, sin ascensor ni desmayo)
       Object.assign(lv as unknown as Record<string, unknown>, { px: ep.c.x, py: ep.c.y, pz: ep.c.z, yaw: ep.face, pitch: -0.08, vy: 0, ride: undefined, hold: undefined, faint: 0, dead: false });
@@ -4003,6 +4004,7 @@ fps ${(1 / Math.max(dt, 1e-3)).toFixed(0)}`;
     if (op === 'light' && this.world) (this.lightsOff = !on), (this.world.power = on ? 1 : 0), (this.outT = -1);
     if (op === 'speed') this.cheats.speed = on ? 2 : 1;
     if (p && op === 'noclip') p.noclip = on;
+    if (op === 'noclip' && this.pool instanceof PoolLevel) this.pool.noclip = on;
   }
 
   /** Trucos con valor: velocidad/salto (multiplicadores), cámara lenta, cordura y aguante infinitos, luz total. */
@@ -4129,7 +4131,7 @@ fps ${(1 / Math.max(dt, 1e-3)).toFixed(0)}`;
    * Captura de lo que se ve (sin el panel) al portapapeles, con la semilla y la posición exactas como texto. Devuelve ese texto.
    * Sin contexto seguro (http por IP) no hay portapapeles de imágenes: baja el PNG y copia solo el texto.
    */
-  async adminShot() {
+  async adminShot(win: Window = window) {
     const pl = this.pool instanceof PoolLevel ? this.pool : undefined, p = this.player;
     const s = pl ? pl.state : p ? { x: p.pos.x, y: p.pos.y, z: p.pos.z, yaw: p.yaw, pitch: 0 } : { x: 0, y: 0, z: 0, yaw: 0, pitch: 0 };
     const seed = pl ? pl.seed : this.seed0, f = (n: number) => n.toFixed(3);
@@ -4137,12 +4139,23 @@ fps ${(1 / Math.max(dt, 1e-3)).toFixed(0)}`;
 x ${f(s.x)}  y ${f(s.y)}  z ${f(s.z)}  yaw ${f(s.yaw)}  pitch ${f(s.pitch)}`;
     this.composer.render(0);
     const png = new Promise<Blob>((ok, no) => this.renderer.domElement.toBlob((b) => (b ? ok(b) : no(new Error('toBlob'))), 'image/png'));
+    // el portapapeles es de la ventana donde se hizo el clic (el panel de admin es una ventana aparte: pedirlo a la del juego fallaba y no
+    // quedaba ni el texto copiado); si no deja la imagen, se baja el PNG y el texto se copia SIEMPRE por otra via
     try {
-      await navigator.clipboard.write([new ClipboardItem({ 'image/png': png, 'text/plain': new Blob([txt], { type: 'text/plain' }) })]);
+      await win.navigator.clipboard.write([new ClipboardItem({ 'image/png': png, 'text/plain': new Blob([txt], { type: 'text/plain' }) })]);
     } catch {
-      const a = Object.assign(document.createElement('a'), { href: URL.createObjectURL(await png), download: `backrooms-${seed}.png` }), t = Object.assign(document.createElement('textarea'), { value: txt });
-      a.click(), URL.revokeObjectURL(a.href);
-      document.body.append(t), t.select(), document.execCommand('copy'), t.remove();
+      try {
+        const a = Object.assign(win.document.createElement('a'), { href: URL.createObjectURL(await png), download: `backrooms-${seed}.png` });
+        a.click(), URL.revokeObjectURL(a.href);
+      } catch {
+        /* sin imagen: queda el texto */
+      }
+      try {
+        await win.navigator.clipboard.writeText(txt);
+      } catch {
+        const t = Object.assign(win.document.createElement('textarea'), { value: txt });
+        win.document.body.append(t), t.select(), win.document.execCommand('copy'), t.remove();
+      }
     }
     return txt;
   }

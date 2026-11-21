@@ -213,7 +213,14 @@ export default function AdminConsole({ game, sock, room, me, onVictory }: Props)
   const mapKey = info ? `${info.levelId}:${info.seed}` : '';
   useEffect(() => {
     if (!host || !inRoom || !mapKey || map?.key === mapKey || (tab !== 'MAP' && tab !== 'OVERVIEW')) return;
-    sock!.emit('admin', { a: 'map' }, (r) => r.ok && r.map && setMap({ key: mapKey, m: r.map }));
+    // se reintenta cada segundo hasta que llega (antes se pedia una vez y, si fallaba, no volvia a pedirse hasta que algo cambiaba)
+    let alive = true, t: ReturnType<typeof setTimeout> | undefined;
+    const go = () => sock!.emit('admin', { a: 'map' }, (r) => alive && (r.ok && r.map ? setMap({ key: mapKey, m: r.map }) : (t = setTimeout(go, 1000))));
+    go();
+    return () => {
+      alive = false;
+      clearTimeout(t);
+    };
   }, [host, inRoom, mapKey, map?.key, tab, sock]);
 
   const one = t !== 'me' && t !== 'all';
@@ -633,7 +640,7 @@ export default function AdminConsole({ game, sock, room, me, onVictory }: Props)
                 <>
                   <Card title="CAPTURE">
                     <div className="row">
-                      <button type="button" className="b" onClick={() => void game.current?.adminShot().then((s) => (setShot(s), note('SCREENSHOT + SEED + POS COPIED')))}>SCREENSHOT + SEED + POS → CLIPBOARD</button>
+                      <button type="button" className="b" onClick={(e) => void game.current?.adminShot(e.currentTarget.ownerDocument.defaultView ?? window).then((s) => (setShot(s), note('SCREENSHOT + SEED + POS COPIED')))}>SCREENSHOT + SEED + POS → CLIPBOARD</button>
                       <button type="button" className="b" data-on={nErr > 0 || undefined} onClick={() => void copyErrs()}>{nErr ? `COPY RENDER ERRORS · ${nErr}` : 'COPY RENDER ERRORS'}</button>
                       {nErr > 0 && <button type="button" className="b" onClick={() => (errClear(), note('ERRORS CLEARED'))}>CLEAR ERRORS</button>}
                     </div>

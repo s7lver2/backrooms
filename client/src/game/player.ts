@@ -478,7 +478,7 @@ export class Player {
     if (c.slot >= 0 && c.slot < slots) (this.hotSel = c.slot), this.useHot(c.slot);
     if (c.wheel && slots) this.pickHot((Math.min(this.hotSel, slots - 1) + Math.sign(c.wheel) + slots) % slots);
     if (c.use && slots) this.useHot(this.hotSel);
-    if (c.fire && this.prop !== 'beer' && PARKING_ITEM_IDS.includes(this.prop as ParkingItemId)) this.activateParkingItem(this.prop as ParkingItemId);
+    if (c.fire && this.prop !== 'beer' && this.prop !== 'glasses' && PARKING_ITEM_IDS.includes(this.prop as ParkingItemId)) this.activateParkingItem(this.prop as ParkingItemId);
     // la lata en la mano: mantener su tecla (o X, o el clic) medio segundo para beberla; soltar y volver a mantener para otra
     const wi = this.hot.indexOf('water');
     const held = !this.drinkOff && this.prop === 'water' && this.water > 0 && ((wi >= 0 && c.slotHeld === wi) || !!c.useHeld || !!c.fireHeld);
@@ -1237,7 +1237,7 @@ export class Player {
     if (inv.spares < 1 && this.left === 'flashlight') this.left = 'none';
     else if (!had.spares && this.left === 'none') this.left = 'flashlight';
     if (!inv.glasses && this.glassesEq) (this.left = this.spares > 0 ? 'flashlight' : 'none'), (this.glassesOn = false); // (se soltaron o se rompieron)
-    if (inv.glasses && !had.glasses) this.glassesLeft = GLASSES.time;
+    if (inv.glasses && !had.glasses) (this.glassesLeft = GLASSES.time), this.left === 'none' && (this.left = 'glasses'); // (al cogerlas, a la mano de repuesto si esta libre)
     this.water = inv.water;
     this.totem = inv.totem;
     this.monster = inv.monster;

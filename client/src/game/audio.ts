@@ -533,15 +533,32 @@ export class GameAudio {
     }
   }
   /** Se queda sin aire: un jadeo. */
+  /** Un soplo de aire: como `burst` pero con ataque suave (subir y soltar), sin el golpe seco del arranque que sonaba a petardo. */
+  private breathe(dur: number, gain: number, f: number, q: number, t0 = 0) {
+    const c = this.ctx, t = c.currentTime + t0, s = c.createBufferSource(), bp = c.createBiquadFilter(), g = c.createGain();
+    s.buffer = this.noise;
+    s.playbackRate.value = 0.8 + Math.random() * 0.2;
+    bp.type = 'bandpass';
+    bp.frequency.setValueAtTime(f * 0.8, t);
+    bp.frequency.linearRampToValueAtTime(f, t + dur * 0.45);
+    bp.Q.value = q;
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.linearRampToValueAtTime(gain, t + dur * 0.4);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+    s.connect(bp).connect(g).connect(this.sfx);
+    const len = (dur + 0.05) * s.playbackRate.value;
+    s.start(t, Math.random() * Math.max(0, Math.min(1.5, this.noise.duration - len)), len);
+    s.addEventListener('ended', () => (s.disconnect(), bp.disconnect(), g.disconnect()), { once: true });
+  }
   gasp() {
-    this.burst(0.5, 0.35, 1300, 0.7, 'bandpass');
-    this.burst(0.4, 0.2, 700, 0.8, 'bandpass', 0.35);
+    this.breathe(0.55, 0.3, 1300, 0.7);
+    this.breathe(0.45, 0.16, 700, 0.8, 0.35);
   }
   /** Sin aguante tras correr: una bocanada de aire, inspirar y soltar; `k` (0–1) es lo agotado que se está (más fuerte y más rápido). */
   pant(k: number) {
     const g = 0.16 + 0.16 * k;
-    this.burst(0.26, g, 1500, 0.7, 'bandpass');
-    this.burst(0.34, g * 0.8, 800, 0.8, 'bandpass', 0.3);
+    this.breathe(0.3, g, 1500, 0.7);
+    this.breathe(0.36, g * 0.8, 800, 0.8, 0.3);
   }
   reload() {
     this.burst(0.05, 0.35, 2200, 3);

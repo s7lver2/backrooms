@@ -1423,7 +1423,7 @@ io.on('connection', (sock) => {
     if (typeof cb !== 'function') return;
     const r = roomOf(sock.id), p = r?.players.get(sock.id), match = r?.match;
     if (!r || !p || !match || r.phase !== 'playing' || p.dead || p.boarded
-      || !PARKING_ITEM_IDS.includes(id) || !hasItem(p.cap, id)) return (r && p && rlog(r, `${p.name} use ${id} refused (phase ${r.phase} dead ${p.dead} boarded ${p.boarded})`), cb(null));
+      || !PARKING_ITEM_IDS.includes(id) || id === 'glasses' || !hasItem(p.cap, id)) return (r && p && rlog(r, `${p.name} use ${id} refused (phase ${r.phase} dead ${p.dead} boarded ${p.boarded})`), cb(null));
     const now = Date.now();
     let result: { item?: ItemId; curse?: boolean } = {};
     const hurt = (q: Player, fraction: number) => {

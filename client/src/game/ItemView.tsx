@@ -107,7 +107,7 @@ export default function ItemView({ assets, kind, r, object }: { assets: Assets; 
     fit();
     const ro = new ResizeObserver(fit);
     ro.observe(el);
-    let id = 0;
+    let id = 0, off = false;
     const loop = (now: number) => {
       id = requestAnimationFrame(loop);
       if (document.hidden) return;
@@ -117,8 +117,10 @@ export default function ItemView({ assets, kind, r, object }: { assets: Assets; 
       pulse(halo, t);
       renderer.render(scene, cam);
     };
-    id = requestAnimationFrame(loop);
+    // los shaders se compilan sin bloquear (en paralelo): compilarlos de golpe al elegir un objeto congelaba el inventario un instante
+    void renderer.compileAsync(scene, cam).catch(() => undefined).then(() => off || (id = requestAnimationFrame(loop)));
     return () => {
+      off = true;
       cancelAnimationFrame(id);
       ro.disconnect();
       giveBack(renderer);

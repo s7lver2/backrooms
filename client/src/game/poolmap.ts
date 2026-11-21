@@ -1326,7 +1326,10 @@ export class PoolLevel implements Terrain {
   }
 
   /** ¿Cabe el jugador (radio R) con los pies en py en (x, z)? */
+  /** Truco de admin: atraviesa paredes y columnas (el suelo y el agua siguen). */
+  noclip = false;
   private canMove(x: number, z: number, py: number, swim: boolean, from: number) {
+    if (this.noclip) return true;
     const m = this.map;
     // la cabina del ascensor: sus paredes no se cruzan (solo por la puerta, hacia donde da, y abierta)
     {
