@@ -34,11 +34,11 @@ const st = (n: number, row: number, ...needs: [UpId, number][]): Stage => ({ n, 
 /** Una puerta: `any` niveles comprados antes (de cualquier mejora) y, si hace falta, otras puertas abiertas. */
 const gate = (row: number, any: number, ...needs: [UpId, number][]): Stage => ({ n: 1, row, any, ...(needs.length ? { needs } : {}) });
 export const UPGRADES: Record<UpId, UpDef> = {
-  pack: { name: 'POCKETS', info: 'Backpack cells. Everything you carry needs one.', cost: [80, 140, 220, 340, 500, 750], val: [2, 4, 6, 9, 12, 16, 20], fmt: (v) => `${v} CELLS`, stages: [st(2, 0), st(2, 1), st(2, 4, ['pool', 1])], col: 0 },
+  pack: { name: 'POCKETS', info: 'Backpack cells. Everything you carry needs one.', cost: [80, 140, 220, 340, 500, 750], val: [3, 4, 6, 9, 12, 16, 20], fmt: (v) => `${v} CELLS`, stages: [st(2, 0), st(2, 1), st(2, 4, ['pool', 1])], col: 0 },
   belt: { name: 'TOOL BELT', info: 'Quick access slots. Cameras, rifles and gadgets are only used from here.', cost: [120, 200, 320, 480], val: [0, 1, 2, 3, 4], fmt: (v) => `${v} SLOTS`, stages: [st(2, 1), st(2, 2)], col: 1 },
   back: { name: 'HARNESS', info: 'The back slot: wear a diving tank.', cost: [300], val: [0, 1], fmt: (v) => (v ? 'BACK SLOT' : 'LOCKED'), stages: [st(1, 4, ['pool', 1])], col: 1 },
   hp: { name: 'VITALITY', info: 'Maximum health.', cost: [100, 180, 300, 460], val: [40, 55, 70, 85, 100], fmt: (v) => `${v} HP`, stages: [st(2, 0), st(2, 2)], col: 2 },
-  lungs: { name: 'LUNGS', info: 'How long you can run before you are out of breath.', cost: [100, 180, 300, 460], val: [0.4, 0.55, 0.7, 0.85, 1], fmt: pct, stages: [st(2, 0), st(2, 2)], col: 3 },
+  lungs: { name: 'LUNGS', info: 'How long you can run before you are out of breath.', cost: [100, 180, 300, 460], val: [0.5, 0.6, 0.72, 0.86, 1], fmt: pct, stages: [st(2, 0), st(2, 2)], col: 3 },
   legs: { name: 'LEGS', info: 'Walking and running speed.', cost: [150, 260, 420], val: [0.85, 0.9, 0.95, 1], fmt: pct, stages: [st(1, 1), st(2, 4, ['pool', 1])], col: 3 },
   pool: { name: 'LEVEL 37', info: 'Unlocks the Poolrooms: they can come up in a round, with better loot and its own gear in the shop.', cost: [600], val: [0, 1], fmt: (v) => (v ? 'UNLOCKED' : 'LOCKED'), stages: [gate(3, 12)], col: 2, level: 'poolrooms' },
   light: { name: 'BATTERIES', info: 'Your flashlight lasts longer.', cost: [90, 170, 300], val: [1, 1.15, 1.3, 1.5], fmt: mul, stages: [st(1, 2), st(2, 4, ['pool', 1])], col: 0 },
