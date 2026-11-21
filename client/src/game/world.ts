@@ -1864,7 +1864,7 @@ export class World implements Terrain {
       if (this.hotel) this.roomDoor ??= new Map(this.doors.filter((d) => d.cell >= 0 && !d.grand && !d.y).map((d) => [d.cell, d]));
       for (const im of this.cullable) {
         const b = im.boundingSphere!, r = im.userData.room as number[] | undefined;
-        let show = Math.hypot(b.center.x - v.x, b.center.z - v.z) - b.radius < PROP_FAR;
+        let show = this.warmAll || Math.hypot(b.center.x - v.x, b.center.z - v.z) - b.radius < PROP_FAR;
         if (show && r && this.roomDoor) {
           // una habitación solo se dibuja si estás dentro o su puerta está abierta (y no a más de 14 m)
           const inside = v.x > r[0] * 6 + 1.3 && v.x < r[0] * 6 + 6.2 && (r[1] ? v.z < 12.2 : v.z > 14.8);

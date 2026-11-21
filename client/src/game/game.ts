@@ -1372,9 +1372,13 @@ export class BackroomsGame {
       w.viewer = this.camera.position;
       w.warmAll = true;
       w.update(0, 0);
+      // (sin recorte por frustum: si no, las habitaciones que no caen delante de la cámara de salida no se suben y el tirón llega al abrir su puerta)
+      const culled: THREE.Object3D[] = [];
+      w.root.traverse((o) => o.frustumCulled && ((o.frustumCulled = false), culled.push(o)));
       w.vents?.warm(true);
       this.composer.render(0);
       w.vents?.warm(false);
+      for (const o of culled) o.frustumCulled = true;
       w.warmAll = false;
       w.update(0, 0);
     }
