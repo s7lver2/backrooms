@@ -228,6 +228,9 @@ const DIR = '/models/backrooms/';
 const RIDE = 3.5;
 export const MODELS = ['hazmat', 'bacteria', 'partygoer', 'balloon', 'camcorder', 'vhs', 'gun', 'flashlight', 'water', 'elevator', 'vent', 'socket', 'exit', 'door', 'armchair', 'cabinet', 'shelf', 'chair', 'chair2', 'desk', 'crt', 'lamp', 'duct', 'radar', 'totem', 'hospital/stretcher', 'hospital/stools', 'hospital/curtain', 'hospital/extinguisher', 'hospital/cupboard', 'hospital/clock', 'hospital/exitdoor', 'hospital/locker', 'hospital/drip', 'hospital/wheelchair', 'hospital/shelf', 'suites/door', 'suites/bed', 'suites/sofa', 'suites/secretary', 'suites/faceling', 'suites/chair', 'suites/wardrobe', 'suites/table', 'suites/luggage', 'suites/bin', 'suites/mirror', 'suites/plant', 'suites/panel', 'suites/trolley', 'suites/cart', 'suites/camera', 'suites/control', 'suites/officechair', 'suites/cables', 'suites/tv'] as const;
 export type ModelName = (typeof MODELS)[number];
+/** Los modelos de Las Suites: solo hacen falta en ese nivel, así que no se bajan en la carga del menú (`ensureSuites`). */
+export const SUITE_MODELS = MODELS.filter((m) => m.startsWith('suites/') && m !== 'suites/faceling'); // (el faceling sí: sale en las cintas del menú)
+const SUITE_SET = new Set<string>(SUITE_MODELS);
 /** Fotogramas dibujados por el juego (los lee el contador de FPS). */
 export const drawn = { n: 0 };
 export const TEXTURES =['wall', 'carpet', 'ceiling'] as const;
@@ -257,11 +260,29 @@ const paint = () =>
     requestAnimationFrame(() => (clearTimeout(id), setTimeout(r)));
   });
 
+const lateP = new Map<string, Promise<void>>();
+/** Baja modelos que la carga dejó para después y los pone en `assets.gltf` (una sola descarga por modelo). */
+export function loadModels(assets: Assets, names: readonly string[]): Promise<void> {
+  const loader = new GLTFLoader().setMeshoptDecoder(MeshoptDecoder);
+  return Promise.all(
+    names.map(
+      (m) =>
+        (assets.gltf as Record<string, GLTF | undefined>)[m]
+          ? Promise.resolve()
+          : (lateP.get(m) ??
+            (lateP.set(m, loader.loadAsync(DIR + m + '.glb').then((g) => void ((g.scene.userData.model = m), ((assets.gltf as Record<string, GLTF>)[m] = g)), (e) => void console.warn('model', m, e))), lateP.get(m)!)),
+    ),
+  ).then(() => undefined);
+}
+/** Los modelos de Las Suites (ver SUITE_MODELS). */
+export const ensureSuites = (assets: Assets) => loadModels(assets, SUITE_MODELS);
+
 /** Descarga todo, con el progreso en bytes (aproximado: lo que diga cada respuesta). */
 export async function loadAssets(progress: (f: number) => void): Promise<Assets> {
   perf.mark('assets:start');
   const loader = new GLTFLoader().setMeshoptDecoder(MeshoptDecoder);
-  const urls = [...MODELS.map((m) => DIR + m + '.glb'), ...TEXTURES.map((t) => DIR + 'tex/' + t + '.webp')];  const got = new Map<string, number>(), total = new Map<string, number>();
+  const eager = MODELS.filter((m) => !SUITE_SET.has(m));
+  const urls = [...eager.map((m) => DIR + m + '.glb'), ...TEXTURES.map((t) => DIR + 'tex/' + t + '.webp')];  const got = new Map<string, number>(), total = new Map<string, number>();
   const tick = () => {
     let a = 0, b = 0;
     for (const u of urls) {
@@ -279,9 +300,8 @@ export async function loadAssets(progress: (f: number) => void): Promise<Assets>
   const gltf = {} as Assets['gltf'], tex = {} as Assets['tex'];
   const tl = new THREE.TextureLoader();
   await Promise.all([
-    loadItemModels(),
     __PHOENYX__ ? loadLods(MODELS) : Promise.resolve(), // (three no usa los LOD)
-    ...MODELS.map((m) => loader.loadAsync(DIR + m + '.glb', on(DIR + m + '.glb')).then((g) => void ((g.scene.userData.model = m), (gltf[m] = g)))),
+    ...eager.map((m) => loader.loadAsync(DIR + m + '.glb', on(DIR + m + '.glb')).then((g) => void ((g.scene.userData.model = m), (gltf[m] = g)))),
     ...TEXTURES.map((t) =>
       tl.loadAsync(DIR + 'tex/' + t + '.webp').then((x) => {
         x.wrapS = x.wrapT = THREE.RepeatWrapping;
@@ -1055,7 +1075,6 @@ export class BackroomsGame {
     at(1, 1 / 6);
     await loadAnimations().catch((e) => (console.error('animations', e), setTimeout(() => void loadAnimations().catch(() => {}), 8000))); // (el paquete de animaciones del jugador: sin él, los clips del modelo; si falla se reintenta)
     at(1, 2 / 6);
-    await loadPoolKit(); // (el tanque y la pistola de agua salen de ahí; sin él no tienen icono)
     at(1, 3 / 6);
     gearIcons(this.assets); // los iconos del inventario se pintan aquí, en la carga: la primera vez creaban un contexto WebGL y daban un tirón al abrirlo
     at(1, 4 / 6);
@@ -1093,6 +1112,24 @@ export class BackroomsGame {
     p.dispose();
     w.dispose();
     at(3, 1);
+    void this.later(); // lo que el menú no necesita (objetos, kit de las Poolrooms) se baja ya con el menú abierto
+  }
+
+  private ready = new Set<string>();
+  private laterP?: Promise<void>;
+  /** Objetos de ronda y kit de las Poolrooms: se bajan tras la carga del menú (una sola vez); `levelReady` los espera antes de montar un nivel. */
+  private later() {
+    return (this.laterP ??= Promise.all([loadItemModels(), loadPoolKit()]).then(() => {
+      perf.mark('later:end');
+    }));
+  }
+  /** Todo lo que un nivel necesita y el menú dejó para después (objetos, kit y, en Las Suites, sus modelos); undefined si ya está. */
+  private levelReady(level: string): Promise<unknown> | undefined {
+    const a = this.assets;
+    if (!a) return undefined;
+    const parts: Promise<unknown>[] = [this.later()];
+    if (levelCaps(level).hotel) parts.push(ensureSuites(a));
+    return Promise.all(parts);
   }
 
   /** Grabar cintas para el menu: en niveles que no son la Lobby, cada ~40 s, 3 fotogramas (ver tapes.ts). Se copia en el mismo momento de pintar (el lienzo WebGPU no se puede leer despues). */
@@ -1185,6 +1222,12 @@ export class BackroomsGame {
   }
 
   start(seed: number, mp?: Mp) {
+    // (los objetos y los modelos del nivel que la carga del menú dejó para después tienen que estar: si aún no, se espera y se arranca)
+    if (!this.ready.has(mp?.level ?? this.devLevel ?? 'level0')) {
+      const lv = mp?.level ?? this.devLevel ?? 'level0', wait = this.levelReady(lv);
+      if (wait) return void wait.then(() => (this.ready.add(lv), this.start(seed, mp)));
+      this.ready.add(lv);
+    }
     if (mp?.level === 'parking') {
       void this.startParking(seed, mp).catch(error => {
         console.error('Habitable Zone failed to load', error);
@@ -2324,6 +2367,8 @@ export class BackroomsGame {
     if (level === 'parking') return void (await import('./parking-round'));
     if (level === 'poolrooms') return void (await loadPoolKit()); // (el nivel se arma al empezar; las piezas ya están bajadas y leídas)
     if (!a) return;
+    await this.levelReady(level); // (durante la votación: los objetos y los modelos del nivel bajan mientras se vota)
+    this.ready.add(level);
     const tick = () => new Promise((r) => setTimeout(r, 30));
     await tick();
     const hotel = levelCaps(level).hotel, maze = hotel ? suitesMaze(seed, floor) : generateMaze(seed, players);
