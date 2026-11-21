@@ -6,6 +6,7 @@ Con la build de Phoenyx el alias `three` ya apunta al motor: lo que sigue siendo
 ## Resumen
 - **Cubierto por Phoenyx:** los 5 `onBeforeCompile` (hay 5 parches registrados), los `ShaderMaterial` de polvo, cielo, rayos, alfombra, agua, charcos, vents, atmósfera del parking, `waterjet` y remotos (hay 13 shaders de usuario portados), `Reflector`, Bloom, GTAO, SMAA y Output, `DecalGeometry` (solo geometría) y `OrbitControls` (solo JS).
 - **Hueco real: renderers WebGL secundarios** (8 sitios). Con Phoenyx cada `WebGLRenderer` abre su propio dispositivo WebGPU y el render es asíncrono; por eso hoy dos de ellos usan `three-real`.
+- **Nota:** también están portados `vhs` y `dust-cam` (entre los 13 shaders).
 - **Por comprobar con captura:** la paridad visual de cada parche y shader portado (que existan no prueba que se vean igual).
 
 ## Huecos (por prioridad)
@@ -17,7 +18,7 @@ Con la build de Phoenyx el alias `three` ya apunta al motor: lo que sigue siendo
 | 4 | `game/InvAvatar.tsx` | Avatar del inventario con un renderer compartido | Igual que el 3 | Reutilizar el compartido | Bajo |
 | 5 | `game/Computer.tsx` | Ordenador del lobby con su canvas y renderer | Igual que el 3 | Reutilizar el compartido | Bajo |
 | 6 | `dev/anim/Studio.tsx` (×2: línea 85 y 393) | Estudio de animación y panel de agarres de desarrollo | Dos `WebGLRenderer` propios (uno con `preserveDrawingBuffer`) | Migrar al renderer del motor (decidido por el dueño) | Medio |
-| 7 | `game/poolmap.ts` | `RectAreaLightUniformsLib.init()` (uniformes de luces de área de three) | El motor lo trae en `jsm/lights`; por comprobar que no es obligatorio con Phoenyx | Quitar la llamada cuando three desaparezca si el motor ya cubre `RectAreaLight` (Lux las usa) | Bajo |
+| 7 | `game/poolmap.ts` | `RectAreaLightUniformsLib.init()` (tablas LTC de las luces de área) | **No se puede quitar**: `phoenyx/src/renderer.ts` (554-558) lee `UniformsLib.LTC_FLOAT_1/2`, que solo existen tras esa llamada | Mover la inicialización al motor (que la haga él al crear el renderer) y borrar la llamada del juego | Bajo |
 | 8 | `game/compile.ts` | `compileGently` (calentamiento propio de three/WebGL) | Se sustituye por `warm()` (Tarea 6) | Borrar en la Tarea 12 | — |
 
 ## Límites del motor que pueden afectar al portar

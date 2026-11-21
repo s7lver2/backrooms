@@ -54,11 +54,14 @@ async function uploadTextures(r: THREE.WebGLRenderer, scene: THREE.Scene) {
   }
 }
 
+let compiles = 0; // (para distinguir las pasadas en las marcas de perf: lobby, rondas...)
 export async function compileGently(r: THREE.WebGLRenderer, scene: THREE.Scene, cam: THREE.Camera, around = <T>(fn: () => T) => fn(), progress?: (f: number) => void) {
-  perf.mark('compile:start');
+  const n = ++compiles;
+  perf.mark(`compile:start#${n}`);
   if (warmup === 0) {
     await uploadTextures(r, scene);
     progress?.(1);
+    perf.mark(`compile:end#${n}`);
     if (DEV_LOCAL) console.info('[compile] perezoso: nada precompilado');
     return;
   }
@@ -107,7 +110,7 @@ export async function compileGently(r: THREE.WebGLRenderer, scene: THREE.Scene, 
   } else await step(() => r.compileAsync(scene, cam));
   rt.dispose();
   await uploadTextures(r, scene);
-  perf.mark('compile:end');
+  perf.mark(`compile:end#${n}`);
   // desarrollo: cuánto ha costado (en Firefox, sin compilación en paralelo, es casi todo bloqueo)
   if (DEV_LOCAL)
     console.info(`[compile] ${(r.info.programs?.length ?? 0) - stat.from} programas, ${Math.round(stat.busy)} ms bloqueando, ${Math.round(performance.now() - stat.at)} ms en total (${sync ? 'sin' : 'con'} paralelo, ${quick ? 'rápido' : 'completo'})`);
