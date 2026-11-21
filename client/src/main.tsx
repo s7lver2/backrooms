@@ -4,7 +4,11 @@ import { createRoot } from 'react-dom/client';
 
 import './game/backrooms.css';
 
-import App from './App';
+import { lazy, Suspense } from 'react';
+// (el juego va en su propio fragmento: el aviso del motor y las condiciones salen enseguida y el juego se baja mientras se leen)
+const loadApp = () => import('./App');
+const App = lazy(loadApp);
+void loadApp();
 
 import { installErrLog } from './errlog';
 
@@ -46,7 +50,9 @@ if (DEV_LOCAL && new URLSearchParams(location.search).has('anim')) {
 } else root.render(
   <GpuNotice>
     <Terms>
-      <App />
+      <Suspense fallback={null}>
+        <App />
+      </Suspense>
     </Terms>
   </GpuNotice>,
 );

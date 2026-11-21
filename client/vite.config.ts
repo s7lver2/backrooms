@@ -191,5 +191,20 @@ export default defineConfig(({ mode }) => ({
   // fs.strict: el servidor de desarrollo (y /@fs) solo sirve archivos del proyecto; no lo desactives mientras haya un túnel abierto
   server: { port: CLIENT_PORT, strictPort: true, host: true, allowedHosts: true, proxy, fs: { strict: true, allow: ['..', PHOENYX_DIR] } },
   preview: { port: CLIENT_PORT, strictPort: true, host: true, allowedHosts: true, proxy },
-  build: { target: 'es2020', sourcemap: false, minify: 'esbuild', chunkSizeWarningLimit: 1500 },
+  build: {
+    target: 'es2020',
+    sourcemap: false,
+    minify: 'esbuild',
+    chunkSizeWarningLimit: 1500,
+    // el motor (Phoenyx o three) y React cambian poco: en fragmentos propios se quedan en la caché entre versiones del juego
+    rollupOptions: {
+      output: {
+        manualChunks(id) {
+          const f = id.replaceAll('\\', '/');
+          if (/node_modules\/(react|react-dom|scheduler)\//.test(f)) return 'react';
+          if (f.includes('/packages/phoenyx/') || f.includes('/node_modules/three/')) return 'engine';
+        },
+      },
+    },
+  },
 }));

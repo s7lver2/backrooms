@@ -270,7 +270,14 @@ export function loadModels(assets: Assets, names: readonly string[]): Promise<vo
         (assets.gltf as Record<string, GLTF | undefined>)[m]
           ? Promise.resolve()
           : (lateP.get(m) ??
-            (lateP.set(m, loader.loadAsync(DIR + m + '.glb').then((g) => void ((g.scene.userData.model = m), ((assets.gltf as Record<string, GLTF>)[m] = g)), (e) => void console.warn('model', m, e))), lateP.get(m)!)),
+            (lateP.set(
+              m,
+              loader.loadAsync(DIR + m + '.glb').then(
+                (g) => void ((g.scene.userData.model = m), ((assets.gltf as Record<string, GLTF>)[m] = g)),
+                (e) => (lateP.delete(m), Promise.reject(e)), // (un fallo no se queda guardado: la próxima petición reintenta)
+              ),
+            ),
+            lateP.get(m)!)),
     ),
   ).then(() => undefined);
 }
@@ -1121,6 +1128,7 @@ export class BackroomsGame {
   private later() {
     return (this.laterP ??= Promise.all([loadItemModels(), loadPoolKit()]).then(() => {
       perf.mark('later:end');
+      if (this.assets) gearIcons(this.assets); // (los iconos de lo que acaba de llegar se pintan ya, en el menú, no a media partida)
     }));
   }
   /** Todo lo que un nivel necesita y el menú dejó para después (objetos, kit y, en Las Suites, sus modelos); undefined si ya está. */
@@ -1225,7 +1233,7 @@ export class BackroomsGame {
     // (los objetos y los modelos del nivel que la carga del menú dejó para después tienen que estar: si aún no, se espera y se arranca)
     if (!this.ready.has(mp?.level ?? this.devLevel ?? 'level0')) {
       const lv = mp?.level ?? this.devLevel ?? 'level0', wait = this.levelReady(lv);
-      if (wait) return void wait.then(() => (this.ready.add(lv), this.start(seed, mp)));
+      if (wait) return void wait.then(() => (this.ready.add(lv), this.start(seed, mp)), (e) => (console.error('level models failed to load', e), report('level', `level "${lv}" models failed to load`), this.onLevelError?.()));
       this.ready.add(lv);
     }
     if (mp?.level === 'parking') {
@@ -3973,6 +3981,8 @@ server-synced inv ${JSON.stringify(this.mp.inv)}` : ''}`);
   static readonly BENCH_WARM = 3;
   static readonly BENCH_RUN = 8;
   runBench(done: (fps: number, p95: number) => void) {
+    // (start() espera lo que el menú dejó para después: el banco no puede leer `world` hasta que esté)
+    if (!this.ready.has('level0')) return void (this.levelReady('level0') ?? Promise.resolve()).then(() => (this.ready.add('level0'), this.runBench(done)));
     this.start(1);
     this.entFrozen = true;
     const m = this.world!.maze, rnd = ((a) => () => ((a = (a * 1664525 + 1013904223) >>> 0), a / 2 ** 32))(7);
