@@ -222,6 +222,7 @@ export class PickupField {
   private nearest() {
     const eye = this.camera.getWorldPosition(new THREE.Vector3()), fwd = this.camera.getWorldDirection(new THREE.Vector3());
     let best: Pickup | undefined, bd = Infinity;
+    let hdist = Infinity;
     const span = this.host.span, sw = span ? (span[1] - span[0]) * CELL : 0; // (Las Suites: en las otras copias del pasillo se ven sus copias, y se cogen igual)
     this.nearDx = 0;
     for (const p of this.pickups) {
@@ -232,13 +233,16 @@ export class PickupField {
       for (const dx of sw ? [0, -sw, sw] : [0]) {
         const to = p.obj.position.clone().sub(eye), d0 = to.x;
         to.x = d0 + dx;
-        const d = to.length();
+        const d = to.length(), hd = Math.hypot(to.x, to.z);
         if (d > REACH + 1.62 * 0.5 || to.normalize().dot(fwd) < 0.5) continue;
-        if (d < bd) (bd = d), (best = p), (this.nearDx = dx);
+        if (d < bd) (bd = d), (best = p), (this.nearDx = dx), (hdist = hd);
       }
     }
+    this.nearD = hdist;
     return best;
   }
+  /** Lo lejos (m, en horizontal) que está el objeto al que se apunta (Infinity si ninguno). */
+  nearD = Infinity;
 
   /** Las Suites: el pasillo se repite (cada 24 m el mapa es el mismo), así que cada objeto tiene sus copias a un lado y a otro, que lo imitan (y se van con él al cogerlo). */
   private ghostsSync() {

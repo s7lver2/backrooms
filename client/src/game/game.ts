@@ -1507,7 +1507,8 @@ export class BackroomsGame {
         // (con un objeto a la vista —al abrir se ve el botín de dentro— la puerta solo manda si se mira de frente: si no, no se podía volver a cerrar)
         if (d && this.items?.hint) {
           const px = d.x + d.nx * 0.3 - this.player.pos.x, pz = d.z + d.nz * 0.3 - this.player.pos.z;
-          if ((px * -Math.sin(this.player.yaw) + pz * -Math.cos(this.player.yaw)) / Math.max(Math.hypot(px, pz), 0.01) < 0.85) d = undefined;
+          // (y si el objeto está más cerca que la puerta, manda el objeto: una linterna junto a la puerta no se podía coger, la puerta se llevaba la G)
+          if ((px * -Math.sin(this.player.yaw) + pz * -Math.cos(this.player.yaw)) / Math.max(Math.hypot(px, pz), 0.01) < 0.85 || this.items.nearD < Math.hypot(px, pz)) d = undefined;
         } // Las Suites: G abre y cierra las puertas de las suites (las de la escalera, solo con la misión cumplida)
         if (d) {
           const lock = d.stair && !this.items?.ready;
